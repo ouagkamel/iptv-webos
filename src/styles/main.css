@@ -40,6 +40,11 @@ input, select { background: #1a1a1a; border: 1px solid #333; color: #eee;
 /* Stage vidéo */
 .stage { flex: 1; position: relative; background: #000; }
 .player { width: 100%; height: 100%; object-fit: contain; }
+/* Overlay lecteur (live + VOD) — plein écran au-dessus des onglets ; pas de `inset`
+   (Chromium 68). Le stage occupe l'overlay, l'OSD et le bouton Fermer s'y superposent. */
+.player-overlay { position: fixed; left: 0; top: 0; width: 1920px; height: 1080px; background: #000; z-index: 90; }
+.player-overlay .stage { position: absolute; left: 0; top: 0; width: 100%; height: 100%; }
+.close-player { position: absolute; top: 18px; right: 18px; z-index: 2; }
 .osd { position: absolute; left: 32px; right: 32px; bottom: 32px; padding: 16px 22px;
   background: rgba(0,0,0,.68); border-radius: 10px; opacity: 0; transition: opacity .25s;
   pointer-events: none; }

@@ -19,7 +19,8 @@ const state = {
   items: { live: [], vod: [] },
   selIndex: -1,
   provider: { maxConcurrentStreams: 0 },
-  dualEligible: false
+  dualEligible: false,
+  playerOpen: false
 };
 
 let ctx, engine, osd, videoEl, adapter, lifecycle, root;
@@ -131,20 +132,8 @@ function buildListView(kind) {
   left.appendChild(scroller);
   view.appendChild(left);
 
-  if (kind === 'live') {
-    const stage = el('div', 'stage');
-    videoEl = el('video', 'player');
-    videoEl.setAttribute('playsinline', 'playsinline');
-    stage.appendChild(videoEl);
-    view.appendChild(stage);
-    osd = new PlayerOSD(stage);
-    state.osdEl = stage;
-
-    adapter = new MediaAdapter(videoEl);
-    adapter.init();
-    lifecycle = new LifecycleAdapter(adapter);
-    lifecycle.init();
-  }
+  // (Le lecteur n'est plus enfoncé dans la vue live : voir ensurePlayer/openPlayer —
+  //  vue-agnostic, overlay plein écran partagé live + VOD.)
 
   lists[kind] = new VirtualList(scroller, { itemHeight: 60, overscan: 4 });
   lists[kind].mount();
@@ -274,14 +263,67 @@ function scrollToShow(kind, idx) {
 }
 
 async function activateChannel(kind, item) {
+  openPlayer();
+  adapter.play(item.streamUrl);
   if (kind === 'live') {
-    adapter.play(item.streamUrl);
     osd.setChannel(item.name);
     await showEpgFor(item);
   } else {
-    osd && osd.setStatus('VOD : ' + item.name); // lecture VOD = flux direct natif
-    adapter.play(item.streamUrl);
+    osd.setStatus('VOD : ' + item.name); // lecture VOD = flux direct natif
   }
+}
+
+/* ——————————————————— lecteur overlay (correction revue device) ———————————————————
+   Avant : le stage (video+OSD+adapter) n'existait que dans la vue 'live'. Conséquences
+   VOD : un film lancé depuis l'onglet Films jouait dans le DOM caché de la vue live
+   (écran noir silencieux), et pire, si la vue live n'avait jamais été construite,
+   adapter était undefined → TypeError au Enter. Le lecteur est désormais un overlay
+   plein écran créé à la demande, monté au-dessus des onglets pour live ET VOD ;
+   fermeture par bouton, Échap (desktop) ou Back webOS 461 via la pile LIFO §8.1. */
+let playerOverlay = null;
+let playerStage = null;
+let playerOpen = false;
+
+function ensurePlayer() {
+  if (adapter) return;
+  playerStage = el('div', 'stage');
+  videoEl = el('video', 'player');
+  videoEl.setAttribute('playsinline', 'playsinline');
+  playerStage.appendChild(videoEl);
+  const closeB = el('button', 'mini close-player');
+  closeB.textContent = 'Fermer';
+  closeB.tabIndex = 0;
+  closeB.addEventListener('click', closePlayer);
+  playerStage.appendChild(closeB);
+  osd = new PlayerOSD(playerStage);
+  state.osdEl = playerStage;
+  adapter = new MediaAdapter(videoEl);
+  adapter.init();
+  lifecycle = new LifecycleAdapter(adapter);
+  lifecycle.init();
+}
+
+function openPlayer() {
+  ensurePlayer();
+  if (playerOpen) return;
+  playerOpen = true;
+  state.playerOpen = true;
+  playerOverlay = el('div', 'player-overlay');
+  playerOverlay.appendChild(playerStage);
+  document.body.appendChild(playerOverlay);
+  engine.setFocusables([playerStage.querySelector('.close-player')]);
+  engine.pushBackHandler(closePlayer);
+}
+
+function closePlayer() {
+  if (!playerOpen) return;
+  playerOpen = false;
+  state.playerOpen = false;
+  if (adapter) adapter.stop();
+  if (playerOverlay && playerOverlay.parentNode) playerOverlay.parentNode.removeChild(playerOverlay);
+  engine.removeBackHandler(closePlayer);
+  if (state.tab === 'live' || state.tab === 'vod') syncFocusables(state.tab);
+  else renderTab();
 }
 
 async function showEpgFor(item) {
@@ -302,6 +344,13 @@ async function showEpgFor(item) {
 /* ——————————————————— événements globaux ——————————————————— */
 
 function wireGlobalEvents() {
+  // Échap (desktop/simulateur) ferme l'overlay ; Back webOS (461) transite par la
+  // pile LIFO du FocusEngine (handler poussé à l'ouverture, retiré à la fermeture).
+  window.addEventListener('keydown', function (e) {
+    if (state.playerOpen && e.keyCode === 27) {
+      e.preventDefault(); e.stopImmediatePropagation(); closePlayer();
+    }
+  });
   // Le handler de liste est enregistré AVANT engine.init() ? engine est déjà init ;
   // on place le nôtre sur window avec stopImmediatePropagation, donc il doit passer
   // en PREMIER : re-register ordre — on retire/réajoute le listener du moteur.

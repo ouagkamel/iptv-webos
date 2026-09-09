@@ -48,6 +48,17 @@ export class MediaAdapter {
     return requestId;
   }
 
+  /** Arrêt propre réutilisable (fermeture de l'overlay lecteur) : solde la session en
+   *  IDLE sans détruire l'adaptateur ; le prochain play() repart à neuf. Le
+   *  LifecycleAdapter voit state==='IDLE' (wasActive=false) et ne tente aucune
+   *  reprise sur une session volontairement fermée (§7.4 ne resume que l'actif). */
+  stop() {
+    if (this._destroyed) return;
+    this._teardownPlayback();
+    this.currentUrl = null;
+    this.state = 'IDLE';
+  }
+
   _tryPlay(requestId) {
     let p = null;
     try { p = this.videoEl.play(); } catch (e) { /* sync throw → fallback */ }
