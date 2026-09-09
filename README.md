@@ -167,6 +167,27 @@ L'API (`player_api.php`), le playlist et les segments passent alors par le même
 `127.0.0.1` → le navigateur les traite en 1re partie. Outil de dev uniquement :
 hors `src/`, jamais bundlé, absent de l'IPK.
 
+### Revue simulateur n°2 : auto-annulation du fallback (corrigée en 38ed531)
+
+Trace type observée au simulateur : `10.m3u8` 302→200 (médias, 759 o) puis la
+requête **hls.js** de la playlist apparaissait « canceled » (0 o / 4 ms), suivie
+de `STARTUP_INCOMPATIBILITY → fallback HLS_MSE` … puis d'un ERROR immédiat. Cause
+interne à l'adaptateur, sans rapport avec le panneau : le `_teardownPlayback()`
+du fallback (1) met un `MediaError` code 4 en file d'attente côté Chromium — livré
+après l'`attachMedia()`, il était lu comme un échec du MSE naissant ; et (2) le
+`play()` natif encore en vol était annulé par le vidage, son rejet
+(`AbortError`/`NotSupportedError`) arrivait après le changement de moteur et
+escaladait de même. Dans les deux cas le pipeline s'entretuait.
+
+Correctif : en HLS_MSE **avant** `MANIFEST_PARSED`, une `error` code 4 sans buffer
+est ignorée (c'est la trace du vidage) ; compteur de génération de tentative de
+lecture (`_playGen`) — un rejet de `play()` dont la génération n'est plus courante
+ne décrit plus aucune lecture et ne décide rien. Le filet contractuel §7.2 reste la
+décision : startup timeout 10 s + évènements d'erreur hls.js (dont 401/403 sans
+retry). Conséquence pratique au re-test : le xhr du fallback ne doit plus jamais
+apparaître « canceled 0 o » ; si le flux reste noir, l'erreur affichée est désormais
+**nommée par hls.js** (réseau/media/auth) et décrit le panneau, non plus l'app.
+
 Packaging TV réel : `npm run build` puis `ares-package dist -o build` — `appinfo.json`
 (verbatim §4, 11 propriétés) est copié de `public/` par Vite ; icônes placeholders
 1×1 px **à remplacer avant soumission store**. NB : le nom du fichier est
