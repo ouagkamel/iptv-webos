@@ -23,6 +23,6 @@ export default class Hls {
   static isSupported() { return Hls.__supported !== false; }
 }
 
-Hls.Events = { ERROR: 'hlsError' };
+Hls.Events = { ERROR: 'hlsError', MANIFEST_PARSED: 'hlsManifestParsed' };
 Hls.ErrorTypes = { MEDIA_ERROR: 'mediaError', NETWORK_ERROR: 'networkError' };
 Hls.__supported = true;

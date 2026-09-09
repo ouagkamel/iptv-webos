@@ -14,6 +14,20 @@ export class MediaAdapter {
     this.videoEl = videoElement;
     this.state = 'IDLE';       // IDLE | LOADING | PLAYING | RECOVERING | ERROR | ENDED
     this.engine = null;        // null | 'NATIVE' | 'HLS_MSE'
+    // Le vidage de src du _teardownPlayback() de _fallbackToHls met un MediaError
+    // code 4 en file d'attente (Chromium), livré juste après attachMedia : il tuait
+    // le MSE naissant (xhr playlist « canceled » 0 B — revue simulateur webOS).
+    // Critère : tant que le manifeste n'est pas parsé, une error code 4 sur le
+    // pipeline MSE sans buffer est cette erreur de vidage → ignorée (le filet est
+    // le startup timeout §7.2 + les erreurs réseau proprement dites via hls).
+    this._mseParsed = false;
+    // Génération de tentative de lecture : le vidage du fallback annule (rejette)
+    // le play() natif EN VOL — rejet AbortError/NotSupportedError qui arrive APRÈS
+    // l'attach MSE. Sans ce compteur, ce rejet périmé escaladait en _onStartupFailure
+    // et détruisait le hls naissant (second visage de la course revue au simulateur :
+    // xhr playlist « canceled » 0 B). Un rejet dont la génération n'est plus courante
+    // ne décrit plus aucune lecture en cours → ignoré ; le filet reste §7.2.
+    this._playGen = 0;
     this.hls = null;
     this.currentUrl = null;
     this.currentRequestId = 0;
@@ -60,10 +74,12 @@ export class MediaAdapter {
   }
 
   _tryPlay(requestId) {
+    const gen = ++this._playGen;
     let p = null;
     try { p = this.videoEl.play(); } catch (e) { /* sync throw → fallback */ }
     if (p && typeof p.catch === 'function') {
       p.catch((err) => {
+        if (gen !== this._playGen) return; // rejet périmé : tentative supplantée
         if (this.currentRequestId !== requestId || this._destroyed) return;
         if (this.state === 'LOADING') {
           this._onStartupFailure(requestId, 'play() rejected: ' + (err && err.name));
@@ -89,6 +105,10 @@ export class MediaAdapter {
 
   _onVideoError() {
     if (this._destroyed) return;
+    if (this.engine === 'HLS_MSE' && this.hls && !this._mseParsed &&
+        this.videoEl.error && this.videoEl.error.code === 4) {
+      return; // erreur stale du vidage : ne détruit pas le hls en cours d'attach
+    }
     if (this.state === 'LOADING') {
       this._onStartupFailure(this.currentRequestId, 'native <video> error event');
     } else if (this.state === 'PLAYING') {
@@ -154,6 +174,7 @@ export class MediaAdapter {
     if (this._destroyed || this.engine !== 'NATIVE') return; // passage unique
     this._teardownPlayback();
     this.engine = 'HLS_MSE';
+    this._mseParsed = false;
     this.state = 'LOADING';
     // Budget de reconnexion frais PAR MOTEUR (taxonomie : "max 1 par moteur").
     // Sans cette remise à zéro, un fallback atteint après épuisement du jeton
@@ -170,6 +191,7 @@ export class MediaAdapter {
     const hlsInstance = new Hls({ enableWorker: true, lowLatencyMode: false });
     this.hls = hlsInstance;
 
+    hlsInstance.on(Hls.Events.MANIFEST_PARSED, () => { this._mseParsed = true; });
     hlsInstance.on(Hls.Events.ERROR, (event, data) => {
       // Garde générationnelle : instance courante + requestId courant
       if (this._destroyed || this.hls !== hlsInstance || this.currentRequestId !== requestId) return;

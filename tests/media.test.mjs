@@ -54,6 +54,41 @@ test('LOADING + error natif → fallback HLS_MSE (passage unique), instance hls 
   a.destroy();
 });
 
+test('régression simulateur : erreur stale code 4 pendant attach MSE ne tue pas le fallback', () => {
+  const { a, v } = freshAdapter();
+  a.play('http://x/live.m3u8');
+  v.dispatch('error'); // échec natif → fallback HLS_MSE
+  assert.equal(a.engine, 'HLS_MSE');
+  const hls = __hlsInstances[0];
+  v.error = { code: 4 }; // MediaError « auto-infligée » du vidage (removeAttribute+load)
+  v.dispatch('error');
+  assert.equal(hls.destroyed, false, 'le MSE naissant survit (plus de xhr « canceled » 0 B)');
+  assert.equal(a.state, 'LOADING');
+  hls.emit('hlsManifestParsed', {}); // désarme l' indulgence
+  v.dispatch('error');
+  assert.equal(a.state, 'ERROR', 'après parse, une error code 4 réelle reste fatale');
+  v.error = null;
+  a.destroy();
+});
+
+test('rejet de play() périmé (annulé par l’attach MSE) ignoré ; rejet courant traité', async () => {
+  const { a, v } = freshAdapter();
+  const rej = [];
+  v.play = () => new Promise((_res, reject) => { rej.push(reject); });
+  a.play('http://x/live.m3u8'); // gen 1 : tentative native en vol
+  v.dispatch('error');          // échec natif → fallback → _tryPlay gen 2
+  assert.equal(a.engine, 'HLS_MSE');
+  rej[0]({ name: 'AbortError' }); // rejet du play NATIF tué par notre vidage
+  await sleep(0);
+  const hls = __hlsInstances[0];
+  assert.equal(hls.destroyed, false, 'le MSE naissant survit au rejet périmé');
+  assert.equal(a.state, 'LOADING');
+  rej[1]({ name: 'NotAllowedError' }); // rejet du play COURANT (gen 2) → traité
+  await sleep(0);
+  assert.equal(a.state, 'ERROR', 'un rejet de la lecture en cours reste fatal au démarrage');
+  a.destroy();
+});
+
 test('401/403 en HLS_MSE → ERROR immédiat, AUCUN retry (T4)', () => {
   const { a, v } = freshAdapter();
   a.play('http://x/live.m3u8');
