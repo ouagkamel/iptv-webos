@@ -202,6 +202,15 @@ au lieu d'un blocage muet. En cas de TV noire : lire l'étiquette figée ET, si
 possible, coller la sortie de `ares-inspect --target <ip-tv>` (page
 `com.iptv.webos.player`) ou `ares-log --device <ip-tv> -a com.iptv.webos.player`.
 
+**Cause tranchée au premier déploiement TV (message « module non exécuté ») :**
+sur la TV, l'app installée tourne sur une origine `file://` où `<script
+type="module">` est refusé (politique CORS du moteur) — le simulateur sert en
+`http://localhost` et ne peut pas le révéler. Le bundle étant déjà IIFE (§2.2,
+sans `import.meta`), le build réécrit la balise en chargement **classique +
+`defer`** (plugin `iptv-device-classic-script` dans `vite.config.js` ; sémantique
+d'exécution identique). Reproduit et vérifié en headless `file://` sans flag :
+variante module → même message rouge que la TV, variante classique → UI prête.
+
 Packaging TV réel : `npm run build` puis `ares-package dist -o build` — `appinfo.json`
 (verbatim §4, 11 propriétés) est copié de `public/` par Vite ; icônes placeholders
 1×1 px **à remplacer avant soumission store**. NB : le nom du fichier est
