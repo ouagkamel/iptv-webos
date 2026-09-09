@@ -65,6 +65,18 @@ avec reprise + seek, politique §7.5.
    la course rAF/plafond 32 ms est désormais décrite en spec et implémentée à
    l'identique. Aucune divergence résiduelle — tracée au §13 pour l'historique.
 
+8. **Workers inlinés (`?worker&inline`, bootstrap.js)** — en build dist, Vite 4 avec
+   `base: './'` + script `type="module"` génère `new Worker(new URL(fichier,
+   document.baseURI))` (car `document.currentScript` est `null` en contexte module) :
+   les workers séparés de `dist/assets/` étaient donc cherchés à la racine du document
+   → `ERR_FILE_NOT_FOUND` (découvert sur device de test, import compte Xtream en
+   `file://`). Les trois workers sont inlinés (base64 → Blob → `createObjectURL`) :
+   plus aucune résolution de chemin, identique en dev/build/device, fonctionne même
+   en `file://` et sans CSP (§4 inchangé). Coût : +10,5 kB dans le chunk principal ;
+   protocole §5.2, filet §5.8 et `workerFactory` inchangés. Validé en vrai navigateur
+   sur le build dist : import Xtream réel (5 248 chaînes + 29 382 lignes VOD en DB) et
+   fixture m3u 300 lignes exactes, console propre.
+
 ## Validation en navigateur réel (ajout post-plan)
 
 `tools/browser-run.mjs` pilote **chrome-headless-shell** en CDP (pas de
@@ -121,6 +133,8 @@ npm test             # 39 tests, ~14 s
 npm run build        # dist/ packager-ready (+ public/manifest.json copié)
 IPTV_PRODUCTION=true npm run build   # build store (drop_console)
 npm run dev          # développement navigateur (les workers ?worker sont gérés par Vite)
+# Test desktop du dist : servir en http (fetch cross-origin interdit
+# en file://) — p. ex. `python -m http.server -d dist 8090` puis http://127.0.0.1:8090/
 node tools/syntax-gate.mjs src && node tools/syntax-gate.mjs dist   # gate 68
 npm run dev              # puis, autre terminal : smoke + harnais §9 en navigateur réel
 node tools/browser-run.mjs "http://127.0.0.1:5173/dev/smoke.html" '…' 90000   # → SMOKE PASS

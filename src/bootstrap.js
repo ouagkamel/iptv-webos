@@ -7,9 +7,16 @@ import { DataManager } from './data/DataManager.js';
 import { ImportController } from './data/ImportController.js';
 import { PlaylistManager } from './services/PlaylistManager.js';
 
-import M3UWorker from './data/m3u.worker.js?worker';
-import EpgWorker from './data/epg.worker.js?worker';
-import XtreamWorker from './data/xtream.worker.js?worker';
+// ?worker&inline (correction build dist, revue device) : avec base './' + bundle
+// type="module", Vite 4 résout « new URL(fichier, document.baseURI) » car
+// document.currentScript est null en module → les workers séparés (dist/assets/)
+// sont cherchés à la racine du document → ERR_FILE_NOT_FOUND (m3u/epg/xtream).
+// L'inlining (base64 → Blob → URL.createObjectURL) supprime toute résolution de
+// chemin : identique en dev, dans dist, en file:// et sur le device (pas de CSP
+// déclarée, §4). Coût : +10,5 Ko dans le chunk principal.
+import M3UWorker from './data/m3u.worker.js?worker&inline';
+import EpgWorker from './data/epg.worker.js?worker&inline';
+import XtreamWorker from './data/xtream.worker.js?worker&inline';
 
 const WORKER_KINDS = {
   playlist: { Ctor: M3UWorker,    targetTable: 'channels' },
