@@ -131,8 +131,13 @@ node tools/browser-run.mjs "http://127.0.0.1:5173/tests/harness.html" '…' 2400
 runner attend chrome-headless-shell — voir `CHROME_BIN` ou l'auto-découverte
 `chrome-headless-shell/linux-*/chrome-headless-shell-linux64/`.)
 
-Packaging TV réel : `ares-package dist -o build` (le `manifest.json` est copié
-par Vite ; icônes placeholders 1×1 px **à remplacer avant soumission store**).
+Packaging TV réel : `npm run build` puis `ares-package dist -o build` — `appinfo.json`
+(verbatim §4, 11 propriétés) est copié de `public/` par Vite ; icônes placeholders
+1×1 px **à remplacer avant soumission store**. NB : le nom du fichier est
+`appinfo.json` (attendu par ares-package, cf. plan tâche 0.3) ; une version
+intermédiaire du projet le livrait sous `manifest.json`, d'où l'erreur
+« No meta file (ex. appinfo.json, services.json) » avec les CLI ≤ 5.x — corrigée
+par renommage, contenu inchangé).
 
 ## Reste à faire (hors périmètre de cet environnement)
 
