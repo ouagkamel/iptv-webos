@@ -79,14 +79,34 @@ export function createImportPairs() {
   };
 }
 
+function setBootStep(t) {
+  // Diagnostic device : la #boot-step (index.html) est le SEUL texte garanti
+  // visible si le module meurt ou si IDB bloque — pas besoin de ares-inspect
+  // pour savoir où le boot s'arrête sur une TV réelle (écran noir sans message
+  // = symptôme le plus coûteux à distance).
+  const b = typeof document !== 'undefined' && document.getElementById
+    ? document.getElementById('boot-step') : null;
+  if (b) b.textContent = t;
+}
+
 export async function boot() {
   const t0 = Date.now();
+  setBootStep('détection capacités…');
   const capabilities = await Capabilities.detectAll();
   console.log('[boot] capabilities:', JSON.stringify(capabilities));
 
-  await db.open();
+  setBootStep('base locale (IndexedDB) : ouverture…');
+  const openP = db.open();
+  openP.catch(function () { /* la rejection est vue par le race ; évite le bruit non traité */ });
+  const openGuard = new Promise(function (resolve, reject) {
+    setTimeout(function () {
+      reject(new Error('Dexie.open sans réponse après 8 s — IndexedDB bloquée ou indisponible sur ce device (connexion résiduelle d\'une instance non fermée ?)'));
+    }, 8000);
+  });
+  await Promise.race([openP, openGuard]);
   console.log('[boot] Dexie ouvert (v2 — table vod incluse, DB-5)');
 
+  setBootStep('maintenance §5.5/§5.6…');
   const pairs = createImportPairs();
   const manager = new PlaylistManager(pairs);
 

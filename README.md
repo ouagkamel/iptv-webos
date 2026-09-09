@@ -188,6 +188,20 @@ retry). Conséquence pratique au re-test : le xhr du fallback ne doit plus jamai
 apparaître « canceled 0 o » ; si le flux reste noir, l'erreur affichée est désormais
 **nommée par hls.js** (réseau/media/auth) et décrit le panneau, non plus l'app.
 
+### Device réel : échelle de diagnostic d'amorçage à l'écran
+
+Un écran noir au démarrage sur TV réelle n'était pas lisible sans ares-inspect.
+L'app affiche désormais seule une étiquette d'étape en bas à gauche (visible aussi
+en saveur production — elle n'utilise pas la console) : « chargement module… » →
+« détection capacités… » → « base locale (IndexedDB) : ouverture… » →
+« maintenance §5.5/§5.6… » → disparition quand l'UI est prête. Cas d'échec :
+exception au chargement → « ERREUR: … » en rouge ; import du bundle jamais exécuté
+→ message rouge après 5 s ; `db.open()` bloqué (IDB indisponible ou connexion
+résiduelle d'une instance non fermée sur `file://`) → erreur explicite après 8 s
+au lieu d'un blocage muet. En cas de TV noire : lire l'étiquette figée ET, si
+possible, coller la sortie de `ares-inspect --target <ip-tv>` (page
+`com.iptv.webos.player`) ou `ares-log --device <ip-tv> -a com.iptv.webos.player`.
+
 Packaging TV réel : `npm run build` puis `ares-package dist -o build` — `appinfo.json`
 (verbatim §4, 11 propriétés) est copié de `public/` par Vite ; icônes placeholders
 1×1 px **à remplacer avant soumission store**. NB : le nom du fichier est

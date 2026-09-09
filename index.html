@@ -8,6 +8,7 @@
 </head>
 <body>
   <div id="root"></div>
-  <script type="module" src="/src/app.js"></script>
+  <script>(function(){var h=document.body||document.documentElement;var d=document.createElement('div');d.id='boot-step';d.setAttribute('style','position:fixed;left:16px;bottom:16px;color:#ffe100;font:16px/1.4 monospace;background:#111;padding:6px 10px;border:1px solid #333;z-index:99999');d.textContent='chargement module…';h.appendChild(d);window.addEventListener('error',function(e){var n=document.getElementById('boot-step');if(!n){return;}n.textContent='ERREUR: '+((e&&e.message)||'inconnue');n.setAttribute('style',n.getAttribute('style').replace('#ffe100','#f77'));});setTimeout(function(){var n=document.getElementById('boot-step');if(n&&n.textContent==='chargement module\u2026'){n.textContent='module non exécuté après 5 s (import/asset en échec ? voir console)';n.setAttribute('style',n.getAttribute('style').replace('#ffe100','#f77'));}},5000);})();</script>
+    <script type="module" src="/src/app.js"></script>
 </body>
 </html>

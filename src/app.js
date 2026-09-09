@@ -38,6 +38,8 @@ async function main() {
 
   await refreshPlaylists();
   renderTab();
+  const step = document.getElementById('boot-step');
+  if (step && step.parentNode) step.parentNode.removeChild(step);
   console.log('[app] prêt');
 }
 
@@ -397,6 +399,10 @@ function renderTab() {
 
 main().catch(function (err) {
   console.error('BOOT FAILURE:', err);
-  document.body.innerHTML = '<pre style="color:#fff">Échec du démarrage : ' +
-    String(err.message || err) + '</pre>';
+  // Fond forcé : lisible quel que soit le CSS appliqué (l'écran noir
+  // « sans message » était le vrai défaut de cette branche sur device).
+  document.documentElement.style.background = "#111";
+  document.body.style.background = "#111";
+  document.body.innerHTML = '<pre style="color:#fff;background:#111;padding:24px;font:18px/1.5 monospace;margin:0">Échec du démarrage : ' +
+    String(err && err.message || err) + '</pre>';
 });
