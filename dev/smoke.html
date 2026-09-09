@@ -1,0 +1,34 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <title>Smoke — IPTV webOS</title>
+  <style>
+    body { background:#000; color:#ddd; font:16px/1.5 monospace; padding:24px; }
+    .ok { color:#7d7; } .ko { color:#f77; } #status { font-size:28px; margin:12px 0; }
+  </style>
+</head>
+<body>
+  <div id="status">SMOKE RUNNING…</div>
+  <div id="out"></div>
+  <script type="module">
+    import { runSmoke } from './smoke.js';
+    var out = document.getElementById('out');
+    var status = document.getElementById('status');
+    runSmoke().then(function (results) {
+      var fail = 0;
+      for (var i = 0; i < results.length; i++) {
+        var r = results[i];
+        if (!r.pass) fail++;
+        var d = document.createElement('div');
+        d.className = r.pass ? 'ok' : 'ko';
+        d.textContent = (r.pass ? '[OK] ' : '[KO] ') + r.name + (r.detail ? ' — ' + r.detail : '');
+        out.appendChild(d);
+      }
+      status.textContent = results.summary;
+      window.__SMOKE = { results: results, summary: results.summary };
+      document.title = results.summary;
+    });
+  </script>
+</body>
+</html>

@@ -1,0 +1,6 @@
+node_modules/
+chrome-headless-shell/
+dist/
+build/
+*.tgz
+deploy-staging/

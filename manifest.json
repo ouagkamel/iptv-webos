@@ -1,0 +1,15 @@
+{
+  "id": "com.iptv.webos.player",
+  "version": "1.0.0",
+  "vendor": "IPTV Dev Team",
+  "type": "web",
+  "main": "index.html",
+  "title": "IPTV Player Pro",
+  "icon": "icon.png",
+  "largeIcon": "largeIcon.png",
+  "requiredMinOSVersion": "5.0.0",
+  "resolution": "1920x1080",
+  "handlesPageVisibility": true,
+  "disableBackHistoryAPI": true,
+  "bgColor": "#000000"
+}

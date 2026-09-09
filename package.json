@@ -1,0 +1,24 @@
+{
+  "name": "iptv-webos-player",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "package": "ares-package dist -o build",
+    "test": "node --import ./tests/register.mjs --test tests/",
+    "gate:syntax": "node tools/syntax-gate.mjs src"
+  },
+  "dependencies": {
+    "dexie": "3.2.4",
+    "hls.js": "1.4.14",
+    "webostvjs": "1.2.4"
+  },
+  "devDependencies": {
+    "fake-indexeddb": "6.0.0",
+    "terser": "5.24.0",
+    "vite": "4.5.0",
+    "ws": "^8.18.0"
+  }
+}

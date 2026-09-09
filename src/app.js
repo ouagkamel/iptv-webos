@@ -1,0 +1,353 @@
+// src/app.js — UI minimale fonctionnelle (Sprint 3 du plan) : onglets
+// Playlistes / Chaînes (live) / Films (VOD Xtream), imports M3U+EPG+Xtream,
+// D-Pad via FocusEngine (moteur verbatim ; guidage fenêtre du VirtualList
+// pris en charge ici — l'invariant §1.2-6 est garanti par le composant),
+// PlayerOSD, DualPlayerPolicy (portes §7.5, désactivée par défaut).
+import { boot } from './bootstrap.js';
+import { FocusEngine } from './ui/FocusEngine.js';
+import { VirtualList } from './ui/VirtualList.js';
+import { MediaAdapter } from './media/MediaAdapter.js';
+import { LifecycleAdapter } from './platform/LifecycleAdapter.js';
+import { DualPlayerPolicy } from './media/DualPlayerPolicy.js';
+import { PlayerOSD } from './components/PlayerOSD.js';
+import { CONFIG } from './config.js';
+
+const state = {
+  tab: 'playlists',
+  playlists: [],
+  activePlaylistId: null,
+  items: { live: [], vod: [] },
+  selIndex: -1,
+  provider: { maxConcurrentStreams: 0 },
+  dualEligible: false
+};
+
+let ctx, engine, osd, videoEl, adapter, lifecycle, root;
+const lists = {};
+
+async function main() {
+  root = document.getElementById('root');
+  ctx = await boot();
+  engine = new FocusEngine();
+  osd = null; // posé après construction du lecteur
+
+  buildLayout();
+  engine.init();
+  wireGlobalEvents();
+
+  await refreshPlaylists();
+  renderTab();
+  console.log('[app] prêt');
+}
+
+/* ——————————————————— layout ——————————————————— */
+
+function buildLayout() {
+  root.innerHTML = '';
+
+  const header = el('header', 'hdr');
+  header.appendChild(tabButton('playlists', 'Playlistes'));
+  header.appendChild(tabButton('live', 'Chaînes'));
+  header.appendChild(tabButton('vod', 'Films'));
+  root.appendChild(header);
+
+  const body = el('div', 'body');
+  state.views = {
+    playlists: buildPlaylistsView(),
+    live: buildListView('live'),
+    vod: buildListView('vod')
+  };
+  body.appendChild(state.views.playlists);
+  body.appendChild(state.views.live);
+  body.appendChild(state.views.vod);
+  root.appendChild(body);
+}
+
+function el(tag, cls) {
+  const n = document.createElement(tag);
+  if (cls) n.className = cls;
+  return n;
+}
+
+function tabButton(tab, label) {
+  const b = el('button', 'tab-btn');
+  b.textContent = label;
+  b.tabIndex = 0;
+  b.addEventListener('click', function () { state.tab = tab; renderTab(); });
+  return b;
+}
+
+function buildPlaylistsView() {
+  const view = el('div', 'view view-playlists');
+
+  const form = el('div', 'pl-form');
+  const nameI = input('Nom', 'text'); form.appendChild(field('Nom', nameI));
+  const srcS = el('select'); srcS.tabIndex = 0;
+  [['m3u', 'M3U (URL)'], ['xtream', 'Xtream (URL+identifiants)']].forEach(function (o) {
+    const op = el('option'); op.value = o[0]; op.textContent = o[1]; srcS.appendChild(op);
+  });
+  form.appendChild(field('Source', srcS));
+  const m3uI = input('URL .m3u', 'text'); form.appendChild(field('URL playlist', m3uI));
+  const epgI = input('URL xmltv (optionnel)', 'text'); form.appendChild(field('URL EPG', epgI));
+  const baseI = input('https://panel:port', 'text'); form.appendChild(field('Base Xtream', baseI));
+  const userI = input('username', 'text'); form.appendChild(field('Utilisateur', userI));
+  const passI = input('password', 'password'); form.appendChild(field('Mot de passe', passI));
+  // XP-3 : jamais de journalisation des credentials (mot de passe jamais lu dans un log)
+  const save = button('Enregistrer la playlist', async function () {
+    try {
+      await ctx.manager.create({
+        name: nameI.value, source: srcS.value, m3uUrl: m3uI.value, epgUrl: epgI.value,
+        base: baseI.value, username: userI.value, password: passI.value
+      });
+      osd && osd.setStatus('Playlist enregistrée');
+      await refreshPlaylists(); renderTab();
+    } catch (err) { osd && osd.setStatus('Refus : ' + err.message); }
+  });
+  form.appendChild(save);
+  view.appendChild(form);
+
+  state.plListEl = el('div', 'pl-list');
+  view.appendChild(state.plListEl);
+  return view;
+}
+
+function input(ph, type) { const i = el('input'); i.tabIndex = 0; i.placeholder = ph; i.type = type || 'text'; return i; }
+function field(label, node) { const w = el('label', 'field'); w.appendChild(el('span', 'lbl')); w.firstChild.textContent = label; w.appendChild(node); return w; }
+function button(label, onClick) {
+  const b = el('button', 'act-btn'); b.textContent = label; b.tabIndex = 0;
+  b.addEventListener('click', onClick); return b;
+}
+
+function buildListView(kind) {
+  const view = el('div', 'view view-list');
+  const left = el('div', 'list-pane');
+  const tools = el('div', 'tools');
+  const searchI = input('Recherche (début de nom)…', 'text'); tools.appendChild(searchI);
+  tools.appendChild(button('Chercher', function () { applySearch(kind, searchI.value); }));
+  tools.appendChild(button('Tout', function () { searchI.value = ''; applySearch(kind, ''); }));
+  left.appendChild(tools);
+
+  const scroller = el('div', 'scroller');
+  left.appendChild(scroller);
+  view.appendChild(left);
+
+  if (kind === 'live') {
+    const stage = el('div', 'stage');
+    videoEl = el('video', 'player');
+    videoEl.setAttribute('playsinline', 'playsinline');
+    stage.appendChild(videoEl);
+    view.appendChild(stage);
+    osd = new PlayerOSD(stage);
+    state.osdEl = stage;
+
+    adapter = new MediaAdapter(videoEl);
+    adapter.init();
+    lifecycle = new LifecycleAdapter(adapter);
+    lifecycle.init();
+  }
+
+  lists[kind] = new VirtualList(scroller, { itemHeight: 60, overscan: 4 });
+  lists[kind].mount();
+  return view;
+}
+
+/* ——————————————————— playlists ——————————————————— */
+
+async function refreshPlaylists() {
+  state.playlists = await ctx.manager.list();
+  if (state.activePlaylistId === null && state.playlists.length > 0) {
+    state.activePlaylistId = state.playlists[0].id;
+  }
+  const host = state.plListEl;
+  host.innerHTML = '';
+  state.playlists.forEach(function (pl) {
+    const row = el('div', 'pl-row'); row.tabIndex = -1;
+    row.textContent = pl.name + '  [' + (pl.source === 'xtream' ? 'Xtream' : 'M3U') + ']' +
+      (pl.activeImportId ? '  ✓ importée' : '');
+    const mk = function (label, fn) {
+      const b = el('button', 'mini'); b.textContent = label; b.tabIndex = 0;
+      b.addEventListener('click', function (ev) { ev.stopPropagation(); fn(); });
+      row.appendChild(b);
+    };
+    const sel = function () { state.activePlaylistId = pl.id; osd && osd.setStatus('Playlist active : ' + pl.name); loadActiveData(); };
+    mk('Activer', sel);
+    mk('Importer', function () { runImport(pl.id, false); });
+    mk('EPG', function () { runImport(pl.id, true); });
+    mk('Annuler', function () { ctx.manager.abort(pl.id, 'epg'); ctx.manager.abort(pl.id, 'playlist'); });
+    mk('Supprimer', async function () {
+      await ctx.manager.remove(pl.id);
+      if (state.activePlaylistId === pl.id) state.activePlaylistId = null;
+      await refreshPlaylists(); renderTab();
+    });
+    host.appendChild(row);
+  });
+}
+
+async function runImport(playlistId, isEpg) {
+  try {
+    osd && osd.setStatus(isEpg ? 'Import EPG…' : 'Import playlist…');
+    const p = isEpg ? ctx.manager.importEpg(playlistId) : ctx.manager.importPlaylist(playlistId);
+    await p;
+  } catch (err) {
+    osd && osd.setStatus('Import : ' + err.message);
+  }
+}
+
+async function loadActiveData() {
+  if (state.activePlaylistId == null) return;
+  const [live, vod] = await Promise.all([
+    ctx.manager.channels(state.activePlaylistId),
+    ctx.manager.vod(state.activePlaylistId)
+  ]);
+  state.items.live = live;
+  state.items.vod = vod;
+  applySearch('live', '');
+  applySearch('vod', '');
+}
+
+function applySearch(kind, rawQuery) {
+  const norm = String(rawQuery || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+  const all = state.items[kind] || [];
+  const rows = !norm ? all : all.filter(function (r) {
+    return String(r.searchName || '').indexOf(norm) === 0;
+  }).slice(0, CONFIG.SEARCH_LIMIT);
+  if (lists && lists[kind]) {
+    lists[kind].setItems(rows);
+    state.selIndex = rows.length ? 0 : -1;
+    lists[kind].container.scrollTop = 0;
+    lists[kind]._renderWindow();
+    syncFocusables(kind);
+  }
+}
+
+/* ——————————————————— focus / D-Pad ——————————————————— */
+
+function visibleSlice(kind) {
+  const list = lists[kind];
+  const scrollTop = list.container.scrollTop;
+  const start = Math.max(0, Math.floor(scrollTop / list.itemHeight) - list.overscan);
+  const out = [];
+  for (let k = 0; k < list.pool.length; k++) {
+    const row = list.pool[k];
+    const idx = row.getAttribute('data-index');
+    if (row.style.display !== 'none' && idx !== null && parseInt(idx, 10) >= start) out.push(row);
+  }
+  return { rows: out, start: start };
+}
+
+function syncFocusables(kind) {
+  const vis = visibleSlice(kind);
+  engine.setFocusables(vis.rows);
+  engine.currentIndex = vis.rows.length === 0 ? -1
+    : Math.max(0, Math.min(vis.rows.length - 1, state.selIndex - vis.start));
+}
+
+function handleListKeys(e) {
+  if (state.tab !== 'live' && state.tab !== 'vod') return;
+  const kind = state.tab;
+  const list = lists[kind];
+  const total = list.items.length;
+  if (total === 0) return;
+
+  if (e.keyCode === 38 || e.keyCode === 40) {
+    e.preventDefault(); e.stopImmediatePropagation();
+    state.selIndex = (state.selIndex + (e.keyCode === 40 ? 1 : -1) + total) % total;
+    scrollToShow(kind, state.selIndex);
+    syncFocusables(kind);
+  } else if (e.keyCode === 13) {
+    e.preventDefault(); e.stopImmediatePropagation();
+    const item = list.items[state.selIndex];
+    if (item) activateChannel(kind, item);
+  }
+}
+
+function scrollToShow(kind, idx) {
+  const list = lists[kind];
+  const vh = list.container.clientHeight || 720;
+  const top = idx * list.itemHeight;
+  if (top < list.container.scrollTop) {
+    list.container.scrollTop = top;
+  } else if (top + list.itemHeight > list.container.scrollTop + vh) {
+    list.container.scrollTop = top + list.itemHeight - vh;
+  }
+  list._renderWindow();
+}
+
+async function activateChannel(kind, item) {
+  if (kind === 'live') {
+    adapter.play(item.streamUrl);
+    osd.setChannel(item.name);
+    await showEpgFor(item);
+  } else {
+    osd && osd.setStatus('VOD : ' + item.name); // lecture VOD = flux direct natif
+    adapter.play(item.streamUrl);
+  }
+}
+
+async function showEpgFor(item) {
+  if (!state.activePlaylistId || !item.channelId) { osd.setEpg('', ''); return; }
+  const pl = await ctx.manager.get(state.activePlaylistId);
+  if (!pl || !pl.activeEpgImportId || !pl.activeImportId) { osd.setEpg('', ''); return; }
+  const now = Date.now();
+  const imp = pl.activeImportId, ch = item.channelId;
+  const cur = await ctx.db.epg
+    .where('[importId+channelId+startTime]').between([imp, ch, now - 12 * 3600 * 1000], [imp, ch, now], true, true)
+    .sortBy('startTime').then(function (a) { return a.length ? a[a.length - 1] : null; });
+  const next = await ctx.db.epg
+    .where('[importId+channelId+startTime]').between([imp, ch, now], [imp, ch, now + CONFIG.EPG_WINDOW_MS], false, true)
+    .limit(1).toArray().then(function (a) { return a.length ? a[0] : null; });
+  osd.setEpg(cur && cur.title, next && next.title);
+}
+
+/* ——————————————————— événements globaux ——————————————————— */
+
+function wireGlobalEvents() {
+  // Le handler de liste est enregistré AVANT engine.init() ? engine est déjà init ;
+  // on place le nôtre sur window avec stopImmediatePropagation, donc il doit passer
+  // en PREMIER : re-register ordre — on retire/réajoute le listener du moteur.
+  window.removeEventListener('keydown', engine.boundOnKeyDown);
+  window.addEventListener('keydown', handleListKeys);
+  window.addEventListener('keydown', engine.boundOnKeyDown);
+
+  window.addEventListener('import-complete', function () {
+    osd && osd.setStatus('Import terminé');
+    refreshPlaylists().then(loadActiveData);
+  });
+  window.addEventListener('import-error', function (e) {
+    osd && osd.setStatus('Erreur import : ' + ((e.detail && e.detail.message) || 'inconnue'));
+    refreshPlaylists();
+  });
+  window.addEventListener('import-aborted', function () {
+    osd && osd.setStatus('Import annulé');
+    refreshPlaylists();
+  });
+  window.addEventListener('media-error', function (e) {
+    osd && osd.setStatus('Lecture : ' + ((e.detail && e.detail.message) || 'erreur'));
+  });
+
+  // §7.5 — branchement Xtream : max_connections du compte pilote la porte abonnement.
+  window.addEventListener('xtream-account-info', function (e) {
+    const d = e.detail || {};
+    state.provider.maxConcurrentStreams = d.maxConnections || 0;
+    state.dualEligible = DualPlayerPolicy.isEligible(ctx.capabilities, state.provider);
+    console.log('[dual] eligible:', state.dualEligible); // activable + portes UI : v1.x
+  });
+}
+
+function renderTab() {
+  state.views.playlists.style.display = state.tab === 'playlists' ? '' : 'none';
+  state.views.live.style.display = state.tab === 'live' ? '' : 'none';
+  state.views.vod.style.display = state.tab === 'vod' ? '' : 'none';
+  if (state.tab !== 'playlists') {
+    applySearch(state.tab, '');
+  } else {
+    engine.setFocusables(Array.prototype.slice.call(
+      state.views.playlists.querySelectorAll('button, input, select')));
+  }
+}
+
+main().catch(function (err) {
+  console.error('BOOT FAILURE:', err);
+  document.body.innerHTML = '<pre style="color:#fff">Échec du démarrage : ' +
+    String(err.message || err) + '</pre>';
+});

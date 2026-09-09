@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <title>Harness §9 — IPTV webOS (harnais maison navigateur, plan Q4)</title>
+  <style>
+    body { background:#000; color:#ddd; font:15px/1.5 monospace; padding:20px; }
+    .ok { color:#7d7; } .ko { color:#f77; } #status { font-size:26px; margin:10px 0; }
+    button { font:inherit; background:#ffe100; border:0; padding:8px 16px; border-radius:6px; cursor:pointer; }
+  </style>
+</head>
+<body>
+  <div id="status">RUNNING…</div>
+  <div id="out"></div>
+  <p><button id="heavy">H9 — test lourd : import 20 000 chaînes + échantillonnage trames (mini-T3, à consigner pour §11)</button></p>
+  <div id="list-host" style="height:600px;width:640px;overflow:hidden;position:absolute;left:-9999px;"></div>
+  <script type="module">
+    // Variante device (émulateur/TV, Chrome 68) : pas de top-level await — la
+    // logique vit dans harness-run.js ; la capture CI utilise harness-ci.html.
+    import { start } from './harness-run.js';
+    start();
+  </script>
+</body>
+</html>
