@@ -9,15 +9,20 @@ import fs from 'node:fs';
 import WebSocket from 'ws';
 
 const CHROME = process.env.CHROME_BIN || (() => {
-  const base = 'chrome-headless-shell';
-  try {
-    const dirs = fs.readdirSync(base).filter(function (n) { return n.charAt(0) !== '.'; });
-    for (let i = 0; i < dirs.length; i++) {
-      const p = base + '/' + dirs[i] + '/chrome-headless-shell-linux64/chrome-headless-shell';
-      if (fs.existsSync(p)) return p;
-    }
-    return null;
-  } catch (e) { return null; }
+  // Bases cherchées : locale au projet, puis /tmp (l'outillage navigateur est hors de
+  // l'espace persisté pour tenir le budget du workspace — voir README § Outillage).
+  const bases = ['chrome-headless-shell', '/tmp/chrome-headless-shell',
+                 '/home/user/iptv-webos/chrome-headless-shell'];
+  for (let b = 0; b < bases.length; b++) {
+    try {
+      const dirs = fs.readdirSync(bases[b]).filter(function (n) { return n.charAt(0) !== '.'; });
+      for (let i = 0; i < dirs.length; i++) {
+        const p = bases[b] + '/' + dirs[i] + '/chrome-headless-shell-linux64/chrome-headless-shell';
+        if (fs.existsSync(p)) return p;
+      }
+    } catch (e) { /* base absente : on continue */ }
+  }
+  return null;
 })();
 if (!CHROME) { console.error('chrome-headless-shell introuvable (CHROME_BIN ?)'); process.exit(2); }
 

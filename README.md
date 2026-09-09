@@ -88,6 +88,31 @@ vie des workers, migrations Dexie réelles, `URL.createObjectURL`/fetch blob.
 La variante 68 bits (Chromium 68 d'émulateur webOS) reste à couvrir par T1 ; le
 gate statique `tools/syntax-gate.mjs` en tient lieu de barrière préventive.
 
+## Outillage et publication — artefacts hors espace persisté (budget workspace)
+
+Pour rester sous le budget du snapshot d'espace de travail, l'outillage lourd
+n'est **pas persisté** ; il vit dans `/tmp` (éphémère entre sessions) et se
+reconstitue ainsi :
+
+- **chrome-headless-shell** (~261 Mo — exécutant des harnais navigateur) :
+  ```bash
+  mkdir -p /tmp/chrome-headless-shell/linux-153.0.8010.36
+  cd /tmp/chrome-headless-shell/linux-153.0.8010.36
+  curl -Ls https://storage.googleapis.com/chrome-for-testing-public/153.0.8010.36/linux64/chrome-headless-shell-linux64.zip -o c.zip
+  unzip -q c.zip && rm c.zip   # apt: libnss3 libasound2 libgbm1 libxkbcommon0 … (déjà posés dans l'image)
+  ```
+  `tools/browser-run.mjs` le découvre seul (`/tmp/chrome-headless-shell/…`), ou via `CHROME_BIN`.
+- **dossier de publication `/tmp/deploy`** (site surge), 100 % régénérable :
+  `IPTV_PRODUCTION=true npm run build` puis `mkdir -p /tmp/deploy && cp -r dist/* /tmp/deploy/` ;
+  zip source : `zip -qr /tmp/deploy/iptv-webos-projet-complet.zip SPEC-IPTV-webOS-V6-FINAL.md IMPLEMENTATION-PLAN.md iptv-webos -x "iptv-webos/node_modules/*" -x "iptv-webos/chrome-headless-shell/*" -x "iptv-webos/dist/*"` ;
+  dépôt git « dumb » : `git -C /home/user/gitserve/export/iptv-webos.git repack -qAd && git -C … update-server-info` puis copie dans `/tmp/deploy/git/iptv-webos.git` (+ `git bundle create` du même HEAD) ;
+  pages web du dépôt : `node /home/user/gitserve/make-site.mjs` (lit le repo, écrit `/tmp/deploy/repo|raw`).
+- **surge CLI** (`/tmp/surgetool`) : `npm i surge` ; pousser :
+  `SURGE_LOGIN=… SURGE_TOKEN=… ./node_modules/.bin/surge /tmp/deploy --domain <domaine>`
+  (identifiants et token dans `/home/user/.arena-deploy-*` — persistés, à sauvegarder).
+- `node_modules/` du projet : hors snapshot mais reproductible à l'octet près : `npm ci`
+  (deps figées §2.1 + devDeps fake-indexeddb/ws d'outillage uniquement).
+
 ## Lancer
 
 ```bash
