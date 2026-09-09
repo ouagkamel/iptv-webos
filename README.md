@@ -145,6 +145,28 @@ node tools/browser-run.mjs "http://127.0.0.1:5173/tests/harness.html" '…' 2400
 runner attend chrome-headless-shell — voir `CHROME_BIN` ou l'auto-découverte
 `chrome-headless-shell/linux-*/chrome-headless-shell-linux64/`.)
 
+### Test sur simulateur / navigateur desktop : proxy de panneau (optionnel)
+
+Certains panneaux Xtream protègent les segments `/hls/<session>/*.ts` par session
+liée à des cookies et à l'origine de la requête : Chromium ≥ 80 (simulateurs webOS
+récents, navigateurs desktop) **ne transmet pas les cookies cross-site** sur les
+requêtes média/fetch (SameSite=Lax) → **403 Forbidden** sur les segments alors que
+la ligne `STARTUP_INCOMPATIBILITY (…native <video> error event) → fallback
+HLS_MSE` montre que la chaîne de l'app, elle, fonctionne (matrice §7.1). Le moteur
+natif d'une vraie TV webOS est exempté de cette politique.
+
+Un proxy de test sans dépendance rend le panneau same-origin (cookies, CORS,
+redirects réécrits, UA outillée assainie) :
+
+```bash
+node tools/panel-proxy.mjs --target http://kdfgh.com:8080 --port 8091
+# puis dans l'UI : Base Xtream = http://127.0.0.1:8091 (mêmes identifiants)
+```
+
+L'API (`player_api.php`), le playlist et les segments passent alors par le même
+`127.0.0.1` → le navigateur les traite en 1re partie. Outil de dev uniquement :
+hors `src/`, jamais bundlé, absent de l'IPK.
+
 Packaging TV réel : `npm run build` puis `ares-package dist -o build` — `appinfo.json`
 (verbatim §4, 11 propriétés) est copié de `public/` par Vite ; icônes placeholders
 1×1 px **à remplacer avant soumission store**. NB : le nom du fichier est
