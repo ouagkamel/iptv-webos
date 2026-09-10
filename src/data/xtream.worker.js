@@ -108,31 +108,43 @@ async function runImport() {
       expDate: info.exp_date || null
     });
 
-    // Live → channels ; VOD → vod (DB-5). Mode global d'abord, repli par
-    // catégories si l'appel global est indisponible (V10, §6.5).
-    const catNames = { channels: {}, vod: {} };
+    // Live → channels ; VOD → vod (DB-5) ; Séries → series (DB-6, §6.6). Mode
+    // global d'abord, repli par catégories si l'appel global est indisponible (V10).
+    const catNames = { channels: {}, vod: {}, series: {} };
+    const rawCats = {};
     await Promise.all([
-      fetchJson(apiUrl('get_live_categories')).then(function (c) { fillCatNames(catNames.channels, c); })
+      fetchJson(apiUrl('get_live_categories')).then(function (c) { fillCatNames(catNames.channels, c); rawCats.live = c; })
         .catch(function () { if (aborted) return; catNames.channels = {}; }),
-      fetchJson(apiUrl('get_vod_categories')).then(function (c) { fillCatNames(catNames.vod, c); })
-        .catch(function () { if (aborted) return; catNames.vod = {}; })
+      fetchJson(apiUrl('get_vod_categories')).then(function (c) { fillCatNames(catNames.vod, c); rawCats.vod = c; })
+        .catch(function () { if (aborted) return; catNames.vod = {}; }),
+      fetchJson(apiUrl('get_series_categories')).then(function (c) { fillCatNames(catNames.series, c); rawCats.series = c; })
+        .catch(function () { if (aborted) return; catNames.series = {}; })
     ]);
     if (aborted || currentImportId === null) return;
+    // Catégories serveur (V11) : ordre exact du panneau, émis AVANT les items.
+    // Message annexe additif — le DataManager écrit db.categories, jamais via CHUNK.
+    emitCategories('live', rawCats.live);
+    emitCategories('vod', rawCats.vod);
+    emitCategories('series', rawCats.series);
 
     let liveGlobal = await fetchGlobalArray('get_live_streams');
     if (aborted || currentImportId === null) return;
     let vodGlobal = await fetchGlobalArray('get_vod_streams');
+    if (aborted || currentImportId === null) return;
+    let seriesGlobal = await fetchGlobalArray('get_series');
     if (aborted || currentImportId === null) return;
 
     if (liveGlobal !== null && vodGlobal !== null) {
       // Métadonnée de progression : total connu → badge en pourcentage de lignes.
       self.postMessage({ type: 'IMPORT_META', importId: currentImportId,
                          playlistId: currentPlaylistId,
-                         totalItems: liveGlobal.length + vodGlobal.length });
+                         totalItems: liveGlobal.length + vodGlobal.length +
+                                     (seriesGlobal !== null ? seriesGlobal.length : 0) });
       await importItemsFlat(liveGlobal, 'channels', function (it) { return mapLiveItem(it, catNames.channels[String(it.category_id)] || 'Autres'); });
       if (aborted || currentImportId === null) return;
       await importItemsFlat(vodGlobal, 'vod', function (it) { return mapVodItem(it, catNames.vod[String(it.category_id)] || 'Autres'); });
       liveGlobal = null; vodGlobal = null; // libère le JSON dès la mise en file
+      // (les séries sont drainées par la section commune, qui connaît seriesGlobal)
     } else {
       // Repli V9 : paginé par catégorie (progression = indéterminée, pas de meta).
       if (liveGlobal !== null) {
@@ -147,6 +159,15 @@ async function runImport() {
           await importCollection('get_vod_categories', 'get_vod_streams', 'vod', mapVodItem);
         }
       }
+    }
+    // Séries : chemin propre (global si dispo, sinon repli par catégories, §6.6).
+    if (!aborted && currentImportId !== null) {
+      if (seriesGlobal !== null) {
+        await importItemsFlat(seriesGlobal, 'series', function (it) { return mapSeriesItem(it, catNames.series[String(it.category_id)] || 'Autres'); });
+      } else {
+        await importCollection('get_series_categories', 'get_series', 'series', mapSeriesItem);
+      }
+      seriesGlobal = null;
     }
 
     if (aborted || currentImportId === null) return;
@@ -164,6 +185,20 @@ async function runImport() {
       self.postMessage({ type: 'ERROR', importId: importId,
                          message: String((err && err.message) || err) });
     }
+  }
+}
+
+function emitCategories(kind, cats) {
+  if (currentImportId === null || aborted) return;
+  if (!Array.isArray(cats)) return;
+  const out = [];
+  for (let i = 0; i < cats.length; i++) {
+    const c = cats[i];
+    if (c && c.category_id != null) out.push({ name: String(c.category_name || 'Autres') });
+  }
+  if (out.length > 0) {
+    self.postMessage({ type: 'CATEGORIES', importId: currentImportId,
+                       playlistId: currentPlaylistId, kind: kind, categories: out });
   }
 }
 
@@ -268,6 +303,22 @@ function mapVodItem(s, groupName) {
                encodeURIComponent(cfg.password) + '/' + s.stream_id + '.' +
                (s.container_extension || 'mp4'),
     searchName: normalizeSearchName(s.name)
+  };
+}
+
+function mapSeriesItem(s, groupName) {
+  const name = String(s.name || '');
+  return {
+    id: currentImportId0() + ':' + s.series_id,
+    importId: currentImportId0(),
+    seriesId: String(s.series_id),
+    name: name,
+    groupName: groupName,
+    logo: s.cover || s.stream_icon || '',
+    plot: String(s.plot || ''),
+    rating: s.rating == null ? '' : String(s.rating),
+    releaseDate: s.releaseDate || s.release_date || '',
+    searchName: normalizeSearchName(name)
   };
 }
 

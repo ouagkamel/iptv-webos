@@ -86,7 +86,45 @@ export const XTREAM_PANEL = {
       { stream_id: '904', name: 'Chaîne Café VOD', stream_icon: '', container_extension: 'ts' }
     ]
   },
-  EXPECTED: { channels: 5, vod: 4, maxConnections: 2 }
+  seriesCategories: [
+    { category_id: '30', category_name: 'Séries US' },
+    { category_id: '31', category_name: 'Docs TV' }
+  ],
+  seriesStreams: {
+    30: [
+      { series_id: '501', name: 'Série Alpha', cover: '', plot: 'plot A', rating: '8.1', releaseDate: '2020-01-01' },
+      { series_id: '502', name: 'Série Beta', cover: '', plot: '', rating: null, releaseDate: '' },
+      { series_id: '503', name: 'Série Gamma', cover: '', plot: '', rating: '6.0', releaseDate: '2021-06-06' }
+    ],
+    31: [
+      { series_id: '511', name: 'Doc Un', cover: '', plot: '', rating: '', releaseDate: '' },
+      { series_id: '512', name: 'Doc Deux', cover: '', plot: '', rating: '', releaseDate: '' }
+    ]
+  },
+  // get_series_info : forme « panels modernes » (seasons dict) pour 501,
+  // forme « entries » (aplatie) pour 511 — les deux chemins du normaliseur.
+  seriesInfo: {
+    501: {
+      info: { name: 'Série Alpha', cover: 'http://cover/alpha.jpg', rating: '8.1', plot: 'plot A', releasedate: '2020-01-01' },
+      seasons: {
+        0: { name: 'Saison 1', cover: '', episodes: {
+          1: [ { id: '9001', episode_id: '1', title: 'Épisode 1', container_extension: 'mkv', plot: 'e1' },
+               { id: '9002', episode_id: '2', title: 'Épisode 2', container_extension: 'mp4', plot: 'e2' } ]
+        } },
+        1: { name: 'Saison 2', cover: '', episodes: {
+          0: [ { id: '9003', episode_id: '1', title: 'Épisode 1 (S2)', container_extension: 'mkv', plot: '' } ]
+        } }
+      }
+    },
+    511: {
+      info: { name: 'Doc Un', cover: '', rating: '', plot: 'p' },
+      entries: {
+        1: [ { id: '9101', episode_id: '1', title: 'Ép. pilote', container_extension: 'ts', plot: '' },
+             { id: '9102', episode_id: '2', title: 'Ép. suite', container_extension: 'ts', plot: '' } ]
+      }
+    }
+  },
+  EXPECTED: { channels: 5, vod: 4, series: 5, maxConnections: 2 }
 };
 
 export function routeXtreamPanel(base, username, password, overrides) {
@@ -101,6 +139,11 @@ export function routeXtreamPanel(base, username, password, overrides) {
            ov.liveCategories !== undefined ? ov.liveCategories : XTREAM_PANEL.liveCategories);
   setRoute(withAction('get_vod_categories'),
            ov.vodCategories !== undefined ? ov.vodCategories : XTREAM_PANEL.vodCategories);
+  setRoute(withAction('get_series_categories'),
+           ov.seriesCategories !== undefined ? ov.seriesCategories : XTREAM_PANEL.seriesCategories);
+  Object.keys(XTREAM_PANEL.seriesInfo).forEach(function (sid) {
+    setRoute(withAction('get_series_info') + '&series_id=' + sid, XTREAM_PANEL.seriesInfo[sid]);
+  });
   for (const catId of Object.keys(XTREAM_PANEL.liveStreams)) {
     setRoute(withAction('get_live_streams') + '&category_id=' + catId,
              (ov.failLiveCat === catId)
@@ -111,6 +154,13 @@ export function routeXtreamPanel(base, username, password, overrides) {
   for (const catId of Object.keys(XTREAM_PANEL.vodStreams)) {
     setRoute(withAction('get_vod_streams') + '&category_id=' + catId,
              XTREAM_PANEL.vodStreams[catId]);
+  }
+  for (const catId of Object.keys(XTREAM_PANEL.seriesStreams)) {
+    setRoute(withAction('get_series') + '&category_id=' + catId,
+             (ov.failSeriesCat === String(catId))
+               ? null
+               : XTREAM_PANEL.seriesStreams[catId],
+             (ov.failSeriesCat === String(catId)) ? { status: 503 } : {});
   }
   // V10 — routes « catalogue global » (sans category_id) : même contenu concaténé
   // avec le category_id injecté, comme un vrai panneau. ov.failGlobal → 500 sur
@@ -127,5 +177,8 @@ export function routeXtreamPanel(base, username, password, overrides) {
            ov.failGlobal ? { status: 500 } : {});
   setRoute(withAction('get_vod_streams'),
            ov.failGlobal ? null : flatten(XTREAM_PANEL.vodStreams),
+           ov.failGlobal ? { status: 500 } : {});
+  setRoute(withAction('get_series'),
+           ov.failGlobal ? null : flatten(XTREAM_PANEL.seriesStreams),
            ov.failGlobal ? { status: 500 } : {});
 }

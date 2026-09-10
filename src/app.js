@@ -11,13 +11,16 @@ import { LifecycleAdapter } from './platform/LifecycleAdapter.js';
 import { DualPlayerPolicy } from './media/DualPlayerPolicy.js';
 import { PlayerOSD } from './components/PlayerOSD.js';
 import { ImportBadge } from './components/ImportBadge.js';
+import { SeriesBrowser } from './services/SeriesBrowser.js';
 import { CONFIG } from './config.js';
 
 const state = {
   tab: 'playlists',
   playlists: [],
   activePlaylistId: null,
-  items: { live: [], vod: [] },
+  items: { live: [], vod: [], series: [] },
+  // V11 : filtre à catégories serveur par vue ('' = Toutes)
+  catFilter: { live: '', vod: '', series: '' },
   selIndex: -1,
   provider: { maxConcurrentStreams: 0 },
   dualEligible: false,
@@ -26,7 +29,11 @@ const state = {
 
 let ctx, engine, osd, videoEl, adapter, lifecycle, root;
 let importBadge = null; // V10 : vignette de progression (non interactive, hors focus)
+let seriesBrowser = null; // V11 : détail de série lazy (§6.6)
+let seriesOverlay = null;
+let seriesOverlayBack = null;
 const lists = {};
+const catSelects = {};
 
 async function main() {
   root = document.getElementById('root');
@@ -36,6 +43,7 @@ async function main() {
 
   buildLayout();
   importBadge = new ImportBadge(document.body);
+  seriesBrowser = new SeriesBrowser();
   engine.init();
   wireGlobalEvents();
 
@@ -55,17 +63,20 @@ function buildLayout() {
   header.appendChild(tabButton('playlists', 'Playlistes'));
   header.appendChild(tabButton('live', 'Chaînes'));
   header.appendChild(tabButton('vod', 'Films'));
+  header.appendChild(tabButton('series', 'Séries'));
   root.appendChild(header);
 
   const body = el('div', 'body');
   state.views = {
     playlists: buildPlaylistsView(),
     live: buildListView('live'),
-    vod: buildListView('vod')
+    vod: buildListView('vod'),
+    series: buildListView('series')
   };
   body.appendChild(state.views.playlists);
   body.appendChild(state.views.live);
   body.appendChild(state.views.vod);
+  body.appendChild(state.views.series);
   root.appendChild(body);
 }
 
@@ -128,6 +139,14 @@ function buildListView(kind) {
   const view = el('div', 'view view-list');
   const left = el('div', 'list-pane');
   const tools = el('div', 'tools');
+  // V11 : catégories telles que définies par le serveur (ordre serveur conservé).
+  const catS = el('select'); catS.tabIndex = 0;
+  catS.addEventListener('change', function () {
+    state.catFilter[kind] = catS.value || '';
+    applySearch(kind, searchI.value);
+  });
+  catSelects[kind] = catS;
+  tools.appendChild(catS);
   const searchI = input('Recherche (début de nom)…', 'text'); tools.appendChild(searchI);
   tools.appendChild(button('Chercher', function () { applySearch(kind, searchI.value); }));
   tools.appendChild(button('Tout', function () { searchI.value = ''; applySearch(kind, ''); }));
@@ -189,19 +208,58 @@ async function runImport(playlistId, isEpg) {
 
 async function loadActiveData() {
   if (state.activePlaylistId == null) return;
-  const [live, vod] = await Promise.all([
+  const [live, vod, series] = await Promise.all([
     ctx.manager.channels(state.activePlaylistId),
-    ctx.manager.vod(state.activePlaylistId)
+    ctx.manager.vod(state.activePlaylistId),
+    ctx.manager.series(state.activePlaylistId)
   ]);
   state.items.live = live;
   state.items.vod = vod;
+  state.items.series = series;
+  await Promise.all([refreshCategorySelectors('live'), refreshCategorySelectors('vod'),
+                     refreshCategorySelectors('series')]);
   applySearch('live', '');
   applySearch('vod', '');
+  applySearch('series', '');
+}
+
+const KIND_TO_CAT = { live: 'live', vod: 'vod', series: 'series' };
+async function refreshCategorySelectors(kind) {
+  const sel = catSelects[kind];
+  if (!sel) return;
+  let catNames = [];
+  try {
+    const rows = await ctx.manager.categories(state.activePlaylistId, KIND_TO_CAT[kind]);
+    catNames = rows.map(function (r) { return r.name; });
+  } catch (err) { catNames = []; }
+  const catSet = new Set(catNames);
+  const extra = [];
+  if (catNames.length > 0) {
+    const rows = state.items[kind] || [];
+    for (let i = 0; i < rows.length; i++) {
+      const g = String(rows[i].groupName || 'Autres');
+      if (!catSet.has(g)) { catSet.add(g); extra.push(g); }
+    }
+  }
+  const opts = [''].concat(catNames).concat(extra);
+  const cur = state.catFilter[kind] || '';
+  sel.innerHTML = '';
+  for (let i = 0; i < opts.length; i++) {
+    const op = el('option');
+    op.value = opts[i];
+    op.textContent = opts[i] === '' ? 'Toutes les catégories' : opts[i];
+    sel.appendChild(op);
+  }
+  sel.value = opts.indexOf(cur) !== -1 ? cur : '';
+  state.catFilter[kind] = sel.value;
+  if (opts.indexOf(cur) === -1) state.catFilter[kind] = '';
 }
 
 function applySearch(kind, rawQuery) {
   const norm = String(rawQuery || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
-  const all = state.items[kind] || [];
+  let all = state.items[kind] || [];
+  const cat = state.catFilter[kind] || '';
+  if (cat) all = all.filter(function (r) { return String(r.groupName || 'Autres') === cat; });
   const rows = !norm ? all : all.filter(function (r) {
     return String(r.searchName || '').indexOf(norm) === 0;
   }).slice(0, CONFIG.SEARCH_LIMIT);
@@ -237,7 +295,7 @@ function syncFocusables(kind) {
 }
 
 function handleListKeys(e) {
-  if (state.tab !== 'live' && state.tab !== 'vod') return;
+  if (state.tab !== 'live' && state.tab !== 'vod' && state.tab !== 'series') return;
   const kind = state.tab;
   const list = lists[kind];
   const total = list.items.length;
@@ -268,6 +326,7 @@ function scrollToShow(kind, idx) {
 }
 
 async function activateChannel(kind, item) {
+  if (kind === 'series') { openSeriesDetail(item); return; } // §6.6 : la série se joue par épisode
   openPlayer();
   adapter.play(item.streamUrl);
   if (kind === 'live') {
@@ -327,8 +386,97 @@ function closePlayer() {
   if (adapter) adapter.stop();
   if (playerOverlay && playerOverlay.parentNode) playerOverlay.parentNode.removeChild(playerOverlay);
   engine.removeBackHandler(closePlayer);
-  if (state.tab === 'live' || state.tab === 'vod') syncFocusables(state.tab);
+  if (state.tab === 'live' || state.tab === 'vod' || state.tab === 'series') syncFocusables(state.tab);
   else renderTab();
+}
+
+/* —————————————— détail de série (V11, §6.6) ——————————————
+   Overlay plein écran dédié, même mécanique que le lecteur : back LIFO,
+   focus borné, rendu XSS-safe. get_series_info est paresseux (cache 24 h) :
+   un échec réseau affiche « Réessayer » sans jamais toucher à l'import. */
+async function openSeriesDetail(item) {
+  closeSeriesDetail();
+  const pl = await ctx.manager.get(state.activePlaylistId);
+  seriesOverlayBack = closeSeriesDetail;
+  engine.pushBackHandler(seriesOverlayBack);
+  seriesOverlay = el('div', 'series-detail');
+  const head = el('div', 'sd-head');
+  const closeB = el('button', 'mini close-sd');
+  closeB.textContent = 'Fermer'; closeB.tabIndex = 0;
+  closeB.addEventListener('click', closeSeriesDetail);
+  const title = el('div', 'sd-title');
+  title.textContent = item.name + (item.rating ? '  —  ★ ' + item.rating : '');
+  const meta = el('div', 'sd-meta');
+  meta.textContent = [item.groupName, item.releaseDate].filter(Boolean).join('  ·  ');
+  const plot = el('div', 'sd-plot');
+  plot.textContent = item.plot || '';
+  head.appendChild(closeB); head.appendChild(title); head.appendChild(meta); head.appendChild(plot);
+  const body = el('div', 'sd-body');
+  seriesOverlay.appendChild(head);
+  seriesOverlay.appendChild(body);
+  document.body.appendChild(seriesOverlay);
+  engine.setFocusables([closeB]);
+
+  let payload;
+  try {
+    payload = await seriesBrowser.ensureInfo(pl, item);
+  } catch (err) {
+    const msg = el('div', 'sd-error');
+    msg.textContent = 'Détail indisponible : ' + String((err && err.message) || err);
+    const retry = el('button', 'mini');
+    retry.textContent = 'Réessayer'; retry.tabIndex = 0;
+    retry.addEventListener('click', function () { openSeriesDetail(item); });
+    body.appendChild(msg); body.appendChild(retry);
+    engine.setFocusables([closeB, retry]);
+    return;
+  }
+  const focusEls = [closeB];
+  const seasons = (payload && payload.seasons) || [];
+  for (let s = 0; s < seasons.length; s++) {
+    const sn = seasons[s];
+    const h = el('div', 'sd-season');
+    h.textContent = sn.name + '  ·  ' + sn.episodes.length + ' épisode(s)';
+    body.appendChild(h);
+    for (let e = 0; e < sn.episodes.length; e++) {
+      const ep = sn.episodes[e];
+      const b = el('button', 'sd-epi');
+      b.tabIndex = 0;
+      b.textContent = 'S' + pad2(sn.number) + 'E' + pad2(ep.episodeId) + '  ' + ep.title;
+      (function (episode, season) {
+        b.addEventListener('click', function () { playEpisode(pl, item, season, episode); });
+      })(ep, sn);
+      body.appendChild(b);
+      focusEls.push(b);
+    }
+  }
+  if (focusEls.length === 1) {
+    const none = el('div', 'sd-error');
+    none.textContent = 'Aucun épisode fourni par le panneau.';
+    body.appendChild(none);
+  }
+  engine.setFocusables(focusEls);
+}
+
+function closeSeriesDetail() {
+  if (!seriesOverlay) return;
+  if (seriesOverlay.parentNode) seriesOverlay.parentNode.removeChild(seriesOverlay);
+  seriesOverlay = null;
+  if (seriesOverlayBack) { engine.removeBackHandler(seriesOverlayBack); seriesOverlayBack = null; }
+  if (state.tab === 'series') syncFocusables('series');
+  else renderTab();
+}
+
+function playEpisode(pl, series, season, ep) {
+  closeSeriesDetail();
+  openPlayer();
+  adapter.play(SeriesBrowser.episodeUrl(pl, ep));
+  osd.setChannel(series.name);
+  osd.setStatus('S' + pad2(season.number) + 'E' + pad2(ep.episodeId) + ' — ' + ep.title);
+}
+
+function pad2(x) {
+  const str = String(x == null ? '' : x);
+  return str.length < 2 ? '0' + str : str;
 }
 
 async function showEpgFor(item) {
@@ -352,7 +500,9 @@ function wireGlobalEvents() {
   // Échap (desktop/simulateur) ferme l'overlay ; Back webOS (461) transite par la
   // pile LIFO du FocusEngine (handler poussé à l'ouverture, retiré à la fermeture).
   window.addEventListener('keydown', function (e) {
-    if (state.playerOpen && e.keyCode === 27) {
+    if (seriesOverlay && e.keyCode === 27) { // Échap : le détail prime sur tout (desktop/simulateur)
+      e.preventDefault(); e.stopImmediatePropagation(); closeSeriesDetail();
+    } else if (state.playerOpen && e.keyCode === 27) {
       e.preventDefault(); e.stopImmediatePropagation(); closePlayer();
     }
   });
@@ -392,6 +542,7 @@ function renderTab() {
   state.views.playlists.style.display = state.tab === 'playlists' ? '' : 'none';
   state.views.live.style.display = state.tab === 'live' ? '' : 'none';
   state.views.vod.style.display = state.tab === 'vod' ? '' : 'none';
+  state.views.series.style.display = state.tab === 'series' ? '' : 'none';
   if (state.tab !== 'playlists') {
     applySearch(state.tab, '');
   } else {

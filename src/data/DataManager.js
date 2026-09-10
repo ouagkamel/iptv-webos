@@ -25,8 +25,9 @@ export class DataManager {
         this.failImport(data.importId != null ? data.importId : null, new Error(data.message || 'worker ERROR'));
         return undefined;
       }
-      this._routeAux(data); // CHUNK_PARSED / ACCOUNT_INFO et signaux annexes (§5.8, §6.5)
-      return undefined;
+      return this._routeAux(data); // CHUNK_PARSED / ACCOUNT_INFO / CATEGORIES :
+      // signaux annexes (§5.8) — retournés dans la file pour que l'écriture
+      // db.categories soit terminée avant un COMPLETE immédiatement posterior.
     }).catch((err) => {
       this._handleTerminalError(err, data); // voie terminale UNIQUE — ne rejette jamais
     });
@@ -75,7 +76,11 @@ export class DataManager {
     if (i !== -1) this.auxListeners.splice(i, 1);
   }
 
-  _routeAux(data) {
+  async _routeAux(data) {
+    if (data && data.type === 'CATEGORIES') { // V11 : catégories serveur → db.categories
+      this._writeCategories(data);
+      return; // jamais re-routé aux auxListeners : consommateur unique = DataManager
+    }
     if (data && data.type === 'IMPORT_META') { // V10 : totaux connus → % de lignes au badge
       window.dispatchEvent(new CustomEvent('import-meta', { detail: {
         importId: data.importId, playlistId: data.playlistId, totalItems: data.totalItems
@@ -84,6 +89,22 @@ export class DataManager {
     for (let i = 0; i < this.auxListeners.length; i++) {
       try { this.auxListeners[i](data); } catch (errAux) { console.error('DataManager aux listener:', errAux); }
     }
+  }
+
+  // Écriture idempotente par (importId, kind) : re-tir d'un même import = mêmes
+  // lignes, jamais d'accumulation. Échec DB = non bloquant pour l'import (le
+  // filtre à catégories retombe alors sur « Toutes », jamais sur une erreur).
+  async _writeCategories(data) {
+    if (this.abortedImports.has(data.importId)) return;
+    try {
+      const rows = (data.categories || []).map(function (c, i) {
+        return { importId: data.importId, kind: data.kind, name: c.name, sort: i };
+      });
+      await db.transaction('rw', [db.categories], async () => {
+        await db.categories.where('[importId+kind]').equals([data.importId, data.kind]).delete();
+        if (rows.length > 0) await db.categories.bulkAdd(rows);
+      });
+    } catch (err) { console.error('DataManager: catégories non persistées:', err); }
   }
 
   async _processChunk({ importId, items, targetTable }) {
@@ -130,13 +151,14 @@ export class DataManager {
     if (this.abortedImports.has(importId)) return; // jamais de swap sur import avorté
     const isEpg = kind === 'epg';
     // kind 'playlist' (M3U ou Xtream) purge channels ET vod ; kind 'epg' ne purge que epg (DB-5)
-    const targetTables = isEpg ? [db.epg] : [db.channels, db.vod];
+    const targetTables = isEpg ? [db.epg] : [db.channels, db.vod, db.series, db.series_info, db.categories];
     const activeField = isEpg ? 'activeEpgImportId' : 'activeImportId';
 
     // Swap atomique + purge strictement bornée à la playlist ET au type d'import.
     // Hors question ici : toute clause du type notEqual(importId) non bornée,
     // qui effacerait les imports actifs des AUTRES playlists.
-    await db.transaction('rw', [db.playlists, db.imports, db.channels, db.epg, db.vod], async () => {
+    await db.transaction('rw', [db.playlists, db.imports, db.channels, db.epg, db.vod,
+                                db.series, db.series_info, db.categories], async () => {
       await db.playlists.update(playlistId, Object.assign({ updatedAt: Date.now() }, { [activeField]: importId }));
 
       const oldImports = await db.imports

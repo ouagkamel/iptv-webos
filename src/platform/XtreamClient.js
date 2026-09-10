@@ -23,5 +23,12 @@ export const XtreamClient = {
   },
   vodStreamUrl(base, u, p, streamId, ext) {
     return base + '/movie/' + qp(u) + '/' + qp(p) + '/' + qp(streamId) + '.' + (ext || 'mp4');
+  },
+  // §6.6 (V11) — séries : détail paresseux + lecture d'épisode.
+  seriesInfoUrl(base, u, p, seriesId) {
+    return this.apiBase(base, u, p) + '&action=get_series_info&series_id=' + qp(seriesId);
+  },
+  seriesStreamUrl(base, u, p, episodeId, ext) {
+    return base + '/series/' + qp(u) + '/' + qp(p) + '/' + qp(episodeId) + '.' + (ext || 'mp4');
   }
 };

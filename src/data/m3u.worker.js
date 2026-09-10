@@ -6,6 +6,11 @@
 // en vol) est inchangée ; gain = coût fixe d'acquittement/respiration ÷ 4.
 const CHUNK_ITEMS = 2000;
 
+// V11 (§6.4) : catégories M3U = group-title du fichier, dans l'ordre de première
+// apparition (« définies par le serveur » = par la playlist elle-même).
+let groupOrder = [];
+let groupSeen = Object.create(null);
+
 let lineCarry = '';
 let pendingName = null;     // #EXTINF vue, stream pas encore lu
 let pendingGroup = null;    // #EXTGRP ou group-title de l'EXTINF courant
@@ -27,6 +32,8 @@ self.onmessage = function (e) {
     currentImportId = data.importId;
     currentPlaylistId = data.playlistId;
     lineCarry = '';
+    groupOrder = [];
+    groupSeen = Object.create(null);
     pendingName = null; pendingGroup = null; pendingChannelId = null; pendingLogo = null;
     seq = 0;
     pendingItems = [];
@@ -115,12 +122,14 @@ function handleLine(rawLine, isFinal) {
 
   // Ligne stream : l'item se concrétise (un nom est optionnel → repli sur l'URL)
   const name = pendingName !== null ? pendingName : line.substring(line.lastIndexOf('/') + 1);
+  const grp = pendingGroup || 'Autres';
+  if (!groupSeen[grp]) { groupSeen[grp] = true; groupOrder.push(grp); }
   pendingItems.push({
     id: currentImportId + ':' + seq, // DB-1 : seq = compteur incrémental dans le fichier
     importId: currentImportId,
     name: name,
     channelId: pendingChannelId,      // jointure EPG (tvg-id)
-    groupName: pendingGroup || 'Autres',
+    groupName: grp,
     logo: pendingLogo || '',
     streamUrl: line,
     searchName: normalizeSearchName(name) // DB-3
@@ -154,6 +163,12 @@ function checkCompletion() {
     const importId = currentImportId;
     const playlistId = currentPlaylistId;
     currentImportId = null; // jamais de double COMPLETE (file d'acks résiduels)
+    if (groupOrder.length > 0) {
+      const cats = [];
+      for (let g = 0; g < groupOrder.length; g++) cats.push({ name: groupOrder[g] });
+      self.postMessage({ type: 'CATEGORIES', importId: importId, playlistId: playlistId,
+                         kind: 'live', categories: cats });
+    }
     self.postMessage({ type: 'COMPLETE', playlistId: playlistId, importId: importId, kind: 'playlist' });
   }
 }

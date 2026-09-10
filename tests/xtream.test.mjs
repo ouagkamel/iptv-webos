@@ -42,10 +42,11 @@ async function runXtream(overrides) {
   return { plId, importId, detail, pair, accountInfos, metaEvents, rowEvents };
 }
 
-test('xtream-mock : 5 channels + 4 vod exacts, swap actif, ACCOUNT_INFO maxConnections=2', async () => {
+test('xtream-mock : 5 channels + 4 vod + 5 séries exacts, swap actif, ACCOUNT_INFO maxConnections=2', async () => {
   const r = await runXtream();
   assert.equal(await db.channels.where('importId').equals(r.importId).count(), XTREAM_PANEL.EXPECTED.channels);
   assert.equal(await db.vod.where('importId').equals(r.importId).count(), XTREAM_PANEL.EXPECTED.vod);
+  assert.equal(await db.series.where('importId').equals(r.importId).count(), XTREAM_PANEL.EXPECTED.series);
 
   assert.equal(r.accountInfos.length, 1, 'ACCOUNT_INFO routé via _routeAux');
   assert.equal(r.accountInfos[0].maxConnections, 2);
@@ -78,10 +79,20 @@ test('xtream-mock : 5 channels + 4 vod exacts, swap actif, ACCOUNT_INFO maxConne
 
   // V10 mode global = chemin par défaut : meta + rows additives observables
   assert.equal(r.metaEvents.length, 1, 'un seul import-meta');
-  assert.equal(r.metaEvents[0].totalItems, XTREAM_PANEL.EXPECTED.channels + XTREAM_PANEL.EXPECTED.vod);
-  assert.equal(r.rowEvents.length, 2, 'un CHUNK par table (jamais mixte)');
-  assert.deepEqual(r.rowEvents.map(function (e) { return e.targetTable; }), ['channels', 'vod']);
-  assert.equal(r.rowEvents[1].written, 9, 'cumul = total écrit');
+  assert.equal(r.metaEvents[0].totalItems,
+    XTREAM_PANEL.EXPECTED.channels + XTREAM_PANEL.EXPECTED.vod + XTREAM_PANEL.EXPECTED.series);
+  assert.equal(r.rowEvents.length, 3, 'un CHUNK par table (jamais mixte)');
+  assert.deepEqual(r.rowEvents.map(function (e) { return e.targetTable; }), ['channels', 'vod', 'series']);
+  assert.equal(r.rowEvents[2].written, 14, 'cumul = total écrit');
+
+  // mapping séries (DB-6) : catégorie serveur via Map, champs enrichis
+  const series = {}; (await db.series.where('importId').equals(r.importId).toArray())
+    .forEach(x => { series[x.name] = x; });
+  assert.equal(series['Série Alpha'].groupName, 'Séries US');
+  assert.equal(series['Série Alpha'].seriesId, '501');
+  assert.equal(series['Série Alpha'].rating, '8.1');
+  assert.equal(series['Doc Deux'].groupName, 'Docs TV');
+  assert.equal(await db.vod.count(), 4, 'DB-5 : aucune série dans vod');
 
   r.pair.controller.destroy(); r.pair.dataManager.destroy();
 });
@@ -114,6 +125,7 @@ test('XP-4 (repli par catégories) : catégorie live défaillante → ignorée, 
   const r = await runXtream({ failLiveCat: '20', failGlobal: true });
   assert.equal(await db.channels.where('importId').equals(r.importId).count(), 3, 'catégorie 20 ignorée');
   assert.equal(await db.vod.where('importId').equals(r.importId).count(), 4, 'vod intacte');
+  assert.equal(await db.series.where('importId').equals(r.importId).count(), 5, 'séries via repli par catégories');
   assert.equal((await db.imports.get(r.importId)).status, 'completed');
   assert.equal(r.metaEvents.length, 0, 'repli : pas de totalItems → progression indéterminée');
   r.pair.controller.destroy(); r.pair.dataManager.destroy();
@@ -138,6 +150,40 @@ test('V10 mode global : category_id orphelin → groupe « Autres », sans appel
   pair.controller.destroy(); pair.dataManager.destroy();
 });
 
+test('V11 séries (repli) : catégorie de séries 503 → ignorée, import complété', async () => {
+  const r = await runXtream({ failGlobal: true, failSeriesCat: '31' });
+  assert.equal(await db.series.where('importId').equals(r.importId).count(), 3, 'cat 31 ignorée, cat 30 importée');
+  assert.equal((await db.imports.get(r.importId)).status, 'completed');
+  r.pair.controller.destroy(); r.pair.dataManager.destroy();
+});
+
+test('V11 catégories serveur : ordre exact (live/vod/series) + purge complète à la réimportation', async () => {
+  await freshDb();
+  const plId = await addPlaylist(db, 'Cat', { source: 'xtream', base: BASE, username: USER, password: PASS });
+  const importId = await addImportRow(db, plId, 'playlist');
+  routeXtreamPanel(BASE, USER, PASS, {});
+  const pair = makePair('xtream', 'channels');
+  await pair.controller.startImport({ source: 'xtream', importId: importId, playlistId: plId,
+                                     kind: 'playlist', base: BASE, username: USER, password: PASS });
+
+  const byKind = async function (k) {
+    const rows = await db.categories.where('[importId+kind]').equals([importId, k]).sortBy('sort');
+    return rows.map(function (r) { return r.name; });
+  };
+  assert.deepEqual(await byKind('live'), ['Infos', 'Sports'], 'ordre du serveur, pas alphabétique');
+  assert.deepEqual(await byKind('vod'), ['Cinéma']);
+  assert.deepEqual(await byKind('series'), ['Séries US', 'Docs TV']);
+
+  const importId2 = await addImportRow(db, plId, 'playlist');
+  await pair.controller.startImport({ source: 'xtream', importId: importId2, playlistId: plId,
+                                     kind: 'playlist', base: BASE, username: USER, password: PASS });
+  assert.equal(await db.categories.where('importId').equals(importId).count(), 0, 'catégories de l’import périmé purgées');
+  assert.equal(await db.categories.where('importId').equals(importId2).count(), 5);
+  assert.equal(await db.series.where('importId').equals(importId).count(), 0, 'séries périmées purgées');
+  assert.equal(await db.series.where('importId').equals(importId2).count(), 5);
+  pair.controller.destroy(); pair.dataManager.destroy();
+});
+
 test('XtreamClient : validation base + endpoints + xmltv (EPG pipeline §6 inchangé)', () => {
   assert.equal(XtreamClient.normalizeBase('https://my.panel:25461///'), 'https://my.panel:25461');
   assert.throws(() => XtreamClient.normalizeBase('ftp://nope'), /XTREAM_BASE_URL_INVALID/);
@@ -147,6 +193,12 @@ test('XtreamClient : validation base + endpoints + xmltv (EPG pipeline §6 incha
   );
   assert.equal(XtreamClient.epgXmltvUrl('http://p', 'u', 'pw'), 'http://p/xmltv.php?username=u&password=pw');
   assert.equal(XtreamClient.vodStreamUrl('http://p', 'u', 'pw', 5), 'http://p/movie/u/pw/5.mp4');
+  assert.equal(
+    XtreamClient.seriesInfoUrl('http://p', 'u', 'pw', '77'),
+    'http://p/player_api.php?username=u&password=pw&action=get_series_info&series_id=77'
+  );
+  assert.equal(XtreamClient.seriesStreamUrl('http://p', 'u', 'pw', 9, 'mkv'), 'http://p/series/u/pw/9.mkv');
+  assert.equal(XtreamClient.seriesStreamUrl('http://p', 'u', 'pw', 9), 'http://p/series/u/pw/9.mp4', 'extension défaut mp4');
 });
 
 test('bascule de table live→vod : jamais de CHUNK mixte (chaque lot porte UNE targetTable)', async () => {
@@ -177,7 +229,7 @@ test('bascule de table live→vod : jamais de CHUNK mixte (chaque lot porte UNE 
   await controller.startImport({ source: 'xtream', importId, playlistId: plId, kind: 'playlist',
                                  base: BASE, username: USER, password: PASS });
   const uniq = Array.from(new Set(seenTables));
-  assert.deepEqual(uniq.sort(), ['channels', 'vod'], 'deux tables vues, par lots séparés');
+  assert.deepEqual(uniq.sort(), ['channels', 'series', 'vod'], 'trois tables vues, par lots séparés');
   assert.equal(await db.channels.where('importId').equals(importId).count(), 2003, '2001 (cat 10) + 2 (cat 20)');
   controller.destroy(); dm.destroy();
 });

@@ -104,7 +104,7 @@ export async function boot() {
     }, 8000);
   });
   await Promise.race([openP, openGuard]);
-  console.log('[boot] Dexie ouvert (v2 — table vod incluse, DB-5)');
+  console.log('[boot] Dexie ouvert (v3 — vod DB-5, séries+catégories DB-6)');
 
   setBootStep('maintenance §5.5/§5.6…');
   const pairs = createImportPairs();

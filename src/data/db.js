@@ -17,3 +17,15 @@ db.version(1).stores({
 db.version(2).stores({
   vod: 'id, importId, [importId+groupName], searchName'
 });
+
+// v3 (révision V11, §6.6) : DB-6 — séries + cache paresseux + catégories serveur.
+//   series      : une ligne par série (Xtream get_series ; le M3U n'en définit pas).
+//   series_info : détail (saisons/épisodes) stocké LAZYLEMENT à la première
+//                 ouverture (jamais à l'import), TTL 24 h, id = id de la série.
+//   categories  : catégories telles que définies par le serveur (ordre conservé) ;
+//                 M3U = group-title dans l'ordre de première apparition du fichier.
+db.version(3).stores({
+  series:      'id, importId, [importId+groupName], searchName',
+  series_info: 'id, importId',
+  categories:  '++cid, importId, [importId+kind]'
+});

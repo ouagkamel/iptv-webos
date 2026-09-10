@@ -96,3 +96,23 @@ test('terminaison avec résidu < CHUNK_ITEMS (PROT-4, V10 : lot 2000) : 1 237 li
   assert.equal(await db.channels.where('importId').equals(importId).count(), 1237);
   pair.controller.destroy(); pair.dataManager.destroy();
 });
+
+
+test('V11 catégories M3U : ordre de première apparition des group-title', async () => {
+  await freshDb();
+  const plId = await addPlaylist(db, 'CatM3U');
+  const importId = await addImportRow(db, plId, 'playlist');
+  const url = 'http://fixtures.test/cat.m3u';
+  routeText(url, buildM3U(3000, 5, { extgrp: false }));
+  const pair = makePair('m3u', 'channels');
+  await pair.controller.startImport({ importId: importId, playlistId: plId, kind: 'playlist', url: url });
+  const rows = await db.categories.where('[importId+kind]').equals([importId, 'live']).sortBy('sort');
+  const names = rows.map(function (r) { return r.name; });
+  assert.equal(names.length, 5, '5 groupes du panneau-fichier');
+  // ordre de première apparition : buildM3U tourne Groupe (i % 5) dans l'ordre des items
+  const chans = await db.channels.where('importId').equals(importId).toArray();
+  const first = [];
+  chans.forEach(function (c) { if (first.indexOf(c.groupName) === -1) first.push(c.groupName); });
+  assert.deepEqual(names, first, 'ordre serveur (fichier) conservé, pas tri alphabétique');
+  pair.controller.destroy(); pair.dataManager.destroy();
+});

@@ -37,6 +37,24 @@ avec reprise + seek, politique §7.5.
   de GitHub, ou `git clone https://github.com/ouagkamel/iptv-webos.git`
   (puis `npm ci && npm run build`).
 
+## Séries & catégories serveur (révision V11)
+
+- **Séries (Xtream uniquement)** : import `get_series` dans la table `series`
+  (mêmes mode global + repli que V10, mêmes gardes mémoire) ; le détail
+  `get_series_info` est **paresseux** (un appel à la première ouverture de la
+  série, cache local `series_info` TTL 24 h, deux formes de panneaux normalisées
+  `seasons`/`entries`) ; lecture d'épisode par le même lecteur que la VOD
+  (`{base}/series/{u}/{p}/{episode_id}.{ext}`). Un échec de détail n'affecte
+  jamais l'import (« Réessayer » côté UI).
+- **Catégories telles que définies par le serveur** : message additif
+  `CATEGORIES` (worker → DataManager → table `categories`, **ordre du serveur
+  conservé**, y compris en mode repli ; M3U = group-title dans l'ordre de
+  première apparition). Chaque liste Chaînes / Films / Séries est précédée d'un
+  sélecteur de catégorie (« Toutes les catégories » en tête) ; le filtre
+  s'applique avant la recherche préfixe et le plafond de rendu.
+- **DB v3 (additive)** : `series`, `series_info`, `categories` ; purge/swap
+  bornés §5.3 étendus aux trois tables ; boot maintenance idem.
+
 ## Performance d'import (révision V10)
 
 - **Xtream : catalogue global par défaut** — 1× `get_live_streams` + 1×

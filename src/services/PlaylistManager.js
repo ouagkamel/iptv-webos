@@ -49,9 +49,13 @@ export class PlaylistManager {
     const importIds = await db.imports
       .where('playlistId').equals(playlistId).primaryKeys();
     if (importIds.length > 0) {
-      await db.transaction('rw', [db.channels, db.epg, db.vod, db.imports], async () => {
+      await db.transaction('rw', [db.channels, db.epg, db.vod, db.series, db.series_info,
+                                  db.categories, db.imports], async () => {
         await db.channels.where('importId').anyOf(importIds).delete();
         await db.vod.where('importId').anyOf(importIds).delete();
+        await db.series.where('importId').anyOf(importIds).delete();
+        await db.series_info.where('importId').anyOf(importIds).delete();
+        await db.categories.where('importId').anyOf(importIds).delete();
         await db.epg.where('importId').anyOf(importIds).delete();
         await db.imports.bulkDelete(importIds);
       });
@@ -103,11 +107,14 @@ export class PlaylistManager {
     if (importId != null) {
       db.imports.update(importId, { status: 'failed', error: 'annulé par l’utilisateur' })
         .catch(function (e) { console.error('marquage abort:', e); });
-      db.transaction('rw', [db.channels, db.epg, db.vod], function () {
+      db.transaction('rw', [db.channels, db.epg, db.vod, db.series, db.series_info, db.categories], function () {
         if (kind === 'epg') return db.epg.where('importId').equals(importId).delete();
         return Promise.all([
           db.channels.where('importId').equals(importId).delete(),
-          db.vod.where('importId').equals(importId).delete()
+          db.vod.where('importId').equals(importId).delete(),
+          db.series.where('importId').equals(importId).delete(),
+          db.series_info.where('importId').equals(importId).delete(),
+          db.categories.where('importId').equals(importId).delete()
         ]);
       }).catch(function (e) { console.error('purge partielle abort:', e); });
     }
@@ -127,6 +134,22 @@ export class PlaylistManager {
     });
   }
 
+  series(playlistId) {
+    return db.playlists.get(playlistId).then(function (pl) {
+      if (!pl || !pl.activeImportId) return [];
+      return db.series.where('importId').equals(pl.activeImportId).toArray();
+    });
+  }
+
+  /** Catégories serveur de l'import actif, dans l'ordre du serveur (V11, §6.4). */
+  categories(playlistId, kind) {
+    return db.playlists.get(playlistId).then(function (pl) {
+      if (!pl || !pl.activeImportId) return [];
+      return db.categories.where('[importId+kind]').equals([pl.activeImportId, kind])
+        .sortBy('sort');
+    });
+  }
+
   /**
    * §5.5 — Reprise sur crash au boot :
    *  1. imports « running » (tués avec l'app) → 'failed' ;
@@ -136,7 +159,8 @@ export class PlaylistManager {
    */
   async bootMaintenance() {
     const now = Date.now();
-    await db.transaction('rw', [db.playlists, db.imports, db.channels, db.epg, db.vod], async () => {
+    await db.transaction('rw', [db.playlists, db.imports, db.channels, db.epg, db.vod,
+                                db.series, db.series_info, db.categories], async () => {
       const running = await db.imports.where('status').equals('running').toArray();
       const freshRunning = {};
       const stale = [];
@@ -163,6 +187,12 @@ export class PlaylistManager {
       await this._purgeOrphans(db.channels, activePlaylistIds,
                                freshRunning.playlist || new Set());
       await this._purgeOrphans(db.vod, activePlaylistIds,
+                               freshRunning.playlist || new Set());
+      await this._purgeOrphans(db.series, activePlaylistIds,
+                               freshRunning.playlist || new Set());
+      await this._purgeOrphans(db.series_info, activePlaylistIds,
+                               freshRunning.playlist || new Set());
+      await this._purgeOrphans(db.categories, activePlaylistIds,
                                freshRunning.playlist || new Set());
       await this._purgeOrphans(db.epg, activeEpgIds,
                                freshRunning.epg || new Set());
