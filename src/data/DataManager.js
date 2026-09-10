@@ -86,6 +86,12 @@ export class DataManager {
         importId: data.importId, playlistId: data.playlistId, totalItems: data.totalItems
       } }));
     }
+    if (data && data.type === 'IMPORT_PHASE') { // V16 : activité visible avant totalItems
+      window.dispatchEvent(new CustomEvent('import-phase', { detail: {
+        importId: data.importId, playlistId: data.playlistId,
+        phase: data.phase, label: data.label
+      } }));
+    }
     for (let i = 0; i < this.auxListeners.length; i++) {
       try { this.auxListeners[i](data); } catch (errAux) { console.error('DataManager aux listener:', errAux); }
     }

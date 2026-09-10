@@ -1,4 +1,4 @@
-# IPTV webOS Player — implémentation (Spec V15, Plan Sprint 0→4)
+# IPTV webOS Player — implémentation (Spec V16, Plan Sprint 0→4)
 
 App webOS TV (cible : webOS 5.0 entrée de gamme, Chromium 68) : imports **M3U +
 XMLTV + Xtream Codes**, virtualisation TV, pipeline média NATIVE→MSE avec
@@ -10,7 +10,7 @@ watchdog, persistance Dexie v3 (vod, séries, cache de détail, catégories ; r�
 |---|---|
 | `npm ci`-style install (deps figées §2.1 : dexie 3.2.4, hls.js 1.4.14, webostvjs 1.2.4) | ✔ |
 | `npm run build` (Vite 4.5.0, target chrome68, terser, workers IIFE, inlineDynamicImports) | ✔ 26 modules, 4 bundles (3 workers séparés + 1 chunk unique) |
-| `npm test` (harnais maison `node:test`, **76 tests**) | ✔ 76/76 |
+| `npm test` (harnais maison `node:test`, **77 tests**) | ✔ 77/77 |
 | `tools/syntax-gate.mjs src` (interdit `?.` `??` `.flat` `Object.fromEntries` `globalThis` nu…) | ✔ 24 fichiers |
 | `tools/syntax-gate.mjs dist` (deps minifiées, occurrences sous garde tolérées et documentées) | ✔ 2 occurrences gardées (interop `typeof globalThis`, `typeof self.clients &&` de hls.js) |
 | Build store `IPTV_PRODUCTION=true` (Q3) | ✔ 520.27 kB, bundle sans aucun `console.*` |
@@ -262,6 +262,20 @@ lecture (`_playGen`) — un rejet de `play()` dont la génération n'est plus co
 ne décrit plus aucune lecture et ne décide rien. Le xhr du fallback ne doit plus
 apparaître « canceled 0 o » ; si le flux reste noir, l'erreur affichée est désormais
 **nommée par hls.js** (réseau/media/auth) et décrit le panneau, non plus l'app.
+
+### V16 : import plus lisible et playlist Xtream par défaut
+
+Au premier lancement, la playlist Xtream de test est maintenant créée une seule
+fois et sélectionnée automatiquement : il suffit de cliquer sur **Importer**.
+Les identifiants sont compilés dans l'IPK pour cette commodité et ne doivent pas
+être considérés comme secrets.
+
+Avant le premier pourcentage, le badge affiche désormais les phases réelles :
+connexion, catégories, téléchargement des catalogues, puis écriture des chaînes,
+films et séries. Les catalogues globaux `get_live_streams`, `get_vod_streams` et
+`get_series` sont récupérés en parallèle ; l'écriture reste dans l'ordre live →
+VOD → séries et `IMPORT_META` conserve son total exact. Cela réduit l'attente
+initiale et permet de distinguer un temps réseau/JSON d'un temps IndexedDB.
 
 ### V15 : réponse `get_series_info` Xtream réelle
 

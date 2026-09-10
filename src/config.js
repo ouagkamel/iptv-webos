@@ -13,3 +13,14 @@ export const CONFIG = {
   // Recherche : plafond de résultats affichés (TV basse conso, §8.2 esprit)
   SEARCH_LIMIT: 200
 };
+
+// Playlist Xtream de démarrage demandée pour le device de test.
+// ATTENTION : ces identifiants sont embarqués dans l'IPK et ne constituent pas
+// un secret. La valeur sert uniquement à éviter une ressaisie au premier boot.
+export const DEFAULT_PLAYLIST = {
+  name: 'KDFGH — playlist par défaut',
+  source: 'xtream',
+  base: 'http://kdfgh.com:8080',
+  username: 'qmjexhtx',
+  password: 'rskxknar'
+};

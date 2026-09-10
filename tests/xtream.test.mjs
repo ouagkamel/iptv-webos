@@ -29,17 +29,20 @@ async function runXtream(overrides) {
     if (d && d.type === 'ACCOUNT_INFO') accountInfos.push(d);
   });
   // V10 : progression additive (meta depuis le worker, rows depuis le DataManager)
-  const metaEvents = []; const rowEvents = [];
+  const metaEvents = []; const rowEvents = []; const phaseEvents = [];
   const onMeta = function (e) { if (e.detail && e.detail.importId === importId) metaEvents.push(e.detail); };
   const onRows = function (e) { if (e.detail && e.detail.importId === importId) rowEvents.push(e.detail); };
+  const onPhase = function (e) { if (e.detail && e.detail.importId === importId) phaseEvents.push(e.detail); };
   window.addEventListener('import-meta', onMeta); window.addEventListener('import-rows', onRows);
+  window.addEventListener('import-phase', onPhase);
 
   const detail = await pair.controller.startImport({
     source: 'xtream', importId: importId, playlistId: plId, kind: 'playlist',
     base: BASE, username: USER, password: PASS
   });
   window.removeEventListener('import-meta', onMeta); window.removeEventListener('import-rows', onRows);
-  return { plId, importId, detail, pair, accountInfos, metaEvents, rowEvents };
+  window.removeEventListener('import-phase', onPhase);
+  return { plId, importId, detail, pair, accountInfos, metaEvents, rowEvents, phaseEvents };
 }
 
 test('xtream-mock : 5 channels + 4 vod + 5 séries exacts, swap actif, ACCOUNT_INFO maxConnections=2', async () => {
@@ -84,6 +87,9 @@ test('xtream-mock : 5 channels + 4 vod + 5 séries exacts, swap actif, ACCOUNT_I
   assert.equal(r.rowEvents.length, 3, 'un CHUNK par table (jamais mixte)');
   assert.deepEqual(r.rowEvents.map(function (e) { return e.targetTable; }), ['channels', 'vod', 'series']);
   assert.equal(r.rowEvents[2].written, 14, 'cumul = total écrit');
+  assert.ok(r.phaseEvents.some(function (e) { return e.phase === 'auth'; }), 'phase connexion visible immédiatement');
+  assert.ok(r.phaseEvents.some(function (e) { return e.phase === 'catalogue'; }), 'phase catalogue avant le total');
+  assert.ok(r.phaseEvents.some(function (e) { return e.phase === 'write-series'; }), 'phase écriture séries visible');
 
   // mapping séries (DB-6) : catégorie serveur via Map, champs enrichis
   const series = {}; (await db.series.where('importId').equals(r.importId).toArray())

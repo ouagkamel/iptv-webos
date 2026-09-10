@@ -1,4 +1,4 @@
-# SPÉCIFICATION TECHNIQUE D'EXÉCUTION & ARCHITECTURE — V15 (normalisation Xtream get_series_info)
+# SPÉCIFICATION TECHNIQUE D'EXÉCUTION & ARCHITECTURE — V16 (performance import + playlist par défaut)
 
 **Application IPTV / VOD / Live sur LG webOS — Baseline : webOS 5.0 / Chromium 68**
 
@@ -926,7 +926,7 @@ Fin de flux avec `pendingItems = 644` : `flushPendingItems(true)` émet 500, `is
 - `src/platform/XtreamClient.js` (main thread) : constructeur/validateur d'URLs d'endpoints. Stateless, sans effet de bord, jamais de `fetch` ici.
 - `src/data/xtream.worker.js` : worker d'import dédié qui **effectue lui-même ses `fetch`** (disponible dans les workers sous Chromium 68). **Mode par défaut (V10) : « catalogue global »** — un appel `get_live_streams` et un appel `get_vod_streams` **sans** `category_id` (le standard Xtream renvoie alors le catalogue entier, chaque entrée portant son `category_id` ; le nom de groupe est résolu localement via une Map construite sur `get_live_categories`/`get_vod_categories`), suivi d'un drain local par CHUNKS de `CHUNK_ITEMS` (protocole §5.2 inchangé). **Repli obligatoire** : si l'appel global échoue (HTTP ≠ 2xx, JSON invalide, ou `Content-Length` > 40 Mo), le worker retombe sur la boucle **séquentielle paginée par catégorie** de V9 — chaque réponse étant alors bornée par la taille d'une catégorie. La borne mémoire du mode global est explicite : « bornée par le catalogue le plus gros » (≈ 10–25 Mo de JSON pour 60 k entrées), valeur validée en révision — la mesure (annexe perf V10) montre que le mode par catégorie est dominé à 90–99 % par les RTT (900 catégories ≈ 2–5 min au lieu de secondes). Le carryOver textuel de §6.1 ne s'applique pas aux documents JSON structurés dans les deux modes.
 - Orchestration : `ImportController.startImport({ source: 'xtream', base, username, password, importId, playlistId, kind: 'playlist' })` (§5.8) — même promesse de complétion, même PROT-6, mêmes événements terminaux.
-- Protocole worker identique à §5.2 (`INIT_IMPORT` / `CHUNK` ≤ `CHUNK_ITEMS` (2000, V10) / `CHUNK_COMMITTED` / `COMPLETE` / `ABORT_IMPORT`) plus quatre messages propres : `ACCOUNT_INFO` (routé via `_routeAux` → listeners), `IMPORT_META` (V10 : `{ importId, playlistId, totalItems }` dès que le nombre d'entrées est connu — mode global uniquement ; **V11 : `totalItems` inclut les séries**), `CATEGORIES` (V11 : `{ importId, playlistId, kind:'live'|'vod'|'series', categories:[{name}…] }` émis dès réception des `get_*_categories`, **ordre du serveur intact**, y compris en mode repli ; le `DataManager` en est le consommateur unique et écrit `db.categories` de façon idempotente par `(importId, kind)`) et `ERROR` (voie terminale §5.3).
+- Protocole worker identique à §5.2 (`INIT_IMPORT` / `CHUNK` ≤ `CHUNK_ITEMS` (2000, V10) / `CHUNK_COMMITTED` / `COMPLETE` / `ABORT_IMPORT`) plus cinq messages propres : `ACCOUNT_INFO` (routé via `_routeAux` → listeners), `IMPORT_META` (V10 : `{ importId, playlistId, totalItems }` dès que le nombre d'entrées est connu — mode global uniquement ; **V11 : `totalItems` inclut les séries**), `IMPORT_PHASE` (V16 : `{ importId, playlistId, phase, label }`, indicateur additif de l'activité avant `IMPORT_META`, routé en `import-phase` vers le badge), `CATEGORIES` (V11 : `{ importId, playlistId, kind:'live'|'vod'|'series', categories:[{name}…] }` émis dès réception des `get_*_categories`, **ordre du serveur intact**, y compris en mode repli ; le `DataManager` en est le consommateur unique et écrit `db.categories` de façon idempotente par `(importId, kind)`) et `ERROR` (voie terminale §5.3).
 
 **Endpoints (API Xtream Codes standard) :**
 
@@ -1233,6 +1233,29 @@ M3U, et l'onglet Séries affiche « aucune donnée » sans erreur.
   ajoutés en fin de liste (tolérance panneaux incohérents / `'Autres'` M3U). Le
   filtre s'applique **avant** la recherche par préfixe et le plafond §8 (`SEARCH_LIMIT`) ;
   le filtre courant est réinitialisé proprement quand les lignes changent (réimport).
+
+---
+
+### 6.7 Playlist Xtream par défaut et performance d'amorçage (ajout V16)
+
+- Au premier boot, si la playlist Xtream de démarrage n'existe pas déjà
+  (identité = `base` + `username`), `PlaylistManager.ensureDefaultPlaylist`
+  l'ajoute une seule fois et l'UI la sélectionne. L'utilisateur peut donc
+  cliquer directement sur **Importer** ; aucun import automatique n'est lancé.
+  Les identifiants compilés dans `src/config.js` sont une commodité de test,
+  **pas un secret** : ils sont récupérables depuis l'IPK.
+- Le worker Xtream émet `IMPORT_PHASE` dès l'authentification, puis aux étapes
+  catégories, téléchargement des catalogues et écriture de chaque collection.
+  Le badge affiche cette phase avant que le nombre total de lignes soit connu ;
+  il reste non interactif et hors focus D-pad.
+- Les trois appels indépendants `get_live_streams`, `get_vod_streams` et
+  `get_series` sont lancés en parallèle après l'authentification/catégories.
+  L'ordre d'écriture reste strictement live → vod → séries, `IMPORT_META` reste
+  émis une seule fois avec le total complet quand les réponses sont disponibles,
+  et le repli par catégories reste inchangé si une réponse globale échoue.
+  Cette parallélisation réduit le temps mort avant le premier pourcentage sans
+  augmenter le nombre d'items conservés simultanément par rapport au mode global
+  précédent ; les phases permettent de distinguer réseau/JSON de l'écriture IDB.
 
 ---
 
@@ -1543,7 +1566,7 @@ ci-dessous remplace le cap dur de 10 s de l'extrait de référence §7.2.**
 
 La fixture `media-startup-fhd` (§9) vérifie : progression `FRAG_LOADING` avant
 `FRAG_LOADED`, `NETWORK_LOADING` natif, silence terminal, plafond absolu et
-événements `<video>`. La recette V15 a **76 tests** verts dans l'environnement
+événements `<video>`. La recette V16 a **77 tests** verts dans l'environnement
 de livraison.
 
 ---
@@ -1988,7 +2011,7 @@ tout bouton d'overlay ou de formulaire, que le moteur empêchait auparavant.
 
 Les défaillances historiques (fin de flux, purge croisée, fuseau horaire) sont **invisibles au build et au smoke test** : la recette s'appuie sur des fixtures à assertions exactes.
 
-**Progression d'import (ajout V10, contrat d'événements additifs)** : `ImportController.startImport` émet `import-start {importId, kind}` ; la pompe réseau émet `import-meta {importId, bytesTotal}` dès que `Content-Length` est connu, puis `import-progress {importId, bytesDone}` (throttle ≥ 1 % ou 256 Ko) ; le `DataManager` émet `import-rows {importId, written, targetTable}` après chaque CHUNK écrit, et route `IMPORT_META` du worker Xtream en `import-meta {importId, totalItems}`. Le **badge d'import** (composant non interactif, hors focus D-pad, `aria-live="polite"`) affiche : pourcentage de lignes si `totalItems` connu (mode global Xtream), sinon pourcentage d'octets si `Content-Length` connu (M3U/XMLTV), sinon barre indéterminée animée (repli par catégorie, réponse sans longueur) ; fin sur `import-complete` (« ✔ terminé — n lignes »), `import-error` (message rouge), `import-aborted`. Les événements sont purement additifs : aucun consommateur ne change le protocole §5.2/§5.8, et la suppression du badge ne peut régresser l'import.
+**Progression d'import (ajout V10/V16, contrat d'événements additifs)** : `ImportController.startImport` émet `import-start {importId, kind}` ; le worker Xtream émet `IMPORT_PHASE {importId, playlistId, phase, label}` dès l'authentification puis aux phases catégories/catalogue/écriture, routé en `import-phase` par le `DataManager` ; la pompe réseau émet `import-meta {importId, bytesTotal}` dès que `Content-Length` est connu, puis `import-progress {importId, bytesDone}` (throttle ≥ 1 % ou 256 Ko) ; le `DataManager` émet `import-rows {importId, written, targetTable}` après chaque CHUNK écrit, et route `IMPORT_META` du worker Xtream en `import-meta {importId, totalItems}`. Le **badge d'import** (composant non interactif, hors focus D-pad, `aria-live="polite"`) affiche : pourcentage de lignes si `totalItems` connu (mode global Xtream), sinon pourcentage d'octets si `Content-Length` connu (M3U/XMLTV), sinon barre indéterminée animée (repli par catégorie, réponse sans longueur) ; fin sur `import-complete` (« ✔ terminé — n lignes »), `import-error` (message rouge), `import-aborted`. Les événements sont purement additifs : aucun consommateur ne change le protocole §5.2/§5.8, et la suppression du badge ne peut régresser l'import.
 
 | Fixture | Contenu | Assertion obligatoire |
 |---|---|---|
@@ -1999,6 +2022,8 @@ Les défaillances historiques (fin de flux, purge croisée, fuseau horaire) sont
 | `list-order` (V13) | catalogue Xtream entrelacé (stream_id non croissants, catégories mêlées) + M3U à groupes alternés + panel replié (failGlobal) | `PlaylistManager.channels/vod/series` rendus en (rang catégorie, sortIdx) **identiques en mode global et en repli** ; ordre lexicographique des clés **jamais** observable ; tri pur immuable |
 | `remote-keys` (V12) | table de classement pure (chaque keyCode × chaque contexte), `stepIndex`/`pageIndex`, gate à horloge injectée | aucun vol de touche dans les champs ; zap/OK/PROG mappés en lecteur ; pages circulaires ; gate : 20 ms avalé / 46 ms passe / compteurs indépendants par type |
 | `media-startup-fhd` (V14) | adaptateur avec fenêtre d'inactivité courte injectée : `NETWORK_LOADING`, `FRAG_LOADING` avant `FRAG_LOADED`, silence, progression sans `playing` | aucun faux fallback/`STARTUP_FAILURE` pendant une requête active ; silence terminal échoue ; plafond absolu échoue même si les marqueurs continuent ; événements natifs réarment |
+| `default-playlist` (V16) | boot sur DB vide puis second boot | playlist Xtream par défaut créée une seule fois, sélectionnable, aucune saisie nécessaire pour atteindre Importer |
+| `import-phases` (V16) | worker Xtream avec trois catalogues globaux | phases `auth`/`categories`/`catalogue`/`write-*` visibles avant et pendant `IMPORT_META`, total et écritures inchangés ; catalogues lancés en parallèle |
 | `m3u-20000.m3u` | 20 000 chaînes, 40 groupes | 20 000 lignes en base ; `activeImportId` permuté ; groupes paginables par `[importId+groupName]` |
 | `xmltv-644.xml` | 644 programmes | **exactement 644 lignes** `epg` ; `COMPLETE` reçu ; `status: 'completed'` |
 | `xmltv-500-exact.xml` | 500 programmes | terminaison correcte (bord de modulo) |
@@ -2113,4 +2138,5 @@ Non implémentés dans cette roadmap et **à ne pas introduire spontanément** (
 
 | `get_series_info` réel renvoie `episodes` dictionnaire par saison avec `episode_num` au lieu de `seasons`/`entries` | Trace utilisateur : « aucun épisode fourni par le panneau » (V15) | `SeriesBrowser.normalize` accepte la forme Xtream standard `{episodes:{"1":[…]}}`, conserve les numéros de saison, mappe `episode_num` vers `episodeId`, conserve `id` pour l'URL `/series/` ; cache V11 invalidé par `formatVersion`, fixture + E2E mock standard | §6.6, §9 |
 | Faux `STARTUP_FAILURE: startup timeout 10000ms` sur chaînes FHD pourtant en transfert (`.m3u8` 200/302 puis `.ts` ~3 Mo) | Trace utilisateur TV du 2026-09-10 | V14 §7.2.1 : 10 s = fenêtre sans progression ; événements média + hls.js ; `NETWORK_LOADING`/`FRAG_LOADING` actifs réarment ; plafond absolu 45 s ; tests `media-startup-fhd` | §7.1, §7.2, §7.2.1, §9 |
-**Statut : spécification gelée pour exécution (V9 + V9.1 ; V10 perf ; V11 séries & catégories ; V12 télécommande & séries deux temps ; V13 ordre serveur des listes et du zap — DB-7 ; V14 démarrage FHD tolérant aux transferts lents ; V15 normalisation Xtream réelle de `get_series_info` (`episodes` par saison + `episode_num`) — §6.6). Toute divergence ultérieure = nouvelle révision incrémentale (V16) avec entrée de traçabilité).**
+| Temps silencieux avant le premier pourcentage et catalogues Xtream demandés séquentiellement ; import obligeant à ressaisir base/identifiants | Retour utilisateur webOS 26 + demande playlist par défaut (V16) | `IMPORT_PHASE` immédiat dans le badge ; appels globaux Live/VOD/Séries parallélisés, écriture conservée séquentielle ; `DEFAULT_PLAYLIST` + `ensureDefaultPlaylist` idempotent au boot, sans auto-import | §5.8, §6.5, §6.7, §9 |
+**Statut : spécification gelée pour exécution (V9 + V9.1 ; V10 perf ; V11 séries & catégories ; V12 télécommande & séries deux temps ; V13 ordre serveur des listes et du zap ; V14 démarrage FHD tolérant ; V15 normalisation Xtream réelle de `get_series_info` ; V16 phases d'import visibles, catalogues Xtream parallélisés et playlist par défaut idempotente). Toute divergence ultérieure = nouvelle révision incrémentale (V17) avec entrée de traçabilité).**

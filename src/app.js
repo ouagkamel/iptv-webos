@@ -13,7 +13,7 @@ import { PlayerOSD } from './components/PlayerOSD.js';
 import { ImportBadge } from './components/ImportBadge.js';
 import { classifyKey, createRepeatGate, stepIndex, pageIndex } from './ui/RemoteKeys.js';
 import { SeriesBrowser } from './services/SeriesBrowser.js';
-import { CONFIG } from './config.js';
+import { CONFIG, DEFAULT_PLAYLIST } from './config.js';
 
 const state = {
   tab: 'playlists',
@@ -52,6 +52,10 @@ async function main() {
   engine.init();
   wireGlobalEvents();
 
+  const defaultPlaylistId = await ctx.manager.ensureDefaultPlaylist(DEFAULT_PLAYLIST);
+  if (state.activePlaylistId === null && defaultPlaylistId != null) {
+    state.activePlaylistId = defaultPlaylistId;
+  }
   await refreshPlaylists();
   renderTab();
   const step = document.getElementById('boot-step');

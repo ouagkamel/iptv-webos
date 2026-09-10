@@ -24,6 +24,19 @@ export class PlaylistManager {
     return db.playlists.get(playlistId);
   }
 
+  async ensureDefaultPlaylist(input) {
+    const wanted = input || {};
+    const base = XtreamClient.normalizeBase(wanted.base);
+    const username = String(wanted.username || '').trim();
+    const rows = await db.playlists.toArray();
+    for (let i = 0; i < rows.length; i++) {
+      if (rows[i].source === 'xtream' && rows[i].base === base && rows[i].username === username) {
+        return rows[i].id;
+      }
+    }
+    return this.create(Object.assign({}, wanted, { base: base, username: username }));
+  }
+
   async create(input) {
     const name = String(input.name || 'Playlist').trim();
     const source = input.source === 'xtream' ? 'xtream' : 'm3u';

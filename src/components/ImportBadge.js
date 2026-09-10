@@ -1,7 +1,7 @@
 // src/components/ImportBadge.js — vignette d'état d'import (V10, §9).
 // Composant NON INTERACTIF hors FocusEngine (jamais focusable) : il écoute les
 // événements additifs window import-start / import-meta / import-progress /
-// import-rows / import-complete / import-error / import-aborted. Aucun lien
+// import-phase / import-rows / import-complete / import-error / import-aborted. Aucun lien
 // avec le protocole worker §5.2 : le retirer ne peut pas régresser un import.
 // Rendu XSS-safe strict : textContent uniquement (invariant §1.2-3).
 export class ImportBadge {
@@ -20,6 +20,7 @@ export class ImportBadge {
     this._onStart = this._onStart.bind(this);
     this._onMeta = this._onMeta.bind(this);
     this._onProgress = this._onProgress.bind(this);
+    this._onPhase = this._onPhase.bind(this);
     this._onRows = this._onRows.bind(this);
     this._onComplete = this._onComplete.bind(this);
     this._onError = this._onError.bind(this);
@@ -27,6 +28,7 @@ export class ImportBadge {
     window.addEventListener('import-start', this._onStart);
     window.addEventListener('import-meta', this._onMeta);
     window.addEventListener('import-progress', this._onProgress);
+    window.addEventListener('import-phase', this._onPhase);
     window.addEventListener('import-rows', this._onRows);
     window.addEventListener('import-complete', this._onComplete);
     window.addEventListener('import-error', this._onError);
@@ -38,6 +40,7 @@ export class ImportBadge {
     window.removeEventListener('import-start', this._onStart);
     window.removeEventListener('import-meta', this._onMeta);
     window.removeEventListener('import-progress', this._onProgress);
+    window.removeEventListener('import-phase', this._onPhase);
     window.removeEventListener('import-rows', this._onRows);
     window.removeEventListener('import-complete', this._onComplete);
     window.removeEventListener('import-error', this._onError);
@@ -106,6 +109,15 @@ export class ImportBadge {
     if (!st) return;
     if (typeof d.bytesDone === 'number') st.bytesDone = d.bytesDone;
     this._render(st);
+  }
+
+  _onPhase(e) {
+    var d = e && e.detail;
+    if (!d) return;
+    var st = this._lines.get(d.importId);
+    if (!st) return;
+    if (d.label) st.labelEl.textContent = String(d.label);
+    st.row.classList.add('indet');
   }
 
   _onRows(e) {

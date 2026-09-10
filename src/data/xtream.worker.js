@@ -98,8 +98,17 @@ async function fetchGlobalArray(action) {
   }
 }
 
+function emitPhase(phase, label) {
+  if (currentImportId === null || aborted) return;
+  self.postMessage({ type: 'IMPORT_PHASE', importId: currentImportId,
+                     playlistId: currentPlaylistId, phase: phase, label: label });
+}
+
 async function runImport() {
   try {
+    // Phase visible dès le clic : Xtream ne peut connaître totalItems qu'après
+    // les catalogues JSON ; le badge ne reste plus silencieux pendant ce temps.
+    emitPhase('auth', 'Connexion au serveur…');
     // XP-1 : authentification AVANT toute écriture ; échec → ERROR terminal.
     const account = await fetchJson(apiUrl(null));
     const info = account && account.user_info;
@@ -108,6 +117,7 @@ async function runImport() {
     }
     if (aborted || currentImportId === null) return;
 
+    emitPhase('categories', 'Lecture des catégories serveur…');
     // Signal annexe : alimente DualPlayerPolicy.provider.maxConcurrentStreams (§7.5)
     self.postMessage({
       type: 'ACCOUNT_INFO',
@@ -135,11 +145,18 @@ async function runImport() {
     emitCategories('vod', rawCats.vod);
     emitCategories('series', rawCats.series);
 
-    let liveGlobal = await fetchGlobalArray('get_live_streams');
-    if (aborted || currentImportId === null) return;
-    let vodGlobal = await fetchGlobalArray('get_vod_streams');
-    if (aborted || currentImportId === null) return;
-    let seriesGlobal = await fetchGlobalArray('get_series');
+    emitPhase('catalogue', 'Téléchargement des catalogues…');
+    // Les trois catalogues sont indépendants : les récupérer en parallèle
+    // supprime deux RTT séquentiels avant le premier pourcentage, sans changer
+    // l'ordre d'écriture (live → vod → séries) ni la mémoire maximale des JSON.
+    const globals = await Promise.all([
+      fetchGlobalArray('get_live_streams'),
+      fetchGlobalArray('get_vod_streams'),
+      fetchGlobalArray('get_series')
+    ]);
+    let liveGlobal = globals[0];
+    let vodGlobal = globals[1];
+    let seriesGlobal = globals[2];
     if (aborted || currentImportId === null) return;
 
     if (liveGlobal !== null && vodGlobal !== null) {
@@ -148,22 +165,28 @@ async function runImport() {
                          playlistId: currentPlaylistId,
                          totalItems: liveGlobal.length + vodGlobal.length +
                                      (seriesGlobal !== null ? seriesGlobal.length : 0) });
+      emitPhase('write-live', 'Écriture des chaînes…');
       await importItemsFlat(liveGlobal, 'channels', function (it, idx) { return mapLiveItem(it, catNames.channels[String(it.category_id)] || 'Autres', idx); });
       if (aborted || currentImportId === null) return;
+      emitPhase('write-vod', 'Écriture des films…');
       await importItemsFlat(vodGlobal, 'vod', function (it, idx) { return mapVodItem(it, catNames.vod[String(it.category_id)] || 'Autres', idx); });
       liveGlobal = null; vodGlobal = null; // libère le JSON dès la mise en file
       // (les séries sont drainées par la section commune, qui connaît seriesGlobal)
     } else {
       // Repli V9 : paginé par catégorie (progression = indéterminée, pas de meta).
       if (liveGlobal !== null) {
+        emitPhase('write-live', 'Écriture des chaînes…');
         await importItemsFlat(liveGlobal, 'channels', function (it, idx) { return mapLiveItem(it, catNames.channels[String(it.category_id)] || 'Autres', idx); });
       } else {
+        emitPhase('write-live', 'Écriture des chaînes par catégorie…');
         await importCollection('get_live_categories', 'get_live_streams', 'channels', mapLiveItem);
       }
       if (!aborted && currentImportId !== null) {
         if (vodGlobal !== null) {
+          emitPhase('write-vod', 'Écriture des films…');
           await importItemsFlat(vodGlobal, 'vod', function (it, idx) { return mapVodItem(it, catNames.vod[String(it.category_id)] || 'Autres', idx); });
         } else {
+          emitPhase('write-vod', 'Écriture des films par catégorie…');
           await importCollection('get_vod_categories', 'get_vod_streams', 'vod', mapVodItem);
         }
       }
@@ -171,8 +194,10 @@ async function runImport() {
     // Séries : chemin propre (global si dispo, sinon repli par catégories, §6.6).
     if (!aborted && currentImportId !== null) {
       if (seriesGlobal !== null) {
+        emitPhase('write-series', 'Écriture des séries…');
         await importItemsFlat(seriesGlobal, 'series', function (it, idx) { return mapSeriesItem(it, catNames.series[String(it.category_id)] || 'Autres', idx); });
       } else {
+        emitPhase('write-series', 'Écriture des séries par catégorie…');
         await importCollection('get_series_categories', 'get_series', 'series', mapSeriesItem);
       }
       seriesGlobal = null;

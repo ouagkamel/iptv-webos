@@ -29,9 +29,11 @@ test('badge : start → ligne indéterminée, rows → compteur brut', () => {
     assert.ok(st, 'ligne créée');
     assert.ok(st.row.classList.contains('indet'), 'indéterminé sans totaux');
     assert.equal(st.pctEl.textContent, '…');
+    emit('import-phase', { importId: 1, phase: 'catalogue', label: 'Téléchargement des catalogues…' });
+    assert.equal(st.labelEl.textContent, 'Téléchargement des catalogues…');
     emit('import-rows', { importId: 1, written: 5, targetTable: 'channels' });
     assert.equal(st.pctEl.textContent, '5 lignes');
-    assert.equal(st.labelEl.textContent, 'Import playlist');
+    assert.equal(st.labelEl.textContent, 'Téléchargement des catalogues…');
   });
 });
 
