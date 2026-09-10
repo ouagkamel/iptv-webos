@@ -29,6 +29,14 @@ waiters, filet `worker.onerror`, `xtream-mock` (5 channels + 4 vod exacts,
 (≤ 19 nœuds sur 20 000 items), matrice média complète §7.1, cycle de vie §7.4
 avec reprise + seek, politique §7.5.
 
+## Télécharger
+
+- **Archive complète (source + `dist/` prêt pour `ares-package`)** : dernière
+  release → https://github.com/ouagkamel/iptv-webos/releases (fichier
+  `iptv-webos-dist.zip`) ; ou le code source seul : bouton « Download ZIP »
+  de GitHub, ou `git clone https://github.com/ouagkamel/iptv-webos.git`
+  (puis `npm ci && npm run build`).
+
 ## Performance d'import (révision V10)
 
 - **Xtream : catalogue global par défaut** — 1× `get_live_streams` + 1×
