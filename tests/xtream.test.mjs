@@ -28,12 +28,18 @@ async function runXtream(overrides) {
   pair.dataManager.addAuxListener(function (d) {
     if (d && d.type === 'ACCOUNT_INFO') accountInfos.push(d);
   });
+  // V10 : progression additive (meta depuis le worker, rows depuis le DataManager)
+  const metaEvents = []; const rowEvents = [];
+  const onMeta = function (e) { if (e.detail && e.detail.importId === importId) metaEvents.push(e.detail); };
+  const onRows = function (e) { if (e.detail && e.detail.importId === importId) rowEvents.push(e.detail); };
+  window.addEventListener('import-meta', onMeta); window.addEventListener('import-rows', onRows);
 
   const detail = await pair.controller.startImport({
     source: 'xtream', importId: importId, playlistId: plId, kind: 'playlist',
     base: BASE, username: USER, password: PASS
   });
-  return { plId, importId, detail, pair, accountInfos };
+  window.removeEventListener('import-meta', onMeta); window.removeEventListener('import-rows', onRows);
+  return { plId, importId, detail, pair, accountInfos, metaEvents, rowEvents };
 }
 
 test('xtream-mock : 5 channels + 4 vod exacts, swap actif, ACCOUNT_INFO maxConnections=2', async () => {
@@ -70,6 +76,13 @@ test('xtream-mock : 5 channels + 4 vod exacts, swap actif, ACCOUNT_INFO maxConne
   assert.ok(Object.keys(chans).every(k => k.startsWith('News') || k.startsWith('Matin') || k.startsWith('Soir') || k.startsWith('Football') || k.startsWith('Tennis')),
     'aucun film dans channels');
 
+  // V10 mode global = chemin par défaut : meta + rows additives observables
+  assert.equal(r.metaEvents.length, 1, 'un seul import-meta');
+  assert.equal(r.metaEvents[0].totalItems, XTREAM_PANEL.EXPECTED.channels + XTREAM_PANEL.EXPECTED.vod);
+  assert.equal(r.rowEvents.length, 2, 'un CHUNK par table (jamais mixte)');
+  assert.deepEqual(r.rowEvents.map(function (e) { return e.targetTable; }), ['channels', 'vod']);
+  assert.equal(r.rowEvents[1].written, 9, 'cumul = total écrit');
+
   r.pair.controller.destroy(); r.pair.dataManager.destroy();
 });
 
@@ -95,12 +108,34 @@ test('xtream-auth-fail : XTREAM_AUTH_FAILED terminal, zéro écriture, aucun swa
   pair.controller.destroy(); pair.dataManager.destroy();
 });
 
-test('XP-4 : catégorie live défaillante → ignorée, import complété avec le reste', async () => {
-  const r = await runXtream({ failLiveCat: '20' });
+test('XP-4 (repli par catégories) : catégorie live défaillante → ignorée, import complété', async () => {
+  // failGlobal:true force le repli V9 — en mode global, les streams sont dans le
+  // catalogue unique et il n'y a pas de « catégorie défaillante » au sens HTTP.
+  const r = await runXtream({ failLiveCat: '20', failGlobal: true });
   assert.equal(await db.channels.where('importId').equals(r.importId).count(), 3, 'catégorie 20 ignorée');
   assert.equal(await db.vod.where('importId').equals(r.importId).count(), 4, 'vod intacte');
   assert.equal((await db.imports.get(r.importId)).status, 'completed');
+  assert.equal(r.metaEvents.length, 0, 'repli : pas de totalItems → progression indéterminée');
   r.pair.controller.destroy(); r.pair.dataManager.destroy();
+});
+
+test('V10 mode global : category_id orphelin → groupe « Autres », sans appel par catégorie', async () => {
+  await freshDb();
+  const plId = await addPlaylist(db, 'Orp', { source: 'xtream', base: BASE, username: USER, password: PASS });
+  const importId = await addImportRow(db, plId, 'playlist');
+  routeXtreamPanel(BASE, USER, PASS, {});
+  const { setRoute } = await import('./helpers/fetchRouter.mjs');
+  const api = BASE + '/player_api.php?username=' + encodeURIComponent(USER) + '&password=' + encodeURIComponent(PASS);
+  const orphan = { stream_id: '999', name: 'Orphelin', epg_channel_id: null, stream_icon: '', category_id: '77' };
+  setRoute(api + '&action=get_live_streams', [orphan]);
+  const pair = makePair('xtream', 'channels');
+  await pair.controller.startImport({ source: 'xtream', importId: importId, playlistId: plId,
+                                     kind: 'playlist', base: BASE, username: USER, password: PASS });
+  const o = await db.channels.get(String(importId) + ':999');
+  assert.ok(o, 'stream orphelin importé');
+  assert.equal(o.groupName, 'Autres', 'catégorie inconnue → « Autres » (Map locale)');
+  assert.equal(await db.vod.where('importId').equals(importId).count(), 4, 'vod globale intacte');
+  pair.controller.destroy(); pair.dataManager.destroy();
 });
 
 test('XtreamClient : validation base + endpoints + xmltv (EPG pipeline §6 inchangé)', () => {
@@ -121,10 +156,10 @@ test('bascule de table live→vod : jamais de CHUNK mixte (chaque lot porte UNE 
   const plId = await addPlaylist(db, 'XtT', { source: 'xtream', base: BASE, username: USER, password: PASS });
   const importId = await addImportRow(db, plId, 'playlist');
 
-  // panneau modifié : catégorie live de 501 streams
+  // panneau modifié : catégorie live de CHUNK_ITEMS+1 streams (bord 2000/2001, V10)
   const bigLive = [];
-  for (let i = 0; i < 501; i++) bigLive.push({ stream_id: '1000' + i, name: 'L' + i, epg_channel_id: null, stream_icon: '' });
-  routeXtreamPanel(BASE, USER, PASS, {});
+  for (let i = 0; i < 2001; i++) bigLive.push({ stream_id: '1000' + i, name: 'L' + i, epg_channel_id: null, stream_icon: '' });
+  routeXtreamPanel(BASE, USER, PASS, { failGlobal: true });
   const { setRoute } = await import('./helpers/fetchRouter.mjs');
   const api = BASE + '/player_api.php?username=' + encodeURIComponent(USER) + '&password=' + encodeURIComponent(PASS);
   setRoute(api + '&action=get_live_streams&category_id=10', bigLive);
@@ -143,6 +178,6 @@ test('bascule de table live→vod : jamais de CHUNK mixte (chaque lot porte UNE 
                                  base: BASE, username: USER, password: PASS });
   const uniq = Array.from(new Set(seenTables));
   assert.deepEqual(uniq.sort(), ['channels', 'vod'], 'deux tables vues, par lots séparés');
-  assert.equal(await db.channels.where('importId').equals(importId).count(), 503, '501 (cat 10) + 2 (cat 20)');
+  assert.equal(await db.channels.where('importId').equals(importId).count(), 2003, '2001 (cat 10) + 2 (cat 20)');
   controller.destroy(); dm.destroy();
 });

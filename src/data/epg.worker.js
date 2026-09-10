@@ -1,6 +1,9 @@
 // src/data/epg.worker.js — spec §6.1 (verbatim).
 // CarryOver texte, regex tolérante '>' dans valeurs quotées, attributs sans ordre,
 // CDATA/entités (&amp; en dernier), dates 12/14 chiffres + offset ±HHMM, PROT-1…4.
+// CHUNK_ITEMS : lot 2000 (V10, §5.2) — PROT-1 inchangé (un seul CHUNK en vol).
+const CHUNK_ITEMS = 2000;
+
 let carryOver = '';
 let isWaitingForAck = false;
 let pendingItems = [];
@@ -93,7 +96,7 @@ function parseChunk(chunk) {
       });
     }
 
-    if (pendingItems.length >= 500) {
+    if (pendingItems.length >= CHUNK_ITEMS) {
       flushPendingItems(false);
     }
   }
@@ -152,9 +155,9 @@ function flushPendingItems(force) {
     checkCompletion();
     return;
   }
-  if (pendingItems.length >= 500 || force) {
+  if (pendingItems.length >= CHUNK_ITEMS || force) {
     isWaitingForAck = true;
-    const chunkToSend = pendingItems.splice(0, 500);
+    const chunkToSend = pendingItems.splice(0, CHUNK_ITEMS);
     self.postMessage({
       type: 'CHUNK',
       importId: currentImportId,

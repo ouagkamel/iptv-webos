@@ -62,6 +62,34 @@ async function fetchJson(url) {
   return json;
 }
 
+// V10 — mode catalogue global (§6.5) : un seul appel sans category_id ; la
+// mémoire est bornée par le catalogue (Content-Length > MAX_GLOBAL_BYTES → repli).
+// Le repli par catégories (boucle V9, bornée par la plus grosse catégorie)
+// conserve XP-4 : catégorie défaillante ignorée, jamais terminal.
+const CHUNK_ITEMS = 2000;
+const MAX_GLOBAL_BYTES = 40 * 1024 * 1024;
+
+async function fetchGlobalArray(action) {
+  let res;
+  try {
+    res = await fetch(apiUrl(action));
+  } catch (eNet) {
+    return null; // repli silencieux
+  }
+  if (!res.ok) return null;
+  const cl = parseInt((res.headers && res.headers.get('Content-Length')) || '0', 10) || 0;
+  if (cl > MAX_GLOBAL_BYTES) {
+    try { if (res.body && res.body.cancel) res.body.cancel(); } catch (e1) { /* noop */ }
+    return null;
+  }
+  try {
+    const json = await res.json();
+    return Array.isArray(json) ? json : null;
+  } catch (e2) {
+    return null;
+  }
+}
+
 async function runImport() {
   try {
     // XP-1 : authentification AVANT toute écriture ; échec → ERROR terminal.
@@ -80,12 +108,49 @@ async function runImport() {
       expDate: info.exp_date || null
     });
 
-    // Live → channels ; VOD → vod (DB-5). Boucles séquentielles bornées (§6.5).
-    await importCollection('get_live_categories', 'get_live_streams', 'channels', mapLiveItem);
-    if (!aborted) await importCollection('get_vod_categories', 'get_vod_streams', 'vod', mapVodItem);
+    // Live → channels ; VOD → vod (DB-5). Mode global d'abord, repli par
+    // catégories si l'appel global est indisponible (V10, §6.5).
+    const catNames = { channels: {}, vod: {} };
+    await Promise.all([
+      fetchJson(apiUrl('get_live_categories')).then(function (c) { fillCatNames(catNames.channels, c); })
+        .catch(function () { if (aborted) return; catNames.channels = {}; }),
+      fetchJson(apiUrl('get_vod_categories')).then(function (c) { fillCatNames(catNames.vod, c); })
+        .catch(function () { if (aborted) return; catNames.vod = {}; })
+    ]);
+    if (aborted || currentImportId === null) return;
+
+    let liveGlobal = await fetchGlobalArray('get_live_streams');
+    if (aborted || currentImportId === null) return;
+    let vodGlobal = await fetchGlobalArray('get_vod_streams');
+    if (aborted || currentImportId === null) return;
+
+    if (liveGlobal !== null && vodGlobal !== null) {
+      // Métadonnée de progression : total connu → badge en pourcentage de lignes.
+      self.postMessage({ type: 'IMPORT_META', importId: currentImportId,
+                         playlistId: currentPlaylistId,
+                         totalItems: liveGlobal.length + vodGlobal.length });
+      await importItemsFlat(liveGlobal, 'channels', function (it) { return mapLiveItem(it, catNames.channels[String(it.category_id)] || 'Autres'); });
+      if (aborted || currentImportId === null) return;
+      await importItemsFlat(vodGlobal, 'vod', function (it) { return mapVodItem(it, catNames.vod[String(it.category_id)] || 'Autres'); });
+      liveGlobal = null; vodGlobal = null; // libère le JSON dès la mise en file
+    } else {
+      // Repli V9 : paginé par catégorie (progression = indéterminée, pas de meta).
+      if (liveGlobal !== null) {
+        await importItemsFlat(liveGlobal, 'channels', function (it) { return mapLiveItem(it, catNames.channels[String(it.category_id)] || 'Autres'); });
+      } else {
+        await importCollection('get_live_categories', 'get_live_streams', 'channels', mapLiveItem);
+      }
+      if (!aborted && currentImportId !== null) {
+        if (vodGlobal !== null) {
+          await importItemsFlat(vodGlobal, 'vod', function (it) { return mapVodItem(it, catNames.vod[String(it.category_id)] || 'Autres'); });
+        } else {
+          await importCollection('get_vod_categories', 'get_vod_streams', 'vod', mapVodItem);
+        }
+      }
+    }
 
     if (aborted || currentImportId === null) return;
-    await drainAll(); // PROT-4 : résiduels (< 500 et fin de table)
+    await drainAll(); // PROT-4 : résiduels (< CHUNK_ITEMS et fin de table)
 
     if (aborted || currentImportId === null || pendingItems.length > 0) return;
     const importId = currentImportId;
@@ -98,6 +163,32 @@ async function runImport() {
       currentImportId = null;
       self.postMessage({ type: 'ERROR', importId: importId,
                          message: String((err && err.message) || err) });
+    }
+  }
+}
+
+function fillCatNames(dest, cats) {
+  if (!Array.isArray(cats)) return;
+  for (let i = 0; i < cats.length; i++) {
+    const c = cats[i];
+    if (c && c.category_id != null) dest[String(c.category_id)] = String(c.category_name || 'Autres');
+  }
+}
+
+// Drain local d'un tableau déjà en mémoire : MÊME protocole PROT-1 que la boucle
+// par catégories — le producteur se suspend à chaque lot plein (await drainAll).
+async function importItemsFlat(items, targetTable, mapFn) {
+  // Un CHUNK ne porte qu'UNE table cible : bascule de table = drain complet
+  // (même garde que la boucle par catégories V9).
+  if (pendingItems.length > 0 && pendingTarget !== targetTable) {
+    await drainAll();
+  }
+  pendingTarget = targetTable;
+  for (let i = 0; i < items.length; i++) {
+    if (aborted) return;
+    pendingItems.push(mapFn(items[i]));
+    if (pendingItems.length >= CHUNK_ITEMS) {
+      await drainAll();
     }
   }
 }
@@ -128,7 +219,7 @@ async function importCollection(catAction, listAction, targetTable, mapFn) {
       }
       pendingTarget = targetTable;
       pendingItems.push(mapFn(items[i], groupName));
-      if (pendingItems.length >= 500) {
+      if (pendingItems.length >= CHUNK_ITEMS) {
         await drainAll(); // PROT-1 : un seul CHUNK en vol — le producteur se suspend
       }
     }
@@ -141,7 +232,7 @@ async function drainAll() {
     await waitForIdle();          // attend que le CHUNK en vol soit acquitté
     if (aborted || pendingItems.length === 0) return;
     isWaitingForAck = true;
-    const items = pendingItems.splice(0, 500);
+    const items = pendingItems.splice(0, CHUNK_ITEMS);
     self.postMessage({ type: 'CHUNK', importId: currentImportId, items: items, targetTable: pendingTarget });
   }
 }

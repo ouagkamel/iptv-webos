@@ -28,10 +28,10 @@ test('xmltv-644 : exactement 644 lignes, COMPLETE reçu, status completed (deadl
   r.pair.controller.destroy(); r.pair.dataManager.destroy();
 });
 
-test('xmltv-500-exact : bord de modulo, terminaison correcte', async () => {
-  const text = buildXmltv(500, {});
+test('xmltv-2000-exact : bord de modulo CHUNK_ITEMS (V10), terminaison sans résidu', async () => {
+  const text = buildXmltv(2000, {});
   const r = await importEpg(text);
-  assert.equal(await db.epg.where('importId').equals(r.importId).count(), 500);
+  assert.equal(await db.epg.where('importId').equals(r.importId).count(), 2000);
   r.pair.controller.destroy(); r.pair.dataManager.destroy();
 });
 

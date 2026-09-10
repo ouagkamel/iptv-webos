@@ -39,6 +39,14 @@ export class ImportController {
     this.currentImportId = importId;
     this.inflightText = 0;
     this.drainedWaiters = [];
+    this._bytesPctSent = -1;
+    this._bytesDone = 0;
+    this._bytesMetaSent = false;
+    // Progression (V10, §9) : événement additif — aucun consommateur du
+    // protocole §5.2 n'y est associé ; la suppression du badge ne régresse rien.
+    window.dispatchEvent(new CustomEvent('import-start', {
+      detail: { importId: importId, kind: job.kind }
+    }));
     this.abortController = typeof AbortController !== 'undefined' ? new AbortController() : null;
 
     const self = this;
@@ -121,6 +129,7 @@ export class ImportController {
     if (!response.ok) throw new Error('HTTP_' + response.status);
 
     const contentLength = parseInt(response.headers.get('Content-Length') || '0', 10) || 0;
+    this._emitBytes(importId, 0, contentLength, true);
     const canStream = Capabilities.hasFetch && Capabilities.hasReadableStream && Capabilities.hasTextDecoder &&
                       response.body && typeof response.body.getReader === 'function';
 
@@ -132,6 +141,7 @@ export class ImportController {
       for (let start = 0; start < fullText.length; start += FALLBACK_SLICE) {
         if (this.currentImportId !== importId) return; // avorté : sortie silencieuse
         this._sendParseChunk(importId, fullText.slice(start, start + FALLBACK_SLICE));
+        this._emitBytes(importId, Math.min(start + FALLBACK_SLICE, fullText.length), contentLength);
         // await-in-loop volontaire : rendu de main pour intercepter ABORT entre tranches
         await new Promise(function (r) { setTimeout(r, 0); });
       }
@@ -140,12 +150,17 @@ export class ImportController {
 
     const reader = response.body.getReader();
     const decoder = new TextDecoder('utf-8');
+    let bytesDone = 0;
 
     let result = await reader.read();
     while (!result.done) {
       if (this.currentImportId !== importId) {
         try { reader.cancel(); } catch (e1) { /* noop */ }
         return;
+      }
+      if (result.value) {
+        bytesDone += result.value.byteLength || 0;
+        this._emitBytes(importId, bytesDone, contentLength);
       }
       // { stream: true } : les séquences UTF-8 multi-octets coupées entre chunks réseau
       // sont conservées pour le decode suivant — défense complémentaire au carryOver XML
@@ -167,6 +182,30 @@ export class ImportController {
       if (!freeTail) return;
       this._sendParseChunk(importId, tail);
     }
+    if (contentLength > 0) this._emitBytes(importId, contentLength, contentLength, true);
+  }
+
+  // Progression réseau (V10, §9) : import-meta (bytesTotal) au premier
+  // Content-Length connu, puis import-progress throttlé (≥ 1 % ou 256 Ko).
+  // Jamais bloquant : try/catch total, la progression ne fait échouer un import.
+  _emitBytes(importId, done, total, force) {
+    if (!total || total <= 0) return; // taille inconnue → pas de meta (indéterminé)
+    try {
+      if (!this._bytesMetaSent) {
+        this._bytesMetaSent = true;
+        window.dispatchEvent(new CustomEvent('import-meta', {
+          detail: { importId: importId, bytesTotal: total }
+        }));
+      }
+      const pct = Math.floor((done / total) * 100);
+      const bigJump = done - this._bytesDone >= 256 * 1024;
+      if (!force && pct <= this._bytesPctSent && !bigJump) return;
+      this._bytesPctSent = pct;
+      this._bytesDone = done;
+      window.dispatchEvent(new CustomEvent('import-progress', {
+        detail: { importId: importId, bytesDone: done }
+      }));
+    } catch (eEmit) { /* jamais bloquant */ }
   }
 
   _sendParseChunk(importId, text) {

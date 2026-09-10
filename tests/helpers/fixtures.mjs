@@ -112,4 +112,20 @@ export function routeXtreamPanel(base, username, password, overrides) {
     setRoute(withAction('get_vod_streams') + '&category_id=' + catId,
              XTREAM_PANEL.vodStreams[catId]);
   }
+  // V10 — routes « catalogue global » (sans category_id) : même contenu concaténé
+  // avec le category_id injecté, comme un vrai panneau. ov.failGlobal → 500 sur
+  // les appels globaux : force le repli par catégories (boucle V9).
+  const flatten = (byCat) => {
+    const out = [];
+    Object.keys(byCat).forEach((catId) => {
+      byCat[catId].forEach((x) => { out.push(Object.assign({ category_id: catId }, x)); });
+    });
+    return out;
+  };
+  setRoute(withAction('get_live_streams'),
+           ov.failGlobal ? null : flatten(XTREAM_PANEL.liveStreams),
+           ov.failGlobal ? { status: 500 } : {});
+  setRoute(withAction('get_vod_streams'),
+           ov.failGlobal ? null : flatten(XTREAM_PANEL.vodStreams),
+           ov.failGlobal ? { status: 500 } : {});
 }

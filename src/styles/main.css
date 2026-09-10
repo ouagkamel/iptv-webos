@@ -56,3 +56,21 @@ input, select { background: #1a1a1a; border: 1px solid #333; color: #eee;
 /* Curseur Magic Remote : on garde le focus visuel, on masque le pointeur par défaut */
 body { cursor: none; }
 body.magic-remote-active { cursor: default; }
+
+/* ————— Vignette d'état d'import (V10, §9) ————— non interactive : le badge
+   n'entre jamais dans le focus D-pad (tabindex -1, pointer-events none).
+   Pas de gap flex ni inset : Chromium 53 (webOS 4.x) ne les connaît pas. */
+.import-badge { position: fixed; top: 18px; right: 18px; width: 380px; z-index: 120; pointer-events: none; }
+.import-badge .imp-line { padding: 10px 14px; margin-bottom: 8px; border-radius: 8px;
+  background: rgba(17, 17, 17, 0.86); border: 1px solid rgba(255, 255, 255, 0.14); }
+.import-badge .imp-row { display: flex; justify-content: space-between; margin-bottom: 6px; }
+.import-badge .imp-label { font-size: 16px; line-height: 22px; color: #fff; }
+.import-badge .imp-pct { font-size: 16px; line-height: 22px; color: #ffe100; }
+.import-badge .imp-bar { height: 6px; border-radius: 3px; background: rgba(255, 255, 255, 0.15); overflow: hidden; }
+.import-badge .imp-bar-fill { height: 100%; width: 0; border-radius: 3px; background: #ffe100; transition: width 0.2s linear; }
+.import-badge .imp-line.indet .imp-bar-fill { width: 35%; background: #9ad1ff; animation: imp-slide 1.1s ease-in-out infinite alternate; }
+.import-badge .imp-line.ok .imp-bar-fill { width: 100%; background: #7ee787; }
+.import-badge .imp-line.ok .imp-pct { color: #7ee787; }
+.import-badge .imp-line.err .imp-bar-fill { width: 100%; background: #ff6b6b; }
+.import-badge .imp-line.err .imp-pct { color: #ff6b6b; }
+@keyframes imp-slide { from { margin-left: 0; } to { margin-left: 65%; } }

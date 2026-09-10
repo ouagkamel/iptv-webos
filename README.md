@@ -1,4 +1,4 @@
-# IPTV webOS Player — implémentation (Spec V9 / V9.1, Plan Sprint 0→4)
+# IPTV webOS Player — implémentation (Spec V10, Plan Sprint 0→4)
 
 App webOS TV (cible : webOS 5.0 entrée de gamme, Chromium 68) : imports **M3U +
 XMLTV + Xtream Codes**, virtualisation TV, pipeline média NATIVE→MSE avec
@@ -28,6 +28,26 @@ waiters, filet `worker.onerror`, `xtream-mock` (5 channels + 4 vod exacts,
 (catégorie 503 ignorée), bascule de table sans CHUNK mixte, invariant §1.2-6
 (≤ 19 nœuds sur 20 000 items), matrice média complète §7.1, cycle de vie §7.4
 avec reprise + seek, politique §7.5.
+
+## Performance d'import (révision V10)
+
+- **Xtream : catalogue global par défaut** — 1× `get_live_streams` + 1×
+  `get_vod_streams` **sans** `category_id` + `Map` catégorie→nom locale (catégorie
+  inconnue → « Autres »). Repli **obligatoire** sur la boucle par catégories V9 si
+  l'appel global échoue (HTTP non-2xx, JSON invalide) ou si `Content-Length` >
+  40 Mo (mémoire bornée par le catalogue, pas par la plus grosse catégorie).
+  Mesuré (harnais headless, mock 900 catégories, RTT 80 ms, 23 400 lignes) :
+  **74,4 s → 2,4 s** dans l'app réelle.
+- **`CHUNK_ITEMS = 2000`** dans les trois workers (500 → 2000) : le coût fixe
+  par lot (ack + respiration rAF/plafond 32 ms) est amorti ÷4 ; PROT-1 (un seul
+  CHUNK en vol) inchangé. Mesuré sur 60 000 lignes M3U localhost : 6,62 s →
+  5,77 s (le solde est I/O d'écriture, qui ne se divise pas).
+- **Badge de progression** (`src/components/ImportBadge.js`, §9) : % de lignes
+  si le worker a publié `IMPORT_META` (mode global), sinon % d'octets si
+  `Content-Length` est connu (M3U/XMLTV), sinon barre indéterminée animée
+  (repli par catégories). Événements `import-start` / `import-meta` /
+  `import-progress` / `import-rows` **purement additifs** : retirer le badge ne
+  peut pas régresser un import. Non interactif (jamais focusable), hors D-pad.
 
 ## Écarts à la spec — tous justifiés et tracés
 

@@ -76,6 +76,11 @@ export class DataManager {
   }
 
   _routeAux(data) {
+    if (data && data.type === 'IMPORT_META') { // V10 : totaux connus → % de lignes au badge
+      window.dispatchEvent(new CustomEvent('import-meta', { detail: {
+        importId: data.importId, playlistId: data.playlistId, totalItems: data.totalItems
+      } }));
+    }
     for (let i = 0; i < this.auxListeners.length; i++) {
       try { this.auxListeners[i](data); } catch (errAux) { console.error('DataManager aux listener:', errAux); }
     }
@@ -89,6 +94,15 @@ export class DataManager {
     }
 
     await db[targetTable || this.targetTableDefault].bulkPut(items);
+
+    // Progression en lignes (V10, §9) : cumuls par import, événement additif
+    // émis APRÈS l'écriture (le badge ne compte jamais de lignes pas en base).
+    this._rowsWritten = this._rowsWritten || Object.create(null);
+    const written = (this._rowsWritten[importId] || 0) + items.length;
+    this._rowsWritten[importId] = written;
+    window.dispatchEvent(new CustomEvent('import-rows', {
+      detail: { importId: importId, written: written, targetTable: targetTable || this.targetTableDefault }
+    }));
 
     // Respiration UI compatible arrière-plan :
     // rAF est suspendu par webOS quand document.hidden === true → setTimeout obligatoire,

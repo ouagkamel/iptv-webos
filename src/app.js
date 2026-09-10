@@ -10,6 +10,7 @@ import { MediaAdapter } from './media/MediaAdapter.js';
 import { LifecycleAdapter } from './platform/LifecycleAdapter.js';
 import { DualPlayerPolicy } from './media/DualPlayerPolicy.js';
 import { PlayerOSD } from './components/PlayerOSD.js';
+import { ImportBadge } from './components/ImportBadge.js';
 import { CONFIG } from './config.js';
 
 const state = {
@@ -24,6 +25,7 @@ const state = {
 };
 
 let ctx, engine, osd, videoEl, adapter, lifecycle, root;
+let importBadge = null; // V10 : vignette de progression (non interactive, hors focus)
 const lists = {};
 
 async function main() {
@@ -33,6 +35,7 @@ async function main() {
   osd = null; // posé après construction du lecteur
 
   buildLayout();
+  importBadge = new ImportBadge(document.body);
   engine.init();
   wireGlobalEvents();
 

@@ -85,7 +85,7 @@ test('duo-playlists : l’import B ne supprime AUCUNE ligne de A ; re-import ide
   pair.controller.destroy(); pair.dataManager.destroy();
 });
 
-test('terminaison avec résidu < 500 (PROT-4) : 1 237 lignes → COMPLETE reçu, pas de deadlock', async () => {
+test('terminaison avec résidu < CHUNK_ITEMS (PROT-4, V10 : lot 2000) : 1 237 lignes → COMPLETE, pas de deadlock', async () => {
   await freshDb();
   const plId = await addPlaylist(db, 'R');
   const importId = await addImportRow(db, plId, 'playlist');

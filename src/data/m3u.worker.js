@@ -2,6 +2,10 @@
 // id = importId + ':' + seq (DB-1), searchName normalisé (DB-3).
 // Le carryOver porte sur la DERNIÈRE LIGNE incomplète : un paquet réseau peut
 // couper une ligne #EXTINF en deux — jamais un item à cheval sur deux chunks.
+// CHUNK_ITEMS : taille de lot (V10, §5.2) — la sémantique PROT-1 (un seul CHUNK
+// en vol) est inchangée ; gain = coût fixe d'acquittement/respiration ÷ 4.
+const CHUNK_ITEMS = 2000;
+
 let lineCarry = '';
 let pendingName = null;     // #EXTINF vue, stream pas encore lu
 let pendingGroup = null;    // #EXTGRP ou group-title de l'EXTINF courant
@@ -77,7 +81,7 @@ function parseChunk(chunk, isFinal) {
   }
   for (let i = 0; i < lines.length; i++) {
     handleLine(lines[i], false);
-    if (pendingItems.length >= 500) flushPendingItems(false); // PROT-1 : max 1 CHUNK en vol
+    if (pendingItems.length >= CHUNK_ITEMS) flushPendingItems(false); // PROT-1 : max 1 CHUNK en vol
   }
 }
 
@@ -135,9 +139,9 @@ function flushPendingItems(force) {
     checkCompletion();
     return;
   }
-  if (pendingItems.length >= 500 || force) {
+  if (pendingItems.length >= CHUNK_ITEMS || force) {
     isWaitingForAck = true;
-    const items = pendingItems.splice(0, 500);
+    const items = pendingItems.splice(0, CHUNK_ITEMS);
     self.postMessage({ type: 'CHUNK', importId: currentImportId, items: items, targetTable: 'channels' });
   } else {
     checkCompletion();
