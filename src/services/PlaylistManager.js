@@ -4,6 +4,7 @@
 // (base/username/password — EPG via {base}/xmltv.php, pipeline §6 inchangé).
 import { db } from '../data/db.js';
 import { XtreamClient } from '../platform/XtreamClient.js';
+import { orderRows } from './ListOrder.js';
 
 const RUNNING_GRACE_MS = 5 * 60 * 1000; // §5.5 : import « running » récent non orphelin
 const EPG_RETENTION_MS = 86400000;      // §5.6
@@ -120,25 +121,21 @@ export class PlaylistManager {
     }
   }
 
-  channels(playlistId) {
-    return db.playlists.get(playlistId).then(function (pl) {
-      if (!pl || !pl.activeImportId) return [];
-      return db.channels.where('importId').equals(pl.activeImportId).toArray();
-    });
-  }
+  channels(playlistId) { return this._ordered(playlistId, 'channels', 'live'); }
+  vod(playlistId) { return this._ordered(playlistId, 'vod', 'vod'); }
+  series(playlistId) { return this._ordered(playlistId, 'series', 'series'); }
 
-  vod(playlistId) {
-    return db.playlists.get(playlistId).then(function (pl) {
-      if (!pl || !pl.activeImportId) return [];
-      return db.vod.where('importId').equals(pl.activeImportId).toArray();
-    });
-  }
-
-  series(playlistId) {
-    return db.playlists.get(playlistId).then(function (pl) {
-      if (!pl || !pl.activeImportId) return [];
-      return db.series.where('importId').equals(pl.activeImportId).toArray();
-    });
+  /** V13 §5.3 : lecture dans l'ordre du serveur (rang de catégorie, sortIdx). */
+  async _ordered(playlistId, table, kind) {
+    const pl = await db.playlists.get(playlistId);
+    if (!pl || !pl.activeImportId) return [];
+    const parts = await Promise.all([
+      db[table].where('importId').equals(pl.activeImportId).toArray(),
+      db.categories.where('[importId+kind]').equals([pl.activeImportId, kind]).sortBy('sort')
+        .catch(function () { return []; }) // catégories absentes → tri par sortIdx seul
+    ]);
+    const catNames = (parts[1] || []).map(function (c) { return c.name; });
+    return orderRows(parts[0], catNames);
   }
 
   /** Catégories serveur de l'import actif, dans l'ordre du serveur (V11, §6.4). */

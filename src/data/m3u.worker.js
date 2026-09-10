@@ -125,6 +125,7 @@ function handleLine(rawLine, isFinal) {
   const grp = pendingGroup || 'Autres';
   if (!groupSeen[grp]) { groupSeen[grp] = true; groupOrder.push(grp); }
   pendingItems.push({
+    sortIdx: seq, // V13 §5.3 : ordre du fichier (source de vérité du « serveur » M3U)
     id: currentImportId + ':' + seq, // DB-1 : seq = compteur incrémental dans le fichier
     importId: currentImportId,
     name: name,

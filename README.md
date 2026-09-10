@@ -1,4 +1,4 @@
-# IPTV webOS Player — implémentation (Spec V12, Plan Sprint 0→4)
+# IPTV webOS Player — implémentation (Spec V13, Plan Sprint 0→4)
 
 App webOS TV (cible : webOS 5.0 entrée de gamme, Chromium 68) : imports **M3U +
 XMLTV + Xtream Codes**, virtualisation TV, pipeline média NATIVE→MSE avec
@@ -36,6 +36,17 @@ avec reprise + seek, politique §7.5.
   `iptv-webos-dist.zip`) ; ou le code source seul : bouton « Download ZIP »
   de GitHub, ou `git clone https://github.com/ouagkamel/iptv-webos.git`
   (puis `npm ci && npm run build`).
+
+## Ordre serveur des listes et du zap (révision V13, règle DB-7)
+
+Les listes **Chaînes / Films / Séries** et le zap ↑/↓ du lecteur suivent
+l'**ordre du serveur** : rang de catégorie (`db.categories`), puis position
+d'arrivée (`sortIdx` écrit par les workers sur chaque ligne), puis clé pour le
+départage. L'ordre lexicographique des clés IndexedDB (« Canal 0-10 » avant
+« Canal 0-2 ») n'est jamais observable — ni en mode catalogue global, ni en
+repli par catégories, ni en M3U (ordre du fichier). Le tri est une fonction
+pure (`src/services/ListOrder.js`) appliquée à la lecture par le
+`PlaylistManager` — jamais dans les workers ni dans l'UI.
 
 ## Télécommande & navigation (révision V12)
 

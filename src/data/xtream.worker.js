@@ -15,6 +15,13 @@ let currentPlaylistId = null;
 let aborted = false;
 let cfg = null; // { base, username, password }
 let ackWaiters = [];
+// V13 §5.3 : position d'arrivée par table (ordre serveur), lue au tri d'affichage.
+let sortCounter = Object.create(null);
+function nextSortIdx(targetTable) {
+  const n = sortCounter[targetTable] || 0;
+  sortCounter[targetTable] = n + 1;
+  return n;
+}
 
 self.onmessage = function (e) {
   const d = e.data;
@@ -26,6 +33,7 @@ self.onmessage = function (e) {
     pendingTarget = 'channels';
     isWaitingForAck = false;
     aborted = false;
+    sortCounter = Object.create(null);
     cfg = { base: d.base, username: d.username, password: d.password };
     runImport();
     return;
@@ -140,21 +148,21 @@ async function runImport() {
                          playlistId: currentPlaylistId,
                          totalItems: liveGlobal.length + vodGlobal.length +
                                      (seriesGlobal !== null ? seriesGlobal.length : 0) });
-      await importItemsFlat(liveGlobal, 'channels', function (it) { return mapLiveItem(it, catNames.channels[String(it.category_id)] || 'Autres'); });
+      await importItemsFlat(liveGlobal, 'channels', function (it, idx) { return mapLiveItem(it, catNames.channels[String(it.category_id)] || 'Autres', idx); });
       if (aborted || currentImportId === null) return;
-      await importItemsFlat(vodGlobal, 'vod', function (it) { return mapVodItem(it, catNames.vod[String(it.category_id)] || 'Autres'); });
+      await importItemsFlat(vodGlobal, 'vod', function (it, idx) { return mapVodItem(it, catNames.vod[String(it.category_id)] || 'Autres', idx); });
       liveGlobal = null; vodGlobal = null; // libère le JSON dès la mise en file
       // (les séries sont drainées par la section commune, qui connaît seriesGlobal)
     } else {
       // Repli V9 : paginé par catégorie (progression = indéterminée, pas de meta).
       if (liveGlobal !== null) {
-        await importItemsFlat(liveGlobal, 'channels', function (it) { return mapLiveItem(it, catNames.channels[String(it.category_id)] || 'Autres'); });
+        await importItemsFlat(liveGlobal, 'channels', function (it, idx) { return mapLiveItem(it, catNames.channels[String(it.category_id)] || 'Autres', idx); });
       } else {
         await importCollection('get_live_categories', 'get_live_streams', 'channels', mapLiveItem);
       }
       if (!aborted && currentImportId !== null) {
         if (vodGlobal !== null) {
-          await importItemsFlat(vodGlobal, 'vod', function (it) { return mapVodItem(it, catNames.vod[String(it.category_id)] || 'Autres'); });
+          await importItemsFlat(vodGlobal, 'vod', function (it, idx) { return mapVodItem(it, catNames.vod[String(it.category_id)] || 'Autres', idx); });
         } else {
           await importCollection('get_vod_categories', 'get_vod_streams', 'vod', mapVodItem);
         }
@@ -163,7 +171,7 @@ async function runImport() {
     // Séries : chemin propre (global si dispo, sinon repli par catégories, §6.6).
     if (!aborted && currentImportId !== null) {
       if (seriesGlobal !== null) {
-        await importItemsFlat(seriesGlobal, 'series', function (it) { return mapSeriesItem(it, catNames.series[String(it.category_id)] || 'Autres'); });
+        await importItemsFlat(seriesGlobal, 'series', function (it, idx) { return mapSeriesItem(it, catNames.series[String(it.category_id)] || 'Autres', idx); });
       } else {
         await importCollection('get_series_categories', 'get_series', 'series', mapSeriesItem);
       }
@@ -221,7 +229,7 @@ async function importItemsFlat(items, targetTable, mapFn) {
   pendingTarget = targetTable;
   for (let i = 0; i < items.length; i++) {
     if (aborted) return;
-    pendingItems.push(mapFn(items[i]));
+    pendingItems.push(mapFn(items[i], nextSortIdx(targetTable)));
     if (pendingItems.length >= CHUNK_ITEMS) {
       await drainAll();
     }
@@ -253,7 +261,7 @@ async function importCollection(catAction, listAction, targetTable, mapFn) {
         await drainAll();
       }
       pendingTarget = targetTable;
-      pendingItems.push(mapFn(items[i], groupName));
+      pendingItems.push(mapFn(items[i], groupName, nextSortIdx(targetTable)));
       if (pendingItems.length >= CHUNK_ITEMS) {
         await drainAll(); // PROT-1 : un seul CHUNK en vol — le producteur se suspend
       }
@@ -277,8 +285,9 @@ function waitForIdle() {
   return new Promise(function (resolve) { ackWaiters.push(resolve); });
 }
 
-function mapLiveItem(s, groupName) {
+function mapLiveItem(s, groupName, sortIdx) {
   return {
+    sortIdx: sortIdx | 0, // V13 : ordre serveur (rang de catégorie + position)
     id: currentImportId0() + ':' + s.stream_id,
     importId: currentImportId0(),
     name: String(s.name || ''),
@@ -291,9 +300,10 @@ function mapLiveItem(s, groupName) {
   };
 }
 
-function mapVodItem(s, groupName) {
+function mapVodItem(s, groupName, sortIdx) {
   const name = String(s.name || '');
   return {
+    sortIdx: sortIdx | 0,
     id: currentImportId0() + ':' + s.stream_id,
     importId: currentImportId0(),
     name: name,
@@ -306,9 +316,10 @@ function mapVodItem(s, groupName) {
   };
 }
 
-function mapSeriesItem(s, groupName) {
+function mapSeriesItem(s, groupName, sortIdx) {
   const name = String(s.name || '');
   return {
+    sortIdx: sortIdx | 0,
     id: currentImportId0() + ':' + s.series_id,
     importId: currentImportId0(),
     seriesId: String(s.series_id),
