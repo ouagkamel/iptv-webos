@@ -30,6 +30,8 @@ export class PlayerOSD {
     this.epgEl.textContent = (now ? now + '  ·  ' : '') + (next ? 'Suit: ' + next : '');
   }
 
+  reveal() { this._show(); } // V12 : touche INFO = réafficher l'OSD sans recharger l'état
+
   setStatus(message) {
     this.statusEl.textContent = String(message || '');
     this._show();

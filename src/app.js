@@ -11,6 +11,7 @@ import { LifecycleAdapter } from './platform/LifecycleAdapter.js';
 import { DualPlayerPolicy } from './media/DualPlayerPolicy.js';
 import { PlayerOSD } from './components/PlayerOSD.js';
 import { ImportBadge } from './components/ImportBadge.js';
+import { classifyKey, createRepeatGate, stepIndex, pageIndex } from './ui/RemoteKeys.js';
 import { SeriesBrowser } from './services/SeriesBrowser.js';
 import { CONFIG } from './config.js';
 
@@ -23,6 +24,8 @@ const state = {
   catFilter: { live: '', vod: '', series: '' },
   selIndex: -1,
   provider: { maxConcurrentStreams: 0 },
+  // V12 §8.4 : contexte de lecture en cours (zap ↑/↓ dans le lecteur)
+  playing: null,
   dualEligible: false,
   playerOpen: false
 };
@@ -31,7 +34,9 @@ let ctx, engine, osd, videoEl, adapter, lifecycle, root;
 let importBadge = null; // V10 : vignette de progression (non interactive, hors focus)
 let seriesBrowser = null; // V11 : détail de série lazy (§6.6)
 let seriesOverlay = null;
-let seriesOverlayBack = null;
+let seriesCtx = null;   // { pl, item, payload, level:'seasons'|'episodes', seasonIdx }
+let seriesRefs = null;  // nœuds stables de l'overlay (body, closeB)
+let seriesBack = null;  // handler courant de la pile LIFO du panneau
 const lists = {};
 const catSelects = {};
 
@@ -155,6 +160,19 @@ function buildListView(kind) {
   const scroller = el('div', 'scroller');
   left.appendChild(scroller);
   view.appendChild(left);
+  // V12 §8.4 : le curseur de la Magic Remote active désormais les lignes (pas
+  // seulement les boutons) — délégation au niveau du scroller, les nœuds sont
+  // recyclés par le VirtualList, jamais de listener par ligne.
+  scroller.addEventListener('click', function (ev) {
+    let t = ev.target;
+    while (t && t !== scroller && !(t.getAttribute && t.getAttribute('data-index') !== null)) t = t.parentNode;
+    if (!t || t === scroller) return;
+    const idx = parseInt(t.getAttribute('data-index'), 10);
+    if (isNaN(idx)) return;
+    state.selIndex = idx;
+    const item = lists[kind].items[idx];
+    if (item) { syncFocusables(kind); activateChannel(kind, item, idx); }
+  });
 
   // (Le lecteur n'est plus enfoncé dans la vue live : voir ensurePlayer/openPlayer —
   //  vue-agnostic, overlay plein écran partagé live + VOD.)
@@ -294,23 +312,124 @@ function syncFocusables(kind) {
     : Math.max(0, Math.min(vis.rows.length - 1, state.selIndex - vis.start));
 }
 
-function handleListKeys(e) {
-  if (state.tab !== 'live' && state.tab !== 'vod' && state.tab !== 'series') return;
-  const kind = state.tab;
-  const list = lists[kind];
-  const total = list.items.length;
-  if (total === 0) return;
+/* ————————————— V12 §8.4 : routeur télécommande unifié —————————————
+   Un seul handler, contextuel (lecteur ouvert / panneau série / liste / champ
+   en cours d'édition), branché sur la table pure RemoteKeys. Enregistre AVANT
+   le FocusEngine : les touches consommées stoppent la propagation, les autres
+   (dont OK sur les boutons des overlays) passent au moteur. */
+const moveGate = createRepeatGate(null, 45, 130);
+const LIST_TABS = { live: true, vod: true, series: true };
 
-  if (e.keyCode === 38 || e.keyCode === 40) {
+function handleRemoteKey(e) {
+  const t = e.target;
+  const tag = (t && t.tagName) || '';
+  const ctx = {
+    inPlayer: !!state.playerOpen,
+    inSeriesOverlay: !!seriesOverlay,
+    seriesLevel: seriesCtx ? seriesCtx.level : null,
+    editing: tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT',
+    editKind: (tag === 'INPUT' || tag === 'TEXTAREA') ? 'input' : null,
+    tab: state.tab
+  };
+  const action = classifyKey(e.keyCode, ctx);
+  if (!action) return;
+
+  if (action === 'form-enter') {
     e.preventDefault(); e.stopImmediatePropagation();
-    state.selIndex = (state.selIndex + (e.keyCode === 40 ? 1 : -1) + total) % total;
+    if (LIST_TABS[state.tab] && t) applySearch(state.tab, t.value);
+    return;
+  }
+  if (action === 'osd') { if (osd && typeof osd.reveal === 'function') osd.reveal(); return; }
+  if (action === 'home') {
+    e.preventDefault(); e.stopImmediatePropagation();
+    if (seriesOverlay) closeSeriesDetail();
+    if (state.playerOpen) closePlayer();
+    state.tab = 'playlists';
+    renderTab();
+    return;
+  }
+  if (action === 'series-back') { e.preventDefault(); e.stopImmediatePropagation(); engine.handleSystemBack(); return; }
+  if (action === 'series-step-back') { e.preventDefault(); e.stopImmediatePropagation(); enterSeriesSeasons(); return; }
+  if (action === 'playpause') { e.preventDefault(); e.stopImmediatePropagation(); togglePlayPause(); return; }
+  if (action === 'seek-back' || action === 'seek-fwd') {
+    e.preventDefault(); e.stopImmediatePropagation();
+    nudgeSeconds(action === 'seek-fwd' ? 10 : -10);
+    return;
+  }
+  if (action === 'close-player') { e.preventDefault(); e.stopImmediatePropagation(); closePlayer(); return; }
+  if (action === 'zap-next' || action === 'zap-prev') {
+    e.preventDefault(); e.stopImmediatePropagation();
+    if (!moveGate(action)) return;
+    zapInPlayer(action === 'zap-next' ? 1 : -1);
+    return;
+  }
+  const kind = state.tab;
+  if (!LIST_TABS[kind]) return;
+  const list = lists[kind];
+  if (!list || !list.items || list.items.length === 0) return;
+  if (action === 'row-next' || action === 'row-prev') {
+    e.preventDefault(); e.stopImmediatePropagation();
+    if (!moveGate(action)) return;
+    state.selIndex = stepIndex(list.items.length, state.selIndex, action === 'row-next' ? 1 : -1);
     scrollToShow(kind, state.selIndex);
     syncFocusables(kind);
-  } else if (e.keyCode === 13) {
+  } else if (action === 'page-next' || action === 'page-prev') {
+    e.preventDefault(); e.stopImmediatePropagation();
+    if (!moveGate(action)) return;
+    const per = Math.max(1, Math.floor((list.container.clientHeight || 720) / (list.itemHeight || 60)));
+    state.selIndex = pageIndex(list.items.length, state.selIndex, action === 'page-next' ? per : -per);
+    scrollToShow(kind, state.selIndex);
+    syncFocusables(kind);
+  } else if (action === 'activate') {
     e.preventDefault(); e.stopImmediatePropagation();
     const item = list.items[state.selIndex];
-    if (item) activateChannel(kind, item);
+    if (item) activateChannel(kind, item, state.selIndex);
   }
+}
+
+function zapInPlayer(delta) {
+  const p = state.playing;
+  if (!p) return;
+  if (p.kind === 'episode') { // dans un épisode : ↑/↓ = épisode précédent/suivant de la saison
+    const ni = stepIndex(p.episodes.length, p.epIndex, delta);
+    if (ni < 0) return;
+    playEpisode(p.pl, p.series, p.season, p.episodes[ni], ni);
+    return;
+  }
+  const list = lists[p.kind];
+  if (!list) return;
+  const ni = stepIndex(list.items.length, p.index, delta);
+  if (ni < 0) return;
+  state.selIndex = ni;
+  playFromList(p.kind, ni);
+}
+
+function playFromList(kind, idx) {
+  const item = lists[kind].items[idx];
+  if (item) activateChannel(kind, item, idx);
+}
+
+function togglePlayPause() {
+  if (!videoEl) return;
+  try {
+    if (videoEl.paused) {
+      const pr = videoEl.play();
+      if (pr && typeof pr.catch === 'function') pr.catch(function () { /* autoplay bloqué hors gesture : rien à signaler */ });
+    } else {
+      videoEl.pause();
+    }
+  } catch (eTP) { /* états transitoires du lecteur */ }
+}
+
+function nudgeSeconds(sec) {
+  if (!videoEl || !state.playing || state.playing.kind === 'live') return; // le direct ne s'indexe pas
+  try {
+    const d = videoEl.duration;
+    if (typeof d === 'number' && isFinite(d) && d > 0) {
+      videoEl.currentTime = Math.max(0, Math.min(d - 0.5, (videoEl.currentTime || 0) + sec));
+      if (osd) osd.setStatus((sec > 0 ? '+' : '') + sec + ' s');
+    }
+  } catch (eNS) { /* seek refusé par le flux : ignoré */ }
 }
 
 function scrollToShow(kind, idx) {
@@ -325,8 +444,9 @@ function scrollToShow(kind, idx) {
   list._renderWindow();
 }
 
-async function activateChannel(kind, item) {
+async function activateChannel(kind, item, idx) {
   if (kind === 'series') { openSeriesDetail(item); return; } // §6.6 : la série se joue par épisode
+  state.playing = { kind: kind, index: idx != null ? idx : state.selIndex };
   openPlayer();
   adapter.play(item.streamUrl);
   if (kind === 'live') {
@@ -383,6 +503,7 @@ function closePlayer() {
   if (!playerOpen) return;
   playerOpen = false;
   state.playerOpen = false;
+  state.playing = null;
   if (adapter) adapter.stop();
   if (playerOverlay && playerOverlay.parentNode) playerOverlay.parentNode.removeChild(playerOverlay);
   engine.removeBackHandler(closePlayer);
@@ -394,11 +515,15 @@ function closePlayer() {
    Overlay plein écran dédié, même mécanique que le lecteur : back LIFO,
    focus borné, rendu XSS-safe. get_series_info est paresseux (cache 24 h) :
    un échec réseau affiche « Réessayer » sans jamais toucher à l'import. */
+function pushSeriesBackHandler(fn) {
+  if (seriesBack) engine.removeBackHandler(seriesBack);
+  seriesBack = fn;
+  engine.pushBackHandler(seriesBack);
+}
+
 async function openSeriesDetail(item) {
   closeSeriesDetail();
   const pl = await ctx.manager.get(state.activePlaylistId);
-  seriesOverlayBack = closeSeriesDetail;
-  engine.pushBackHandler(seriesOverlayBack);
   seriesOverlay = el('div', 'series-detail');
   const head = el('div', 'sd-head');
   const closeB = el('button', 'mini close-sd');
@@ -415,7 +540,11 @@ async function openSeriesDetail(item) {
   seriesOverlay.appendChild(head);
   seriesOverlay.appendChild(body);
   document.body.appendChild(seriesOverlay);
+  seriesRefs = { body: body, closeB: closeB };
+  seriesCtx = { pl: pl, item: item, payload: null, level: null, seasonIdx: -1 };
   engine.setFocusables([closeB]);
+  pushSeriesBackHandler(closeSeriesDetail);
+  engine.currentIndex = 0;
 
   let payload;
   try {
@@ -430,46 +559,98 @@ async function openSeriesDetail(item) {
     engine.setFocusables([closeB, retry]);
     return;
   }
-  const focusEls = [closeB];
-  const seasons = (payload && payload.seasons) || [];
-  for (let s = 0; s < seasons.length; s++) {
-    const sn = seasons[s];
-    const h = el('div', 'sd-season');
-    h.textContent = sn.name + '  ·  ' + sn.episodes.length + ' épisode(s)';
-    body.appendChild(h);
-    for (let e = 0; e < sn.episodes.length; e++) {
-      const ep = sn.episodes[e];
-      const b = el('button', 'sd-epi');
-      b.tabIndex = 0;
-      b.textContent = 'S' + pad2(sn.number) + 'E' + pad2(ep.episodeId) + '  ' + ep.title;
-      (function (episode, season) {
-        b.addEventListener('click', function () { playEpisode(pl, item, season, episode); });
-      })(ep, sn);
-      body.appendChild(b);
-      focusEls.push(b);
-    }
-  }
-  if (focusEls.length === 1) {
+  if (!payload || !payload.seasons || payload.seasons.length === 0) {
     const none = el('div', 'sd-error');
     none.textContent = 'Aucun épisode fourni par le panneau.';
     body.appendChild(none);
+    return;
+  }
+  seriesCtx.payload = payload;
+  // V12 §6.6 : sélection en deux temps (saison, puis épisode) ; une saison
+  // unique va directement aux épisodes (pas de clic inutile).
+  if (payload.seasons.length === 1) enterSeriesEpisodes(0, true);
+  else enterSeriesSeasons();
+}
+
+function enterSeriesSeasons() {
+  if (!seriesOverlay || !seriesCtx || !seriesRefs) return;
+  seriesCtx.level = 'seasons';
+  seriesCtx.seasonIdx = -1;
+  const body = seriesRefs.body;
+  body.innerHTML = '';
+  const h = el('div', 'sd-h');
+  h.textContent = 'Saisons';
+  body.appendChild(h);
+  const focusEls = [seriesRefs.closeB];
+  const seasons = seriesCtx.payload.seasons;
+  for (let i = 0; i < seasons.length; i++) {
+    const sn = seasons[i];
+    const b = el('button', 'sd-season-btn');
+    b.tabIndex = 0;
+    b.textContent = sn.name + '  —  ' + sn.episodes.length + ' épisode(s)';
+    (function (idx) {
+      b.addEventListener('click', function () { enterSeriesEpisodes(idx, false); });
+    })(i);
+    body.appendChild(b);
+    focusEls.push(b);
   }
   engine.setFocusables(focusEls);
+  pushSeriesBackHandler(closeSeriesDetail);
+  engine.currentIndex = 0;
+}
+
+function enterSeriesEpisodes(seasonIdx, fromSingle) {
+  if (!seriesOverlay || !seriesCtx || !seriesRefs) return;
+  const sn = seriesCtx.payload.seasons[seasonIdx];
+  if (!sn) return;
+  seriesCtx.level = 'episodes';
+  seriesCtx.seasonIdx = seasonIdx;
+  const body = seriesRefs.body;
+  body.innerHTML = '';
+  const focusEls = [seriesRefs.closeB];
+  if (!(fromSingle && seriesCtx.payload.seasons.length === 1)) {
+    const backB = el('button', 'mini sd-back');
+    backB.textContent = '← Toutes les saisons'; backB.tabIndex = 0;
+    backB.addEventListener('click', enterSeriesSeasons);
+    body.appendChild(backB);
+    focusEls.push(backB);
+  }
+  const h = el('div', 'sd-h');
+  h.textContent = sn.name + '  ·  ' + sn.episodes.length + ' épisode(s)';
+  body.appendChild(h);
+  for (let i = 0; i < sn.episodes.length; i++) {
+    const ep = sn.episodes[i];
+    const b = el('button', 'sd-epi');
+    b.tabIndex = 0;
+    b.textContent = 'S' + pad2(sn.number) + 'E' + pad2(ep.episodeId) + '  ' + ep.title;
+    (function (episode, season, idx) {
+      b.addEventListener('click', function () { playEpisode(seriesCtx.pl, seriesCtx.item, season, episode, idx); });
+    })(ep, sn, i);
+    body.appendChild(b);
+    focusEls.push(b);
+  }
+  engine.setFocusables(focusEls);
+  pushSeriesBackHandler(fromSingle ? closeSeriesDetail : enterSeriesSeasons);
+  engine.currentIndex = 0;
 }
 
 function closeSeriesDetail() {
   if (!seriesOverlay) return;
   if (seriesOverlay.parentNode) seriesOverlay.parentNode.removeChild(seriesOverlay);
   seriesOverlay = null;
-  if (seriesOverlayBack) { engine.removeBackHandler(seriesOverlayBack); seriesOverlayBack = null; }
+  seriesCtx = null;
+  seriesRefs = null;
+  if (seriesBack) { engine.removeBackHandler(seriesBack); seriesBack = null; }
   if (state.tab === 'series') syncFocusables('series');
   else renderTab();
 }
 
-function playEpisode(pl, series, season, ep) {
+function playEpisode(pl, series, season, ep, epIndex) {
   closeSeriesDetail();
   openPlayer();
   adapter.play(SeriesBrowser.episodeUrl(pl, ep));
+  state.playing = { kind: 'episode', pl: pl, series: series, season: season,
+                    episodes: season.episodes, epIndex: epIndex != null ? epIndex : 0 };
   osd.setChannel(series.name);
   osd.setStatus('S' + pad2(season.number) + 'E' + pad2(ep.episodeId) + ' — ' + ep.title);
 }
@@ -499,19 +680,19 @@ async function showEpgFor(item) {
 function wireGlobalEvents() {
   // Échap (desktop/simulateur) ferme l'overlay ; Back webOS (461) transite par la
   // pile LIFO du FocusEngine (handler poussé à l'ouverture, retiré à la fermeture).
-  window.addEventListener('keydown', function (e) {
-    if (seriesOverlay && e.keyCode === 27) { // Échap : le détail prime sur tout (desktop/simulateur)
-      e.preventDefault(); e.stopImmediatePropagation(); closeSeriesDetail();
-    } else if (state.playerOpen && e.keyCode === 27) {
-      e.preventDefault(); e.stopImmediatePropagation(); closePlayer();
-    }
-  });
   // Le handler de liste est enregistré AVANT engine.init() ? engine est déjà init ;
   // on place le nôtre sur window avec stopImmediatePropagation, donc il doit passer
   // en PREMIER : re-register ordre — on retire/réajoute le listener du moteur.
   window.removeEventListener('keydown', engine.boundOnKeyDown);
-  window.addEventListener('keydown', handleListKeys);
+  window.addEventListener('keydown', handleRemoteKey);
   window.addEventListener('keydown', engine.boundOnKeyDown);
+  // V12 : le OK du moteur (preventDefault + « focus-activate ») déclenche
+  // désormais .click() sur l'élément focusé — corrige l'Entrée sur les boutons
+  // des overlays et du formulaire (avant, elle ne déclenchait rien).
+  window.addEventListener('focus-activate', function (e) {
+    const el2 = e && e.detail && e.detail.element;
+    if (el2 && typeof el2.click === 'function') el2.click();
+  });
 
   window.addEventListener('import-complete', function () {
     osd && osd.setStatus('Import terminé');

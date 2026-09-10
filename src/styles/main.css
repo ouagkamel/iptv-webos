@@ -92,3 +92,10 @@ body.magic-remote-active { cursor: default; }
   border: 0; border-bottom: 1px solid #23262e; padding: 14px 16px; font-size: 19px; }
 .series-detail .sd-epi:focus { background: #2a2f3a; outline: 2px solid #ffe100; }
 .series-detail .sd-error { color: #ff6b6b; font-size: 20px; margin: 24px 0; }
+
+/* V12 §8.4 : en-têtes de niveaux du panneau série et boutons de saison */
+.series-detail .sd-h { font-size: 20px; color: #9ad1ff; margin: 14px 0 8px 0; text-transform: uppercase; letter-spacing: 1px; }
+.series-detail .sd-season-btn { display: block; width: 100%; text-align: left; background: #14181f; color: #fff;
+  border: 0; border-bottom: 1px solid #23262e; padding: 16px; font-size: 20px; }
+.series-detail .sd-season-btn:focus { background: #2a2f3a; outline: 2px solid #ffe100; }
+.series-detail .sd-back { margin: 10px 0; }

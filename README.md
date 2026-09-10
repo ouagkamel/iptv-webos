@@ -1,4 +1,4 @@
-# IPTV webOS Player — implémentation (Spec V10, Plan Sprint 0→4)
+# IPTV webOS Player — implémentation (Spec V12, Plan Sprint 0→4)
 
 App webOS TV (cible : webOS 5.0 entrée de gamme, Chromium 68) : imports **M3U +
 XMLTV + Xtream Codes**, virtualisation TV, pipeline média NATIVE→MSE avec
@@ -36,6 +36,23 @@ avec reprise + seek, politique §7.5.
   `iptv-webos-dist.zip`) ; ou le code source seul : bouton « Download ZIP »
   de GitHub, ou `git clone https://github.com/ouagkamel/iptv-webos.git`
   (puis `npm ci && npm run build`).
+
+## Télécommande & navigation (révision V12)
+
+- **Zap sans sortir du lecteur** : pendant une chaîne, ↑/↓ (aussi PROG−/PROG+
+  412/414 et PageUp/Down) changent de chaîne directement dans la liste filtrée
+  courante (circulaire). Sur un épisode : ↑/↓ = épisode précédent/suivant de
+  la saison. 415/448/19 = pause/lecture, 413/Échap/Back = fermer, 417/419 =
+  ±10 s (VOD/épisodes seulement), 457 = réafficher l'OSD, 402 = onglet
+  Playlistes. Garde anti-répétition par type (mouvement 45 ms, zap 130 ms).
+- **Séries en deux temps** : saison → épisode (panneau mono-saison : accès
+  direct), retour ← / Échap / Back en pile LIFO.
+- **Champs préservés** : les flèches ne sont jamais volées à la recherche ou
+  aux sélecteurs ; Entrée dans la recherche lance le filtre ; l'activation des
+  boutons au clavier (focus-activate → click) est réparée partout (overlays,
+  formulaire). Clic Magic Remote actif sur les lignes de liste.
+- Logique pure et testée : `src/ui/RemoteKeys.js` (table de classement,
+  `stepIndex`/`pageIndex` circulaires, gate à horloge injectable).
 
 ## Séries & catégories serveur (révision V11)
 
