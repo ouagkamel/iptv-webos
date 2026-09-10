@@ -1,19 +1,19 @@
-# IPTV webOS Player — implémentation (Spec V13, Plan Sprint 0→4)
+# IPTV webOS Player — implémentation (Spec V14, Plan Sprint 0→4)
 
 App webOS TV (cible : webOS 5.0 entrée de gamme, Chromium 68) : imports **M3U +
 XMLTV + Xtream Codes**, virtualisation TV, pipeline média NATIVE→MSE avec
-watchdog, persistance Dexie v2 (table `vod`, règle DB-5).
+watchdog, persistance Dexie v3 (vod, séries, cache de détail, catégories ; règles DB-5/DB-6/DB-7).
 
-## Statut d'exécution (vérifié dans cet environnement, 2026-09-09)
+## Statut d'exécution (vérifié dans cet environnement, 2026-09-10)
 
 | Gate | Résultat |
 |---|---|
 | `npm ci`-style install (deps figées §2.1 : dexie 3.2.4, hls.js 1.4.14, webostvjs 1.2.4) | ✔ |
 | `npm run build` (Vite 4.5.0, target chrome68, terser, workers IIFE, inlineDynamicImports) | ✔ 26 modules, 4 bundles (3 workers séparés + 1 chunk unique) |
-| `npm test` (harnais maison `node:test`, **39 tests**) | ✔ 39/39 |
-| `tools/syntax-gate.mjs src` (interdit `?.` `??` `.flat` `Object.fromEntries` `globalThis` nu…) | ✔ 20 fichiers |
+| `npm test` (harnais maison `node:test`, **74 tests**) | ✔ 74/74 |
+| `tools/syntax-gate.mjs src` (interdit `?.` `??` `.flat` `Object.fromEntries` `globalThis` nu…) | ✔ 24 fichiers |
 | `tools/syntax-gate.mjs dist` (deps minifiées, occurrences sous garde tolérées et documentées) | ✔ 2 occurrences gardées (interop `typeof globalThis`, `typeof self.clients &&` de hls.js) |
-| Build store `IPTV_PRODUCTION=true` (Q3) | ✔ 480.30 kB, bundle sans aucun `console.*` |
+| Build store `IPTV_PRODUCTION=true` (Q3) | ✔ 520.27 kB, bundle sans aucun `console.*` |
 | Boot du build de production dans un vrai navigateur (chrome-headless-shell 153, CDP via `tools/browser-run.mjs`) | ✔ `#root` monté, 0 erreur console |
 | **Smoke navigateur réel** (`dev/smoke.html` sur le serveur Vite : workers `?worker` réels, Dexie/IndexedDB réels, import 50 lignes + swap + filet §5.5) | ✔ **SMOKE PASS (8/8)** |
 | **Harnais §9 en navigateur réel** (`tests/harness.html`, H1–H8 + test lourd H9) | ✔ **HARNESS PASS (9/9)** ; H9 : 20 000 lignes en 2,7 s, pire intervalle rAF 47 ms (budget ≤ 50 ms) |
@@ -26,14 +26,16 @@ dates-12, attrs (`>` quoté/quotes simples/ordre), CDATA+entités, coupe 7 Ko,
 waiters, filet `worker.onerror`, `xtream-mock` (5 channels + 4 vod exacts,
 `ACCOUNT_INFO.maxConnections=2`), `xtream-auth-fail` (zéro écriture), XP-4
 (catégorie 503 ignorée), bascule de table sans CHUNK mixte, invariant §1.2-6
-(≤ 19 nœuds sur 20 000 items), matrice média complète §7.1, cycle de vie §7.4
-avec reprise + seek, politique §7.5.
+(≤ 19 nœuds sur 20 000 items), matrice média complète §7.1, démarrage FHD V14
+(fenêtre d'inactivité + requête active + plafond 45 s), cycle de vie §7.4 avec
+reprise + seek, politique §7.5.
 
 ## Télécharger
 
 - **Archive complète (source + `dist/` prêt pour `ares-package`)** : dernière
   release → https://github.com/ouagkamel/iptv-webos/releases (fichier
-  `iptv-webos-dist.zip`) ; ou le code source seul : bouton « Download ZIP »
+  `iptv-webos-v14.zip`) ; téléchargement direct :
+  https://github.com/ouagkamel/iptv-webos/releases/download/v14/iptv-webos-v14.zip ; ou le code source seul : bouton « Download ZIP »
   de GitHub, ou `git clone https://github.com/ouagkamel/iptv-webos.git`
   (puis `npm ci && npm run build`).
 
@@ -256,11 +258,31 @@ escaladait de même. Dans les deux cas le pipeline s'entretuait.
 Correctif : en HLS_MSE **avant** `MANIFEST_PARSED`, une `error` code 4 sans buffer
 est ignorée (c'est la trace du vidage) ; compteur de génération de tentative de
 lecture (`_playGen`) — un rejet de `play()` dont la génération n'est plus courante
-ne décrit plus aucune lecture et ne décide rien. Le filet contractuel §7.2 reste la
-décision : startup timeout 10 s + évènements d'erreur hls.js (dont 401/403 sans
-retry). Conséquence pratique au re-test : le xhr du fallback ne doit plus jamais
+ne décrit plus aucune lecture et ne décide rien. Le xhr du fallback ne doit plus
 apparaître « canceled 0 o » ; si le flux reste noir, l'erreur affichée est désormais
 **nommée par hls.js** (réseau/media/auth) et décrit le panneau, non plus l'app.
+
+### V14 : démarrage des chaînes FHD (fenêtre d'inactivité, 2026-09-10)
+
+La trace TV fournie montre une playlist `.m3u8` en `200`/`302`, puis une requête
+`.ts` d'environ **3 Mo** : ce n'est pas un échec réseau. L'ancien délai dur de
+10 000 ms pouvait cependant basculer/arrêter la lecture avant la première image.
+Le contrat V14 de `MediaAdapter` est désormais :
+
+- 10 s = **fenêtre sans progression**, pas plafond total ; les événements natifs
+  (`loadedmetadata`, `loadeddata`, `progress`, `canplay`, `timeupdate`) la réarment ;
+- `networkState === 2` (`NETWORK_LOADING`) côté natif et `MANIFEST_LOADING` /
+  `LEVEL_LOADING` / `FRAG_LOADING` côté hls.js marquent une requête active : le
+  minuteur est repoussé au lieu de produire un faux `STARTUP_FAILURE` ;
+- `MANIFEST_LOADED`, `MANIFEST_PARSED`, `LEVEL_LOADED`, `FRAG_LOADED`,
+  `FRAG_BUFFERED` et `BUFFER_APPENDED` sont aussi des marqueurs de progression ;
+- plafond absolu à **45 s** depuis `play()` jusqu'à la première image, jamais
+  réarmé par les marqueurs ni par le fallback NATIVE → HLS_MSE. Un flux réellement
+  silencieux conserve le comportement de fallback/erreur ; un flux qui marque de
+  l'activité sans afficher finit avec `STARTUP_TIMEOUT_CAP`, au lieu de rester
+  bloqué indéfiniment ;
+- les callbacks hls.js vérifient l'instance et le `requestId`, afin qu'un ancien
+  zapping ne repousse pas le délai du nouveau flux.
 
 ### Device réel : échelle de diagnostic d'amorçage à l'écran
 

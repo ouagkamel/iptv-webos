@@ -1,12 +1,24 @@
-// src/media/MediaAdapter.js — spec §7.2 (verbatim).
+// src/media/MediaAdapter.js — spec §7.2 + amendement V14 (démarrage FHD).
 // Matrice §7.1 : passage unique NATIVE → HLS_MSE, budgets de reconnexion PAR MOTEUR,
 // requestId anti-race (zapping), AUTHORIZATION_ERROR 401/403 sans retry,
 // recoveryTimer annulable (anti timer-zombie, correction V7-nitpick).
 import Hls from 'hls.js';
 import { MediaWatchdog } from './Watchdog.js';
 
-const STARTUP_TIMEOUT_MS = 10000;
+// V14 §7.2 : le budget de démarrage est une FENÊTRE D'INACTIVITÉ, plus un plafond
+// absolu. Justification (trace panneau réel 2026-09-10) : sur chaînes FHD, un
+// premier segment de ~3 Mo + un 302 de playlist = 11–13 s avant la première
+// image ; le cap dur de 10 s tuait des flux sains (« STARTUP_FAILURE: startup
+// timeout 10000ms »). Tout marqueur de progression (événement réseau hls.js ou
+// événement média natif) réarme la fenêtre ; DEADLINE_MS borne le total pour
+// qu'un flux qui « progresse » sans jamais livrer d'image échoue proprement.
+const STARTUP_TIMEOUT_MS = 10000;   // max 10 s SANS AUCUNE progression
+const STARTUP_DEADLINE_MS = 45000;  // max 45 s au total jusqu'à la première image
 const MAX_RECOVERIES = 1;
+const STARTUP_PROGRESS_MEDIA_EVENTS = ['loadedmetadata', 'loadeddata', 'progress', 'canplay', 'timeupdate'];
+const STARTUP_PROGRESS_HLS_EVENTS = ['MANIFEST_LOADED', 'LEVEL_LOADED',
+  'FRAG_LOADED', 'FRAG_BUFFERED', 'BUFFER_APPENDED'];
+const STARTUP_ACTIVE_HLS_EVENTS = ['MANIFEST_LOADING', 'LEVEL_LOADING', 'FRAG_LOADING'];
 
 export class MediaAdapter {
   constructor(videoElement) {
@@ -34,11 +46,17 @@ export class MediaAdapter {
     this.recoveries = 0;
     this.startupTimer = null;
     this.recoveryTimer = null;   // reconnexion planifiée, annulable (anti timer-zombie)
+    // Réglages sur l'instance (les tests les réduisent ; production = constantes) :
+    this.startupMs = STARTUP_TIMEOUT_MS;
+    this.startupDeadlineMs = STARTUP_DEADLINE_MS;
+    this._startupDeadlineAt = 0; // Date.now() limite ; 0 = phase de démarrage soldée
+    this._hlsNetworkActive = false; // requête playlist/segment en cours connue de hls.js
     this.watchdog = new MediaWatchdog(this);
 
     this.boundOnVideoError = this._onVideoError.bind(this);
     this.boundOnPlaying = this._onPlaying.bind(this);
     this.boundOnEnded = this._onEnded.bind(this);
+    this.boundOnStartupProgress = this._noteStartupProgress.bind(this);
   }
 
   init() {
@@ -46,6 +64,10 @@ export class MediaAdapter {
     this.videoEl.addEventListener('error', this.boundOnVideoError);
     this.videoEl.addEventListener('playing', this.boundOnPlaying);
     this.videoEl.addEventListener('ended', this.boundOnEnded);
+    // V14 : progression observable du <video> (buffer qui se remplit) = preuve de vie
+    for (let i = 0; i < STARTUP_PROGRESS_MEDIA_EVENTS.length; i++) {
+      this.videoEl.addEventListener(STARTUP_PROGRESS_MEDIA_EVENTS[i], this.boundOnStartupProgress);
+    }
   }
 
   play(streamUrl) {
@@ -54,8 +76,10 @@ export class MediaAdapter {
     this._teardownPlayback();
     this.currentUrl = streamUrl;
     this.recoveries = 0;
+    this._hlsNetworkActive = false;
     this.engine = 'NATIVE';
     this.state = 'LOADING';
+    this._startupDeadlineAt = Date.now() + this.startupDeadlineMs;
     this._armStartupTimeout(requestId);
     this.videoEl.src = streamUrl;
     this._tryPlay(requestId);
@@ -93,6 +117,7 @@ export class MediaAdapter {
   _onPlaying() {
     if (this._destroyed || this.state === 'IDLE' || this.state === 'ERROR') return;
     this.state = 'PLAYING';
+    this._startupDeadlineAt = 0;
     this._clearStartupTimeout();
     this.watchdog.start(this.currentRequestId);
   }
@@ -181,6 +206,7 @@ export class MediaAdapter {
     // NATIVE laisserait HLS_MSE sans AUCUNE marge réseau : la résilience
     // dépendrait du chemin d'arrivée sur le moteur — asymétrie inacceptable.
     this.recoveries = 0;
+    this._hlsNetworkActive = false;
 
     if (!Hls.isSupported()) {
       this._setError('MSE_NON_SUPPORTE');
@@ -190,8 +216,30 @@ export class MediaAdapter {
     this._armStartupTimeout(requestId);
     const hlsInstance = new Hls({ enableWorker: true, lowLatencyMode: false });
     this.hls = hlsInstance;
+    const isCurrentHls = () => this.hls === hlsInstance && this.currentRequestId === requestId;
 
-    hlsInstance.on(Hls.Events.MANIFEST_PARSED, () => { this._mseParsed = true; });
+    hlsInstance.on(Hls.Events.MANIFEST_PARSED, () => {
+      if (isCurrentHls()) { this._mseParsed = true; this._markHlsActivity(false); }
+    });
+    // V14 : progression réseau hls.js (frags, playlists de live rechargées)
+    // réarme la fenêtre d'inactivité. Les événements *_LOADING sont importants :
+    // un segment FHD de 3 Mo peut être en transfert > 10 s sans encore émettre
+    // FRAG_LOADED ; le timeout ne doit pas confondre « requête active » et silence.
+    for (let i = 0; i < STARTUP_PROGRESS_HLS_EVENTS.length; i++) {
+      const evt = Hls.Events[STARTUP_PROGRESS_HLS_EVENTS[i]];
+      if (evt) hlsInstance.on(evt, () => { if (isCurrentHls()) this._noteStartupProgress(); });
+    }
+    for (let i = 0; i < STARTUP_ACTIVE_HLS_EVENTS.length; i++) {
+      const evt = Hls.Events[STARTUP_ACTIVE_HLS_EVENTS[i]];
+      if (evt) hlsInstance.on(evt, () => { if (isCurrentHls()) this._markHlsActivity(true); });
+    }
+    // Les événements chargés repassent l'indicateur à inactif, sans changer le
+    // plafond absolu. MANIFEST_PARSED est traité séparément ci-dessus.
+    const hlsLoadedEvents = ['MANIFEST_LOADED', 'LEVEL_LOADED', 'FRAG_LOADED', 'FRAG_BUFFERED', 'BUFFER_APPENDED'];
+    for (let i = 0; i < hlsLoadedEvents.length; i++) {
+      const evt = Hls.Events[hlsLoadedEvents[i]];
+      if (evt) hlsInstance.on(evt, () => { if (isCurrentHls()) this._markHlsActivity(false); });
+    }
     hlsInstance.on(Hls.Events.ERROR, (event, data) => {
       // Garde générationnelle : instance courante + requestId courant
       if (this._destroyed || this.hls !== hlsInstance || this.currentRequestId !== requestId) return;
@@ -216,14 +264,60 @@ export class MediaAdapter {
 
   _armStartupTimeout(requestId) {
     this._clearStartupTimeout();
+    // V14 : fenêtre = min(inactivité max, reste du plafond absolu). Le plafond,
+    // lui, n'est JAMAIS réarmé par la progression — c'est ce qui distingue
+    // « flux lent mais vivant » (prolongé) de « flux pourri » (45 s).
+    let delay = this.startupMs;
+    if (this._startupDeadlineAt > 0) {
+      const remain = this._startupDeadlineAt - Date.now();
+      if (remain < delay) delay = remain < 0 ? 0 : remain;
+    }
     this.startupTimer = setTimeout(() => {
       if (this._destroyed || this.currentRequestId !== requestId) return;
+      this.startupTimer = null;
+      if (this._startupDeadlineAt > 0 && Date.now() >= this._startupDeadlineAt) {
+        if (this.state === 'LOADING' || this.state === 'RECOVERING') {
+          this._setError('STARTUP_TIMEOUT_CAP: aucune première image sous ' + this.startupDeadlineMs + 'ms (progression sans aboutissement)');
+        }
+        return;
+      }
       if (this.state === 'LOADING') {
-        this._onStartupFailure(requestId, 'startup timeout ' + STARTUP_TIMEOUT_MS + 'ms');
+        if (this._startupNetworkActive()) {
+          // Trace FHD : une requête m3u8/TS peut être active sans événement media
+          // pendant plusieurs secondes. On garde le filet du plafond absolu.
+          this._armStartupTimeout(requestId);
+        } else {
+          this._onStartupFailure(requestId, 'aucune progression depuis ' + this.startupMs + 'ms');
+        }
       } else if (this.state === 'RECOVERING') {
         this._tryRecover('recovery timeout'); // compteur épuisé → fallback ou ERROR
       }
-    }, STARTUP_TIMEOUT_MS);
+    }, delay);
+  }
+
+  /** V14 : tout signe de téléchargement/buffering en phase LOADING/RECOVERING
+   *  repousse l'échéance d'inactivité (jamais le plafond absolu). */
+  _noteStartupProgress() {
+    if (this._destroyed) return;
+    if (this.state !== 'LOADING' && this.state !== 'RECOVERING') return;
+    if (!this.startupTimer) return;
+    if (this._startupDeadlineAt > 0 && Date.now() >= this._startupDeadlineAt) return;
+    this._armStartupTimeout(this.currentRequestId);
+  }
+
+  _markHlsActivity(active) {
+    this._hlsNetworkActive = !!active;
+    this._noteStartupProgress();
+  }
+
+  _startupNetworkActive() {
+    if (this.engine === 'HLS_MSE') return this._hlsNetworkActive;
+    if (this.engine === 'NATIVE') {
+      // HTMLMediaElement.NETWORK_LOADING = 2. Certains webOS exposent la valeur
+      // mais n'émettent pas régulièrement « progress » pour les gros TS FHD.
+      return this.videoEl && this.videoEl.networkState === 2;
+    }
+    return false;
   }
 
   _clearStartupTimeout() {
@@ -246,6 +340,7 @@ export class MediaAdapter {
     // le nouvel état (ex. startLoad() sur la fraîche instance hls.js).
     if (this.recoveryTimer) { clearTimeout(this.recoveryTimer); this.recoveryTimer = null; }
     if (this.hls) { this.hls.destroy(); this.hls = null; }
+    this._hlsNetworkActive = false;
     if (this.videoEl) {
       this.videoEl.removeAttribute('src');
       this.videoEl.load();
@@ -270,5 +365,8 @@ export class MediaAdapter {
     this.videoEl.removeEventListener('error', this.boundOnVideoError);
     this.videoEl.removeEventListener('playing', this.boundOnPlaying);
     this.videoEl.removeEventListener('ended', this.boundOnEnded);
+    for (let i = 0; i < STARTUP_PROGRESS_MEDIA_EVENTS.length; i++) {
+      this.videoEl.removeEventListener(STARTUP_PROGRESS_MEDIA_EVENTS[i], this.boundOnStartupProgress);
+    }
   }
 }

@@ -254,3 +254,113 @@ test('releaseHardware() : adapter réutilisable après veille (IDLE propre, src 
   assert.equal(a.currentRequestId, 2);
   a.destroy();
 });
+
+/* ————————————— V14 §7.2 : fenêtre d’inactivité + plafond ————————————— */
+
+test('V14 progression hls.js (FRAG_LOADED) réarme la fenêtre : pas de faux STARTUP_FAILURE', async () => {
+  const { a, v } = freshAdapter();
+  a.startupMs = 150; a.startupDeadlineMs = 100000; // fenêtres réduites pour le test
+  a.play('http://x/fhd.m3u8');
+  v.dispatch('error'); // natif KO → fallback HLS_MSE
+  assert.equal(a.engine, 'HLS_MSE');
+  const h = __hlsInstances[__hlsInstances.length - 1];
+  // un « gros segment FHD » qui arrive tous les ~80 ms : total 800 ms >> 150 ms
+  // d’inactivité unitaire → le vieux cap dur aurait tué le flux.
+  for (let i = 0; i < 10; i++) {
+    await sleep(80);
+    h.emit('hlsFragLoaded', {});
+  }
+  assert.equal(a.state, 'LOADING', 'tou vivant : jamais de STARTUP_TIMEOUT en cours de progression');
+  v.dispatch('playing');
+  assert.equal(a.state, 'PLAYING');
+  assert.equal(a.startupTimer, null);
+  a.destroy();
+});
+
+test('V14 requête active sans événement media : NETWORK_LOADING empêche le faux fallback natif', async () => {
+  const { a, v } = freshAdapter();
+  a.startupMs = 120; a.startupDeadlineMs = 500;
+  v.networkState = 2; // HTMLMediaElement.NETWORK_LOADING (trace FHD : TS encore en transfert)
+  a.play('http://x/fhd-native.m3u8');
+  await sleep(260); // plusieurs fenêtres d’inactivité, mais la requête est toujours active
+  assert.equal(a.state, 'LOADING');
+  assert.equal(a.engine, 'NATIVE', 'pas de bascule HLS tant que le réseau natif charge');
+  v.networkState = 0;
+  v.dispatch('playing');
+  assert.equal(a.state, 'PLAYING');
+  a.destroy();
+});
+
+test('V14 hls.js FRAG_LOADING marque un gros segment actif avant FRAG_LOADED', async () => {
+  const { a, v } = freshAdapter();
+  a.startupMs = 120; a.startupDeadlineMs = 500;
+  a.play('http://x/fhd-hls.m3u8');
+  v.dispatch('error');
+  const h = __hlsInstances[__hlsInstances.length - 1];
+  h.emit('hlsFragLoading', {}); // requête 3 Mo commencée, pas encore « loaded »
+  await sleep(260);
+  assert.equal(a.state, 'LOADING');
+  assert.equal(a.engine, 'HLS_MSE', 'requête FRAG_LOADING active : pas d’erreur prématurée');
+  h.emit('hlsFragLoaded', {});
+  v.dispatch('playing');
+  assert.equal(a.state, 'PLAYING');
+  a.destroy();
+});
+
+test('V14 silence réseau : échec après startupMs d’inactivité (comportement V13 conservé)', async () => {
+  const { a, v } = freshAdapter();
+  const errors = [];
+  const win = globalThis.window;
+  const onError = (e) => errors.push(e.detail.message);
+  win.addEventListener('media-error', onError);
+  a.startupMs = 120; a.startupDeadlineMs = 100000;
+  a.play('http://x/dead.m3u8');
+  v.dispatch('error'); // → HLS_MSE
+  await sleep(300);
+  assert.equal(a.state, 'ERROR');
+  assert.match(errors[0] || '', /aucune progression depuis 120ms/);
+  win.removeEventListener('media-error', onError);
+  a.destroy();
+});
+
+test('V14 plafond absolu : progression infinie mais pas de première image → STARTUP_TIMEOUT_CAP', async () => {
+  const { a, v } = freshAdapter();
+  const errors = [];
+  const onError = (e) => errors.push(e.detail.message);
+  globalThis.window.addEventListener('media-error', onError);
+  a.startupMs = 150; a.startupDeadlineMs = 400;
+  a.play('http://x/zombie.m3u8');
+  v.dispatch('error');
+  const h = __hlsInstances[__hlsInstances.length - 1];
+  for (let i = 0; i < 12; i++) { await sleep(80); h.emit('hlsFragLoaded', {}); }
+  assert.equal(a.state, 'ERROR', 'le plafond n’est jamais réarmé par la progression');
+  assert.match(errors[0] || '', /STARTUP_TIMEOUT_CAP.*400ms/);
+  globalThis.window.removeEventListener('media-error', onError);
+  a.destroy();
+});
+
+test('V14 événements <video> (loadeddata/progress) réarment aussi côté NATIF', async () => {
+  const { a, v } = freshAdapter();
+  a.startupMs = 150; a.startupDeadlineMs = 100000;
+  a.play('http://x/slow-native.m3u8');
+  for (let i = 0; i < 6; i++) { await sleep(90); v.dispatch('progress'); }
+  assert.equal(a.state, 'LOADING', 'progression native reconnue : pas de timeout');
+  assert.equal(a.engine, 'NATIVE', 'aucune bascule MSE déclenchée par le watchdog');
+  v.dispatch('playing');
+  assert.equal(a.state, 'PLAYING');
+  a.destroy();
+});
+
+test('V14 RECOVERING : la progression repousse l’inactivité, le plafond reste dur', async () => {
+  const { a, v } = freshAdapter();
+  a.startupMs = 150; a.startupDeadlineMs = 100000;
+  a.play('http://x/r.m3u8');
+  v.dispatch('playing');
+  // runtime error → _tryRecover → RECOVERING (watchdog de reconnexion armé)
+  a._onPlaytimeFailure('test');
+  assert.equal(a.state, 'RECOVERING');
+  const h = __hlsInstances[__hlsInstances.length - 1];
+  for (let i = 0; i < 8; i++) { await sleep(80); if (h) h.emit('hlsLevelLoaded', {}); a._noteStartupProgress(); }
+  assert.equal(a.state, 'RECOVERING', 'pas de « recovery timeout » pendant la progression');
+  a.destroy();
+});

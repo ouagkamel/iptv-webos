@@ -1,4 +1,4 @@
-# SPÉCIFICATION TECHNIQUE D'EXÉCUTION & ARCHITECTURE — V9 (AMENDEMENT XTREAM CODES)
+# SPÉCIFICATION TECHNIQUE D'EXÉCUTION & ARCHITECTURE — V14 (amendement démarrage FHD)
 
 **Application IPTV / VOD / Live sur LG webOS — Baseline : webOS 5.0 / Chromium 68**
 
@@ -236,9 +236,21 @@ db.version(1).stores({
 db.version(2).stores({
   vod: 'id, importId, [importId+groupName], searchName'
 });
+
+// v3 (révision V11, §6.6/§6.4) : séries + cache paresseux + catégories serveur.
+// Toujours additive seule ; aucune réécriture des stores v1/v2.
+db.version(3).stores({
+  series:      'id, importId, [importId+groupName], searchName', // mêmes index que vod
+  series_info: 'id, importId',                                   // détail lazy, TTL 24 h
+  categories:  '++cid, importId, [importId+kind]'                // ordre serveur conservé
+});
 ```
 
 **Règle DB-5 (Xtream) :** la VOD Xtream vit dans `vod` (jamais dans `channels`) ; clés applicatives `id = importId + ':' + xtreamStreamId` ; index identiques en esprit à `channels` (pagination par catégorie, recherche). Un import `kind: 'playlist'` issu d'Xtream écrit **channels (live) ET vod (films)** — la purge bornée §5.3 couvre les deux tables.
+
+**Règle DB-7 (V13 — ordre d’affichage) :** les tables IndexedDB sont lues triées par clé primaire (`importId:stream_id`, ordre **lexicographique**) — jamais cet ordre ne doit atteindre l’utilisateur. Les listes (Chaînes, Films, Séries) **et le zap du lecteur** sont rendus dans l’ordre serveur : `rang de catégorie` (index dans `db.categories`), puis `sortIdx` (position d’arrivée du worker, persistée sur chaque ligne), puis `id` pour départage déterministe. Les groupes absents du serveur vont en fin, entre eux par `sortIdx`. Le tri vit dans la **couche lecture** (`src/services/ListOrder.js`, fonction pure ; `PlaylistManager.channels/vod/series` l’appliquent), pas dans les workers ni dans `db.js` — les workers ne font qu’écrire des lignes ordonnées par `sortIdx`, l’UI n’a pas à recompter.
+
+**Règle DB-6 (V11 — séries & catégories) :** les séries Xtream vivent dans `series` (jamais dans `vod` ni `channels`) ; clé `id = importId + ':' + series_id`, champ `seriesId` brut conservé pour l'appel de détail. Le détail (`get_series_info`) n'est **jamais importé en masse** : table `series_info`, une ligne par série, écrite à la **première ouverture** de la série (cache TTL 24 h, id = `series.id`). `categories` porte les catégories **telles que définies par le serveur** (ordre d'origine conservé, `sort` = index serveur) — c'est la source des sélecteurs de parcours des trois listes ; pour le M3U, « serveur » = la playlist elle-même (group-title, ordre de première apparition). La purge bornée §5.3 d'un import `kind:'playlist'` Xtream couvre **channels, vod, series, series_info ET categories** de cette playlist ; le M3U écrit `categories(kind:'live')` en plus de `channels`.
 
 **Règle de clés (invariant DB-1) — qui génère quoi :**
 - `playlists.id`, `imports.id` : auto-incrémentés (`++id`), créés une seule fois via la couche applicative.
@@ -259,7 +271,7 @@ Main Thread                              Worker
     │                                            │  (état interne réinitialisé)
     │  PARSE_CHUNK {importId, chunk}   ────────▶ │  parsing + accumulation
     │  ◀────────  CHUNK_PARSED {importId}        │  (ack de parsing : pilotage réseau, §5.7)
-    │  ◀────────  CHUNK {importId, items, table} │  ≤ 500 items, worker suspendu
+    │  ◀────────  CHUNK {importId, items, table} │  ≤ 2000 items (CHUNK_ITEMS, V10), worker suspendu
     │  bulkPut → respiration UI                  │
     │  CHUNK_COMMITTED {importId}  ────────────▶ │  worker reprend
     │  …                                         │
@@ -276,7 +288,7 @@ Erreur DB en cours de route :
 - PROT-1 : le worker n'émet qu'un seul `CHUNK` en vol à la fois (`isWaitingForAck`).
 - PROT-2 : tout `CHUNK_COMMITTED` dont l'`importId` ≠ import courant est ignoré (ack tardif d'un import avorté).
 - PROT-3 : `COMPLETE` n'est émis que si `isStreamEnded ∧ ¬isWaitingForAck ∧ pendingItems.length === 0`.
-- PROT-4 : **les restes partiels (< 500) sont drainables après chaque ack une fois le flux terminé** — le handler d'ack force le flush avec l'état `isStreamEnded`. *(C'est la correction du deadlock de fin de flux : sans cette règle, tout import dont le total résiduel après dernier lot plein est < 500 ne termine jamais.)*
+- PROT-4 : **les restes partiels (< CHUNK_ITEMS) sont drainables après chaque ack une fois le flux terminé** — le handler d'ack force le flush avec l'état `isStreamEnded`. *(C'est la correction du deadlock de fin de flux : sans cette règle, tout import dont le total résiduel après dernier lot plein est < CHUNK_ITEMS ne termine jamais. V10 : `CHUNK_ITEMS = 2000` — la taille de lot passe de 500 à 2000, la sémantique PROT-1 « un seul CHUNK en vol » étant **inchangée** ; gain mesuré : coût fixe d'acquittement/respiration ÷4, cf. annexe perf V10.)*
 - PROT-5 : en cas d'`ABORT_IMPORT`, le main thread continue d'acquitter (`CHUNK_COMMITTED`) les lots déjà reçus **sans les écrire**, afin de ne jamais laisser le worker suspendu — l'import est marqué `status: 'failed'`.
 - PROT-6 : **un seul import en vol par worker** (son état interne est singleton). Un second déclenchement est rejeté par l'ImportController (événement `import-busy`, promesse rejetée). L'UI désactive le contrôle d'import pendant toute la durée de l'opération.
 
@@ -867,7 +879,7 @@ function flushPendingItems(force) {
   }
   if (pendingItems.length >= 500 || force) {
     isWaitingForAck = true;
-    const chunkToSend = pendingItems.splice(0, 500);
+    const chunkToSend = pendingItems.splice(0, CHUNK_ITEMS); // CHUNK_ITEMS = 2000 (V10)
     self.postMessage({
       type: 'CHUNK',
       importId: currentImportId,
@@ -904,6 +916,7 @@ Fin de flux avec `pendingItems = 644` : `flushPendingItems(true)` émet 500, `is
 - Balise ouvrante `<programme …>` : la regex tolère un `>` littéral à l'intérieur de valeurs d'attribut **quotées** (légal en XML) ; un attribut **non quoté** (XML invalide) ferait ignorer l'item — détecté par les compteurs des fixtures §9.
 - Dates : secondes optionnelles (12 ou 14 chiffres acceptés, secondes = 00) ; toute autre variante (séparateurs, 2 chiffres d'année) → item ignoré, jamais parsé partiellement.
 - Le worker M3U (`m3u.worker.js`) implémente **le même protocole** (§5.2) avec tokenisation `#EXTINF`/`#EXTGRP` et génère `id = importId + ':' + seq` + `searchName` normalisé (DB-3).
+- **Catégories M3U (V11)** : la liste des catégories est l'ensemble distinct des `group-title`/`#EXTGRP` **dans l'ordre de première apparition dans le fichier** (le M3U n'a pas d'endpoint de catégories ; la playlist EST le serveur). Un item sans groupe porte `groupName = 'Autres'`, qui entre dans la liste à sa première occurrence. Émission par `CATEGORIES { importId, playlistId, kind:'live', categories:[{name}…] }` **avant** `COMPLETE` (message annexe additif, jamais de CHUNK).
 
 ### 6.5 Import Xtream Codes (URL + username + password) — amendement V9
 
@@ -911,9 +924,9 @@ Fin de flux avec `pendingItems = 644` : `flushPendingItems(true)` émet 500, `is
 
 **Architecture :**
 - `src/platform/XtreamClient.js` (main thread) : constructeur/validateur d'URLs d'endpoints. Stateless, sans effet de bord, jamais de `fetch` ici.
-- `src/data/xtream.worker.js` : worker d'import dédié qui **effectue lui-même ses `fetch`** (disponible dans les workers sous Chromium 68), de façon **séquentielle et paginée par catégorie** — chaque réponse est un document JSON complet borné par la taille d'une catégorie : mémoire bornée par la plus grosse catégorie, jamais par le catalogue entier (le carryOver textuel de §6.1 ne s'applique pas aux documents JSON structurés).
+- `src/data/xtream.worker.js` : worker d'import dédié qui **effectue lui-même ses `fetch`** (disponible dans les workers sous Chromium 68). **Mode par défaut (V10) : « catalogue global »** — un appel `get_live_streams` et un appel `get_vod_streams` **sans** `category_id` (le standard Xtream renvoie alors le catalogue entier, chaque entrée portant son `category_id` ; le nom de groupe est résolu localement via une Map construite sur `get_live_categories`/`get_vod_categories`), suivi d'un drain local par CHUNKS de `CHUNK_ITEMS` (protocole §5.2 inchangé). **Repli obligatoire** : si l'appel global échoue (HTTP ≠ 2xx, JSON invalide, ou `Content-Length` > 40 Mo), le worker retombe sur la boucle **séquentielle paginée par catégorie** de V9 — chaque réponse étant alors bornée par la taille d'une catégorie. La borne mémoire du mode global est explicite : « bornée par le catalogue le plus gros » (≈ 10–25 Mo de JSON pour 60 k entrées), valeur validée en révision — la mesure (annexe perf V10) montre que le mode par catégorie est dominé à 90–99 % par les RTT (900 catégories ≈ 2–5 min au lieu de secondes). Le carryOver textuel de §6.1 ne s'applique pas aux documents JSON structurés dans les deux modes.
 - Orchestration : `ImportController.startImport({ source: 'xtream', base, username, password, importId, playlistId, kind: 'playlist' })` (§5.8) — même promesse de complétion, même PROT-6, mêmes événements terminaux.
-- Protocole worker identique à §5.2 (`INIT_IMPORT` / `CHUNK` ≤ 500 / `CHUNK_COMMITTED` / `COMPLETE` / `ABORT_IMPORT`) plus deux messages propres : `ACCOUNT_INFO` (routé via `_routeAux` → listeners) et `ERROR` (voie terminale §5.3).
+- Protocole worker identique à §5.2 (`INIT_IMPORT` / `CHUNK` ≤ `CHUNK_ITEMS` (2000, V10) / `CHUNK_COMMITTED` / `COMPLETE` / `ABORT_IMPORT`) plus quatre messages propres : `ACCOUNT_INFO` (routé via `_routeAux` → listeners), `IMPORT_META` (V10 : `{ importId, playlistId, totalItems }` dès que le nombre d'entrées est connu — mode global uniquement ; **V11 : `totalItems` inclut les séries**), `CATEGORIES` (V11 : `{ importId, playlistId, kind:'live'|'vod'|'series', categories:[{name}…] }` émis dès réception des `get_*_categories`, **ordre du serveur intact**, y compris en mode repli ; le `DataManager` en est le consommateur unique et écrit `db.categories` de façon idempotente par `(importId, kind)`) et `ERROR` (voie terminale §5.3).
 
 **Endpoints (API Xtream Codes standard) :**
 
@@ -921,11 +934,18 @@ Fin de flux avec `pendingItems = 644` : `flushPendingItems(true)` émet 500, `is
 |---|---|
 | Compte (auth + capacités) | `GET {base}/player_api.php?username={u}&password={p}` |
 | Catégories Live | `…&action=get_live_categories` |
-| Chaînes d'une catégorie | `…&action=get_live_streams&category_id={id}` |
+| Chaînes (mode global, défaut V10) | `…&action=get_live_streams` (sans `category_id`) |
+| Chaînes d'une catégorie (repli V10 / mode V9) | `…&action=get_live_streams&category_id={id}` |
 | Catégories VOD | `…&action=get_vod_categories` |
-| Films d'une catégorie | `…&action=get_vod_streams&category_id={id}` |
+| Films (mode global, défaut V10) | `…&action=get_vod_streams` (sans `category_id`) |
+| Films d'une catégorie (repli V10 / mode V9) | `…&action=get_vod_streams&category_id={id}` |
+| Catégories Séries (V11) | `…&action=get_series_categories` |
+| Séries (mode global, défaut V10) | `…&action=get_series` (sans `category_id`) |
+| Séries d'une catégorie (repli) | `…&action=get_series&category_id={id}` |
+| **Détail d'une série (V11, à l'ouverture seulement)** | `…&action=get_series_info&series_id={id}` |
 | Lecture Live | `{base}/live/{u}/{p}/{stream_id}.m3u8` |
 | Lecture VOD | `{base}/movie/{u}/{p}/{stream_id}.{container_extension}` (défaut `mp4`) |
+| Lecture d'un épisode (V11) | `{base}/series/{u}/{p}/{episode_id}.{container_extension}` (défaut `mp4`) |
 | **EPG du compte** | `{base}/xmltv.php?username={u}&password={p}` → **pipeline §6 existant, inchangé** (import `kind:'epg'` classique sur cette URL ; jointure via `epg_channel_id` → `channels.channelId`) |
 
 ```javascript
@@ -1027,9 +1047,14 @@ async function runImport() {
       expDate: info.exp_date || null
     });
 
-    // 2. Live → channels ; 3. VOD → vod (DB-5) — boucles séquentielles bornées
+    // 2. Live → channels ; 3. VOD → vod (DB-5) ; 4. Séries → series (DB-6, V11)
+    // — chaque ligne porte sortIdx = position d’arrivée (DB-7, V13 : l’ordre
+    //   serveur est reconstitué à la LECTURE, jamais dans les workers)
+    // — boucles séquentielles bornées (mode repli ; en mode global, drain flat
+    //   par tableau, séries incluses dans IMPORT_META)
     if (!aborted) await importCollection('get_live_categories', 'get_live_streams', 'channels', mapLiveItem);
     if (!aborted) await importCollection('get_vod_categories', 'get_vod_streams', 'vod', mapVodItem);
+    if (!aborted) await importCollection('get_series_categories', 'get_series', 'series', mapSeriesItem);
 
     isStreamEnded = true;
     flushPendingItems(true);  // drain forcé du résiduel (PROT-4)
@@ -1160,6 +1185,51 @@ function checkCompletion() {
 - XP-3 (sécurité, WARNING documenté) : les credentials transitent en clair dans les URLs de lecture (intrinsèque au protocole Xtream) — **interdiction de les journaliser** ; stockage en base acté en clair (WARNING, révocable par ré-authentification).
 - XP-4 (robustesse, WARNING documenté) : une catégorie défaillante (HTTP !ok, JSON invalide) est **ignorée sans faire échouer l'import** — les panels Xtream sont notoirement instables ; l'échec n'est terminal que pour l'appel compte (auth).
 
+### 6.6 Séries Xtream — parcours, détail paresseux, lecture (ajout V11)
+
+**Périmètre :** les séries sont un concept **Xtream uniquement** (l'API M3U n'a ni
+`get_series` ni `get_series_info`) ; la table `series` reste vide pour une source
+M3U, et l'onglet Séries affiche « aucune donnée » sans erreur.
+
+- **Import** : troisième collection du même worker et du même protocole (§5.2).
+  Mode par défaut : `get_series` global (même couple de gardes qu'en §6.5 :
+  HTTP ≠ 2xx, JSON invalide ou `Content-Length` > 40 Mo → repli par catégories
+  `get_series_categories` → `get_series&category_id=…`). Mapping `mapSeriesItem` :
+  `id = importId + ':' + series_id`, `seriesId`, `name`, `groupName` (Map catégorie
+  serveur ; inconnue → `'Autres'`), `logo` (← `cover`), `plot`, `rating`,
+  `releaseDate`, `searchName` (DB-3). **Aucun épisode n'est importé** (un panneau
+  moyen ferait exploser le store : ~300 Mo de JSON).
+- **Détail (`src/services/SeriesBrowser.js`, main thread)** : un appel
+  `get_series_info&series_id=…` **à la première ouverture** de la série seulement ;
+  petit JSON (jamais un flux), donc explicitement hors protocole d'import — pas de
+  worker, pas d'ack, pas de watermark. Réponse normalisée en
+  `{ title, cover, plot, rating, seasons:[{ number, name, episodes:[{ id, episodeId,
+  title, ext, plot }] }] }` (les deux formes de panneaux sont acceptées :
+  `seasons[idx].episodes[num]` ou `entries` aplati → une saison synthétique ;
+  numéros 0-based du panneau → 1-based affiché ; épisodes triés par `episode_id`).
+  Mise en cache dans `db.series_info` (id = `series.id`, TTL 24 h) ; un échec
+  HTTP/JSON/réseau lève côté UI (`SERIES_INFO_HTTP_{status}` / `SERIES_INFO_INVALID`
+  / `SERIES_INFO_UNAVAILABLE`) avec bouton « Réessayer », **sans jamais mettre en
+  cache ni affecter l'import** (l'esprit XP-4 appliqué au détail).
+- **Lecture** : `XtreamClient.seriesStreamUrl(base,u,p,episode_id,ext)` →
+  `{base}/series/{u}/{p}/{episode_id}.{container_extension}` (défaut `mp4`) ;
+  lecture via le même `MediaAdapter`/overlay que la VOD (pas de nouveau pipeline).
+- **Navigation en deux temps (V12)** : l'overlay détail présente d'abord la
+  **liste des saisons** (bouton par saison, « Saison n — k épisode(s) »), puis
+  les **épisodes de la saison choisie** avec un bouton « ← Toutes les saisons ».
+  Panneau à **saison unique → le niveau saisons est sauté** (accès direct aux
+  épisodes, sans bouton retour inutile). Le retour (Échap, Back webOS 461, STOP,
+  ou flèche gauche au niveau épisodes) dépile la pile LIFO du moteur : épisodes
+  → saisons → fermeture. Depuis le lecteur, PROG±/↑↓ zappent **l'épisode
+  précédent/suivant de la saison en cours de lecture**.
+- **Parcours par catégories (§6.4/§6.5)** : chaque liste (Chaînes, Films, Séries)
+  est précédée d'un `<select>` de catégories alimenté par `db.categories`
+  (`[importId+kind]`, ordre `sort` = ordre serveur exact), préfixé de « Toutes les
+  catégories » ; les groupes présents dans les items mais absents du serveur sont
+  ajoutés en fin de liste (tolérance panneaux incohérents / `'Autres'` M3U). Le
+  filtre s'applique **avant** la recherche par préfixe et le plafond §8 (`SEARCH_LIMIT`) ;
+  le filtre courant est réinitialisé proprement quand les lignes changent (réimport).
+
 ---
 
 ## 7. Pipeline Média — Machine d'État, Fallback, Watchdog, Cycle de Vie
@@ -1180,7 +1250,7 @@ function checkCompletion() {
 
 | Événement | Moteur | Action |
 |---|---|---|
-| `play()` rejeté / événement `error` natif en state `LOADING` / timeout startup (10 s) | NATIVE | `STARTUP_INCOMPATIBILITY` → **fallback HLS_MSE** |
+| `play()` rejeté / événement `error` natif en state `LOADING` / expiration de la fenêtre d'inactivité startup (10 s sans progression ni requête active) | NATIVE | `STARTUP_INCOMPATIBILITY` → **fallback HLS_MSE** ; un flux FHD réellement en téléchargement n'est pas basculé prématurément (plafond total 45 s) |
 | mêmes événements en state `LOADING` | HLS_MSE | → `ERROR` (passage unique épuisé) |
 | `error` ou stall du Watchdog en `PLAYING` | quelconque | `NETWORK_INTERRUPTION` → RECOVERING **intra-moteur**, max 1 **par moteur** (budget réinitialisé au changement de moteur et à chaque nouveau `play()`) |
 | échec de la reconnexion (error / timeout en state `RECOVERING`) | NATIVE | retry épuisé → **fallback HLS_MSE** (passage unique préservé) |
@@ -1198,7 +1268,8 @@ Note plateforme : la balise `<video>` native de webOS (pipeline GStreamer intern
 import Hls from 'hls.js';
 import { MediaWatchdog } from './Watchdog.js';
 
-const STARTUP_TIMEOUT_MS = 10000;
+const STARTUP_TIMEOUT_MS = 10000; // fenêtre d'inactivité, pas un cap absolu (V14)
+const STARTUP_DEADLINE_MS = 45000; // plafond total jusqu'à la première image (V14)
 const MAX_RECOVERIES = 1;
 
 export class MediaAdapter {
@@ -1433,6 +1504,45 @@ export class MediaAdapter {
   }
 }
 ```
+
+### 7.2.1 Amendement V14 — démarrage FHD lent (règle normative)
+
+La trace terrain fournie le 2026-09-10 montre un scénario sain mais lent :
+playlist `.m3u8` en `200`/`302` puis segment `.ts` d'environ 3 Mo en cours de
+transfert. L'ancien minuteur dur de 10 000 ms pouvait produire
+`STARTUP_FAILURE: startup timeout 10000ms` avant la première image. **La règle
+ci-dessous remplace le cap dur de 10 s de l'extrait de référence §7.2.**
+
+- `startupMs = 10 000 ms` est une **fenêtre d'inactivité**, non une limite
+  totale : toute progression observable réarme cette fenêtre.
+- Progression native : événements `loadedmetadata`, `loadeddata`, `progress`,
+  `canplay`, `timeupdate`, et `HTMLMediaElement.networkState === 2`
+  (`NETWORK_LOADING`) — ce dernier cas couvre les webOS qui ne notifient pas
+  régulièrement `progress` pendant un gros segment FHD.
+- Progression HLS_MSE : événements hls.js `MANIFEST_LOADED`, `MANIFEST_PARSED`,
+  `LEVEL_LOADED`, `FRAG_LOADED`, `FRAG_BUFFERED`, `BUFFER_APPENDED` ;
+  `MANIFEST_LOADING`, `LEVEL_LOADING` et surtout `FRAG_LOADING` marquent en plus
+  une requête active. À l'expiration de la fenêtre, une requête active est
+  réarmée au lieu de déclencher une erreur — un segment de 3 Mo peut donc
+  dépasser 10 s sans faux négatif.
+- `startupDeadlineMs = 45 000 ms` est fixé à l'entrée de `play()` et **n'est
+  jamais réarmé** par les événements de progression ni lors du passage
+  NATIVE→HLS_MSE. Un flux qui produit des marqueurs mais ne livre jamais sa
+  première image finit en `STARTUP_TIMEOUT_CAP`; un flux silencieux sans
+  requête active suit la décision de §7.1 (NATIVE → fallback, HLS_MSE →
+  `STARTUP_FAILURE`).
+- `playing` annule les deux bornes et arme le `MediaWatchdog` normal. Les
+  callbacks HLS vérifient `hlsInstance === this.hls` et `requestId` courant ;
+  `_teardownPlayback()` détruit les listeners/instance et remet l'indicateur
+  de requête active à zéro. Ainsi un ancien zapping ne peut pas repousser le
+  timeout du nouveau flux.
+
+La fixture `media-startup-fhd` (§9) vérifie : progression `FRAG_LOADING` avant
+`FRAG_LOADED`, `NETWORK_LOADING` natif, silence terminal, plafond absolu et
+événements `<video>`. La recette V14 a **74 tests** verts dans l'environnement
+de livraison.
+
+---
 
 ### 7.3 Watchdog (one-shot, inchangé depuis V4 — validé)
 
@@ -1844,14 +1954,47 @@ export class VirtualList extends BaseComponent {
 
 L'UI notifie `FocusEngine.setFocusables(...)` après chaque `_renderWindow()` significatif avec les lignes **visibles** (pool), la navigation clavier pilote `container.scrollTop`.
 
+### 8.4 Télécommande — routage contextuel unifié (ajout V12)
+
+Le module `src/ui/RemoteKeys.js` (logique **pure**, table classifiée par
+contexte) est branché sur `window keydown` AVANT le FocusEngine — le moteur
+§8.1 reste **verbatim**. Un événement est soit consommé (`preventDefault` +
+`stopImmediatePropagation`) soit rendu au moteur ; la pile LIFO de back n'est
+jamais contournée.
+
+| Priorité de contexte | Règle |
+|---|---|
+| 1. champ en édition (`INPUT`/`TEXTAREA`/`SELECT` focusés) | flèches natives **jamais volées** ; Entrée dans la recherche = lancer le filtre (`form-enter`) |
+| 2. panneau série ouvert | OK = activation native du bouton focalisé ; GAUCHE au niveau épisodes = retour saisons ; Échap/461/STOP = dépile la pile (→ fermer) ; flèches = navigation moteur |
+| 3. lecteur ouvert | ↑/↓ et PROG−/PROG+ (412/414) et PageUp/Down = **zap direct** (chaîne précédente/suivante de la LISTE FILTRÉE courante, circulaire, sans sortir au menu) ; 415/448/19 = lecture/pause ; 413/Échap/461 = fermer le lecteur ; 417/419 = ±10 s **uniquement sur flux indexables** (VOD/épisodes, jamais le direct) ; 457 = réafficher l'OSD |
+| 4. liste (live/vod/series) | ↑/↓ pas de ligne circulaire ; ←/→ et 33/34 **page entière** circulaire ; OK/PLAY/PROG+ = activer ; 402 = onglet Playlistes (jamais de cul-de-sac au clavier) ; onglet playlists = moteur seul |
+
+Gardes : **anti-tempête de répétition** par type d'action (45 ms mouvement,
+130 ms zap — le TV répète à ~30 ms en maintien ; horloge injectable, testée) ;
+zap et pages sont **circulaires** (pas de butée muette). La **Magic Remote**
+active aussi les lignes de liste (délégation `click` au niveau du scroller,
+les nœuds du VirtualList étant recyclés — jamais de listener par ligne).
+L'activation clavier des boutons passe par le consommateur `focus-activate`
+(§8.1) qui déclenche `.click()` sur l'élément focalisé : corrige l'Entrée sur
+tout bouton d'overlay ou de formulaire, que le moteur empêchait auparavant.
+
 ---
 
 ## 9. Tests d'Import & Stratégie de Recette (Sprint 0 → CI)
 
 Les défaillances historiques (fin de flux, purge croisée, fuseau horaire) sont **invisibles au build et au smoke test** : la recette s'appuie sur des fixtures à assertions exactes.
 
+**Progression d'import (ajout V10, contrat d'événements additifs)** : `ImportController.startImport` émet `import-start {importId, kind}` ; la pompe réseau émet `import-meta {importId, bytesTotal}` dès que `Content-Length` est connu, puis `import-progress {importId, bytesDone}` (throttle ≥ 1 % ou 256 Ko) ; le `DataManager` émet `import-rows {importId, written, targetTable}` après chaque CHUNK écrit, et route `IMPORT_META` du worker Xtream en `import-meta {importId, totalItems}`. Le **badge d'import** (composant non interactif, hors focus D-pad, `aria-live="polite"`) affiche : pourcentage de lignes si `totalItems` connu (mode global Xtream), sinon pourcentage d'octets si `Content-Length` connu (M3U/XMLTV), sinon barre indéterminée animée (repli par catégorie, réponse sans longueur) ; fin sur `import-complete` (« ✔ terminé — n lignes »), `import-error` (message rouge), `import-aborted`. Les événements sont purement additifs : aucun consommateur ne change le protocole §5.2/§5.8, et la suppression du badge ne peut régresser l'import.
+
 | Fixture | Contenu | Assertion obligatoire |
 |---|---|---|
+| `xtream-series` (V11) | panneau mock : 2 catégories de séries (3+2 entrées), `get_series_info` en **deux formes** (seasons dict + entries aplati) | 5 lignes `series`, `groupName` issu de la Map serveur, forme normalisée identique (n° 1-based, épisodes triés) ; réimport = swap + purge `series`/`series_info`/`categories` de l'ancien import uniquement |
+| `xtream-categories` (V11) | catégories live/vod/series dans un ordre **non alphabétique** | `db.categories` dans l'ordre serveur exact, `sort` = index ; idempotence par `(importId, kind)` ; jamais écrites via CHUNK |
+| `m3u-categories` (V11) | groupes répétés + un item sans groupe | ordre de première apparition du fichier ; `Autres` présent ; `CATEGORIES` émis avant `COMPLETE` |
+| `series-info-cache` (V11) | fetch espionné | 1 appel réseau pour 2 ouvertures ; TTL expiré → refetch ; HTTP 404/JSON invalide/réseau KO → **rien en cache**, erreur typée, import intact |
+| `list-order` (V13) | catalogue Xtream entrelacé (stream_id non croissants, catégories mêlées) + M3U à groupes alternés + panel replié (failGlobal) | `PlaylistManager.channels/vod/series` rendus en (rang catégorie, sortIdx) **identiques en mode global et en repli** ; ordre lexicographique des clés **jamais** observable ; tri pur immuable |
+| `remote-keys` (V12) | table de classement pure (chaque keyCode × chaque contexte), `stepIndex`/`pageIndex`, gate à horloge injectée | aucun vol de touche dans les champs ; zap/OK/PROG mappés en lecteur ; pages circulaires ; gate : 20 ms avalé / 46 ms passe / compteurs indépendants par type |
+| `media-startup-fhd` (V14) | adaptateur avec fenêtre d'inactivité courte injectée : `NETWORK_LOADING`, `FRAG_LOADING` avant `FRAG_LOADED`, silence, progression sans `playing` | aucun faux fallback/`STARTUP_FAILURE` pendant une requête active ; silence terminal échoue ; plafond absolu échoue même si les marqueurs continuent ; événements natifs réarment |
 | `m3u-20000.m3u` | 20 000 chaînes, 40 groupes | 20 000 lignes en base ; `activeImportId` permuté ; groupes paginables par `[importId+groupName]` |
 | `xmltv-644.xml` | 644 programmes | **exactement 644 lignes** `epg` ; `COMPLETE` reçu ; `status: 'completed'` |
 | `xmltv-500-exact.xml` | 500 programmes | terminaison correcte (bord de modulo) |
@@ -1955,4 +2098,14 @@ Non implémentés dans cette roadmap et **à ne pas introduire spontanément** (
 | CHUNK en vol après `abort()` utilisateur écrit quand même (contradiction PROT-5) | Test d'abort Sprint 1 | `ImportController.abort()` marque `dataManager.abortedImports` avant `ABORT_IMPORT` ; `PlaylistManager.abort()` solde `status:'failed'` + purge les lignes partielles | §5.2 (PROT-5), §5.8, §9 |
 | Respiration d'import en attente d'un `requestAnimationFrame` nu : gel de la file d'écriture si le thread UI ne produit aucune frame (variantes extrêmes : VPU TV saturé, harnais headless « paint-idle ») | Harnais navigateur §9 (test lourd H9 sous chrome-headless-shell : timeout 240 s) | §5.3 corrigé V9.1 : respiration = **course rAF contre plafond 32 ms** (`setTimeout`), gagnant libère l'autre ; sur TV à 60 fps le plafond ne se déclenche pas — sémantique identique (rendu prioritaire, jamais de gel). H9 vert : 20 000 lignes en 2,7 s, pire intervalle rAF 47 ms | §5.3 |
 
-**Statut : spécification gelée pour exécution (V9, corrections V9.1 intégrées au Sprint 0). Toute divergence ultérieure = nouvelle révision incrémentale (V10) avec entrée de traçabilité.**
+| Goulot de vitesse d'import Xtream : une requête HTTP séquentielle par catégorie (mesuré : 900 catégories ≈ 74 s à RTT 80 ms, minutes au salon) | Analyse perf 2026-09-10, validée produit (option A) | §6.5 révisé V10 : mode « catalogue global » par défaut (1 requête par type + Map catégories locale), repli automatique par catégorie si échec ou réponse > 40 Mo ; message `IMPORT_META` pour la progression | §6.5, §5.8, §9 |
+| Coût fixe par chunk d'écriture (55 ms mesurés dont ~40 % de respiration/IPC, pas de travail utile) | Analyse perf 2026-09-10, validée produit (option C) | `CHUNK_ITEMS` porté de 500 à 2000 dans les trois workers ; sémantique PROT-1 (un seul CHUNK en vol) et transactions bulkPut inchangées ; M3U 60 k mesuré 6,6 s → ≈ 4 s attendu | §5.2, §5.3, §6.5 |
+| Progression d'import invisible (l'écran d'attente ne dit ni où ni combien) | Demande produit 2026-09-10 | Événements `import-start`/`import-meta`/`import-progress`/`import-rows` additifs (§5.8, §5.3) + badge d'import §9 (pourcentage lignes si `totalItems` connu, sinon pourcentage d'octets si `Content-Length` connu, sinon indéterminé animé) ; aucune interaction D-pad, hors focus | §5.8, §9 |
+| Séries totalement absentes du produit (demande explicite) ; parcours Chaînes/Films/Séries sans catégories structurées | Demande produit 2026-09-10 (V11) | §6.6 ajouté : import `get_series` (global + repli, même protocole), détail `get_series_info` **paresseux** + cache `series_info` TTL 24 h, lecture `/series/{u}/{p}/{ep}.{ext}` ; §5.1 : DB-6 (v1→v3 additif) ; les séries M3U n'existent pas (table vide, pas d'erreur) | §5.1, §6.5, §6.6, §9 |
+| Catégories connues par `groupName` dérivé des items (ordre alphabétique UI, catégories vides invisibles) | Demande « organise en catégories définies par le serveur » (V11) | Message additif `CATEGORIES` (worker → DataManager → table `categories`, ordre serveur exact, y compris en repli) ; `<select>` par liste branché sur `db.categories`, filtre avant recherche ; M3U : ordre de première apparition des group-title | §6.4, §6.5, §5.1, §6.6 |
+
+| Sélection d'épisode en liste plate (saisons mélangées) ; télécommande sous-exploitée (ni zap, ni play/pause, ni page) ; changer de chaîne imposait de fermer le lecteur | Demande produit 2026-09-10 (V12) | §6.6 navigation saison→épisode (saison unique = niveau sauté) + zap épisode ; §8.4 ajouté : routeur contextuel RemoteKeys (zap ↑/↓ + PROG± dans le lecteur, playpause 415, seek ±10 s sur flux indexables, INFO 457, HOME 402, pages circulaires, gate anti-répétition, click Magic Remote sur lignes, consommateur `focus-activate` qui répare l'Entrée sur les boutons) | §6.6, §8.1 (note), §8.4, §9 |
+
+
+| Faux `STARTUP_FAILURE: startup timeout 10000ms` sur chaînes FHD pourtant en transfert (`.m3u8` 200/302 puis `.ts` ~3 Mo) | Trace utilisateur TV du 2026-09-10 | V14 §7.2.1 : 10 s = fenêtre sans progression ; événements média + hls.js ; `NETWORK_LOADING`/`FRAG_LOADING` actifs réarment ; plafond absolu 45 s ; tests `media-startup-fhd` | §7.1, §7.2, §7.2.1, §9 |
+**Statut : spécification gelée pour exécution (V9 + V9.1 ; V10 perf ; V11 séries & catégories ; V12 télécommande & séries deux temps ; V13 ordre serveur des listes et du zap — DB-7 ; V14 démarrage FHD tolérant aux transferts lents — fenêtre d'inactivité 10 s, activité réseau reconnue, plafond 45 s — §7.2.1). Toute divergence ultérieure = nouvelle révision incrémentale (V15) avec entrée de traçabilité).**

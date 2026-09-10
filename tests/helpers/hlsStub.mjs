@@ -23,6 +23,10 @@ export default class Hls {
   static isSupported() { return Hls.__supported !== false; }
 }
 
-Hls.Events = { ERROR: 'hlsError', MANIFEST_PARSED: 'hlsManifestParsed' };
+Hls.Events = { ERROR: 'hlsError', MANIFEST_LOADING: 'hlsManifestLoading',
+  MANIFEST_LOADED: 'hlsManifestLoaded', MANIFEST_PARSED: 'hlsManifestParsed',
+  LEVEL_LOADING: 'hlsLevelLoading', LEVEL_LOADED: 'hlsLevelLoaded',
+  FRAG_LOADING: 'hlsFragLoading', FRAG_LOADED: 'hlsFragLoaded',
+  FRAG_BUFFERED: 'hlsFragBuffered', BUFFER_APPENDED: 'hlsBufferAppended' };
 Hls.ErrorTypes = { MEDIA_ERROR: 'mediaError', NETWORK_ERROR: 'networkError' };
 Hls.__supported = true;
