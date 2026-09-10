@@ -1,4 +1,4 @@
-# SPÉCIFICATION TECHNIQUE D'EXÉCUTION & ARCHITECTURE — V14 (amendement démarrage FHD)
+# SPÉCIFICATION TECHNIQUE D'EXÉCUTION & ARCHITECTURE — V15 (normalisation Xtream get_series_info)
 
 **Application IPTV / VOD / Live sur LG webOS — Baseline : webOS 5.0 / Chromium 68**
 
@@ -1204,9 +1204,13 @@ M3U, et l'onglet Séries affiche « aucune donnée » sans erreur.
   petit JSON (jamais un flux), donc explicitement hors protocole d'import — pas de
   worker, pas d'ack, pas de watermark. Réponse normalisée en
   `{ title, cover, plot, rating, seasons:[{ number, name, episodes:[{ id, episodeId,
-  title, ext, plot }] }] }` (les deux formes de panneaux sont acceptées :
-  `seasons[idx].episodes[num]` ou `entries` aplati → une saison synthétique ;
-  numéros 0-based du panneau → 1-based affiché ; épisodes triés par `episode_id`).
+  title, ext, plot }] }] }` (trois formes de panneaux sont acceptées :
+  `seasons[idx].episodes[num]` legacy, réponse Xtream standard
+  `episodes:{"1":[episode…],"2":[episode…]}` où `episode_num` est le numéro
+  affiché et `id` l'identifiant de lecture, ou `entries` aplati → une saison
+  synthétique ; seuls les indices legacy 0-based sont décalés en 1-based ; les
+  clés de saison Xtream standard restent leurs numéros ; épisodes triés par
+  `episode_id` puis `episode_num`).
   Mise en cache dans `db.series_info` (id = `series.id`, TTL 24 h) ; un échec
   HTTP/JSON/réseau lève côté UI (`SERIES_INFO_HTTP_{status}` / `SERIES_INFO_INVALID`
   / `SERIES_INFO_UNAVAILABLE`) avec bouton « Réessayer », **sans jamais mettre en
@@ -1539,7 +1543,7 @@ ci-dessous remplace le cap dur de 10 s de l'extrait de référence §7.2.**
 
 La fixture `media-startup-fhd` (§9) vérifie : progression `FRAG_LOADING` avant
 `FRAG_LOADED`, `NETWORK_LOADING` natif, silence terminal, plafond absolu et
-événements `<video>`. La recette V14 a **74 tests** verts dans l'environnement
+événements `<video>`. La recette V15 a **76 tests** verts dans l'environnement
 de livraison.
 
 ---
@@ -1988,7 +1992,7 @@ Les défaillances historiques (fin de flux, purge croisée, fuseau horaire) sont
 
 | Fixture | Contenu | Assertion obligatoire |
 |---|---|---|
-| `xtream-series` (V11) | panneau mock : 2 catégories de séries (3+2 entrées), `get_series_info` en **deux formes** (seasons dict + entries aplati) | 5 lignes `series`, `groupName` issu de la Map serveur, forme normalisée identique (n° 1-based, épisodes triés) ; réimport = swap + purge `series`/`series_info`/`categories` de l'ancien import uniquement |
+| `xtream-series` (V11/V15) | panneau mock : 2 catégories de séries (3+2 entrées), `get_series_info` en **trois formes** (seasons legacy + entries aplati + `episodes` Xtream standard avec `episode_num`) | 5 lignes `series`, `groupName` issu de la Map serveur, trois réponses normalisées en saisons/épisodes lisibles (n°/id/extension triés) ; réimport = swap + purge `series`/`series_info`/`categories` de l'ancien import uniquement |
 | `xtream-categories` (V11) | catégories live/vod/series dans un ordre **non alphabétique** | `db.categories` dans l'ordre serveur exact, `sort` = index ; idempotence par `(importId, kind)` ; jamais écrites via CHUNK |
 | `m3u-categories` (V11) | groupes répétés + un item sans groupe | ordre de première apparition du fichier ; `Autres` présent ; `CATEGORIES` émis avant `COMPLETE` |
 | `series-info-cache` (V11) | fetch espionné | 1 appel réseau pour 2 ouvertures ; TTL expiré → refetch ; HTTP 404/JSON invalide/réseau KO → **rien en cache**, erreur typée, import intact |
@@ -2107,5 +2111,6 @@ Non implémentés dans cette roadmap et **à ne pas introduire spontanément** (
 | Sélection d'épisode en liste plate (saisons mélangées) ; télécommande sous-exploitée (ni zap, ni play/pause, ni page) ; changer de chaîne imposait de fermer le lecteur | Demande produit 2026-09-10 (V12) | §6.6 navigation saison→épisode (saison unique = niveau sauté) + zap épisode ; §8.4 ajouté : routeur contextuel RemoteKeys (zap ↑/↓ + PROG± dans le lecteur, playpause 415, seek ±10 s sur flux indexables, INFO 457, HOME 402, pages circulaires, gate anti-répétition, click Magic Remote sur lignes, consommateur `focus-activate` qui répare l'Entrée sur les boutons) | §6.6, §8.1 (note), §8.4, §9 |
 
 
+| `get_series_info` réel renvoie `episodes` dictionnaire par saison avec `episode_num` au lieu de `seasons`/`entries` | Trace utilisateur : « aucun épisode fourni par le panneau » (V15) | `SeriesBrowser.normalize` accepte la forme Xtream standard `{episodes:{"1":[…]}}`, conserve les numéros de saison, mappe `episode_num` vers `episodeId`, conserve `id` pour l'URL `/series/` ; cache V11 invalidé par `formatVersion`, fixture + E2E mock standard | §6.6, §9 |
 | Faux `STARTUP_FAILURE: startup timeout 10000ms` sur chaînes FHD pourtant en transfert (`.m3u8` 200/302 puis `.ts` ~3 Mo) | Trace utilisateur TV du 2026-09-10 | V14 §7.2.1 : 10 s = fenêtre sans progression ; événements média + hls.js ; `NETWORK_LOADING`/`FRAG_LOADING` actifs réarment ; plafond absolu 45 s ; tests `media-startup-fhd` | §7.1, §7.2, §7.2.1, §9 |
-**Statut : spécification gelée pour exécution (V9 + V9.1 ; V10 perf ; V11 séries & catégories ; V12 télécommande & séries deux temps ; V13 ordre serveur des listes et du zap — DB-7 ; V14 démarrage FHD tolérant aux transferts lents — fenêtre d'inactivité 10 s, activité réseau reconnue, plafond 45 s — §7.2.1). Toute divergence ultérieure = nouvelle révision incrémentale (V15) avec entrée de traçabilité).**
+**Statut : spécification gelée pour exécution (V9 + V9.1 ; V10 perf ; V11 séries & catégories ; V12 télécommande & séries deux temps ; V13 ordre serveur des listes et du zap — DB-7 ; V14 démarrage FHD tolérant aux transferts lents ; V15 normalisation Xtream réelle de `get_series_info` (`episodes` par saison + `episode_num`) — §6.6). Toute divergence ultérieure = nouvelle révision incrémentale (V16) avec entrée de traçabilité).**

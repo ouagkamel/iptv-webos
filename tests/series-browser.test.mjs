@@ -1,4 +1,4 @@
-// tests/series-browser.test.mjs — V11 §6.6 : détail paresseux + cache TTL +
+// tests/series-browser.test.mjs — V11/V15 §6.6 : détail paresseux + cache TTL +
 // normalisation des deux formes de panneaux + URL de lecture.
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -38,6 +38,26 @@ test('SeriesBrowser : normalisation forme seasons (indices 0-based → n° 1-bas
   assert.equal(p.seasons[1].number, 2);
 });
 
+test('SeriesBrowser : forme Xtream réelle episodes par saison + episode_num', () => {
+  const p = SeriesBrowser.normalize({
+    info: { name: 'Série panneau réel', plot: 'p' },
+    episodes: {
+      2: [
+        { id: '9202', episode_num: 2, title: 'S02E02', container_extension: 'mkv' },
+        { id: '9201', episode_num: 1, title: 'S02E01', container_extension: 'mp4' }
+      ],
+      1: [
+        { id: '9101', episode_num: 1, title: 'S01E01', container_extension: 'ts' }
+      ]
+    }
+  });
+  assert.equal(p.seasons.length, 2);
+  assert.deepEqual(p.seasons.map(function (s) { return s.number; }), [1, 2], 'clés episodes = n° saison Xtream');
+  assert.deepEqual(p.seasons[1].episodes.map(function (e) { return e.episodeId; }), ['1', '2'], 'episode_num trié');
+  assert.equal(p.seasons[1].episodes[0].id, '9201', 'id = identifiant de lecture de l’épisode');
+  assert.equal(p.seasons[1].episodes[0].ext, 'mp4');
+});
+
 test('SeriesBrowser : normalisation forme entries (aplatie → saison unique) + panneaux vides', () => {
   const p = SeriesBrowser.normalize({ info: { name: 'Doc' }, entries: {
     1: [{ id: '1', episode_id: '1', title: 'a' }]
@@ -48,6 +68,26 @@ test('SeriesBrowser : normalisation forme entries (aplatie → saison unique) + 
   assert.deepEqual(SeriesBrowser.normalize(null).seasons, [], 'payload nul toléré');
   assert.deepEqual(SeriesBrowser.normalize({ seasons: { 0: { name: 'vide', episodes: {} } } }).seasons, [],
     'saison sans épisodes écartée');
+});
+
+test('SeriesBrowser V15 : ancien cache vide invalidé après changement de forme Xtream', async () => {
+  await freshDb();
+  await db.series_info.put({
+    id: SERIES.id, importId: SERIES.importId, playlistId: XT_PL.id,
+    payload: { title: 'ancienne réponse', seasons: [] }, fetchedAt: Date.now()
+  });
+  let calls = 0;
+  const sb = new SeriesBrowser(function () {
+    calls++;
+    return Promise.resolve(jsonResponse({ info: { name: 'Série Alpha' }, episodes: {
+      1: [{ id: '9901', episode_num: 1, title: 'Épisode réel', container_extension: 'mp4' }]
+    }}));
+  });
+  const payload = await sb.ensureInfo(XT_PL, SERIES);
+  assert.equal(calls, 1, 'le cache V11 sans formatVersion est refetché');
+  assert.equal(payload.seasons[0].episodes[0].id, '9901');
+  const row = await db.series_info.get(SERIES.id);
+  assert.equal(row.formatVersion, 2);
 });
 
 test('SeriesBrowser : lazy + cache (1 fetch, 2 ouvertures), TTL expiré → refetch', async () => {

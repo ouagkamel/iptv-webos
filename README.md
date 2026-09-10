@@ -1,4 +1,4 @@
-# IPTV webOS Player — implémentation (Spec V14, Plan Sprint 0→4)
+# IPTV webOS Player — implémentation (Spec V15, Plan Sprint 0→4)
 
 App webOS TV (cible : webOS 5.0 entrée de gamme, Chromium 68) : imports **M3U +
 XMLTV + Xtream Codes**, virtualisation TV, pipeline média NATIVE→MSE avec
@@ -10,7 +10,7 @@ watchdog, persistance Dexie v3 (vod, séries, cache de détail, catégories ; r�
 |---|---|
 | `npm ci`-style install (deps figées §2.1 : dexie 3.2.4, hls.js 1.4.14, webostvjs 1.2.4) | ✔ |
 | `npm run build` (Vite 4.5.0, target chrome68, terser, workers IIFE, inlineDynamicImports) | ✔ 26 modules, 4 bundles (3 workers séparés + 1 chunk unique) |
-| `npm test` (harnais maison `node:test`, **74 tests**) | ✔ 74/74 |
+| `npm test` (harnais maison `node:test`, **76 tests**) | ✔ 76/76 |
 | `tools/syntax-gate.mjs src` (interdit `?.` `??` `.flat` `Object.fromEntries` `globalThis` nu…) | ✔ 24 fichiers |
 | `tools/syntax-gate.mjs dist` (deps minifiées, occurrences sous garde tolérées et documentées) | ✔ 2 occurrences gardées (interop `typeof globalThis`, `typeof self.clients &&` de hls.js) |
 | Build store `IPTV_PRODUCTION=true` (Q3) | ✔ 520.27 kB, bundle sans aucun `console.*` |
@@ -34,8 +34,8 @@ reprise + seek, politique §7.5.
 
 - **Archive complète (source + `dist/` prêt pour `ares-package`)** : dernière
   release → https://github.com/ouagkamel/iptv-webos/releases (fichier
-  `iptv-webos-v14.zip`) ; téléchargement direct :
-  https://github.com/ouagkamel/iptv-webos/releases/download/v14/iptv-webos-v14.zip ; ou le code source seul : bouton « Download ZIP »
+  `iptv-webos-v15.zip`) ; téléchargement direct :
+  https://github.com/ouagkamel/iptv-webos/releases/download/v15/iptv-webos-v15.zip ; ou le code source seul : bouton « Download ZIP »
   de GitHub, ou `git clone https://github.com/ouagkamel/iptv-webos.git`
   (puis `npm ci && npm run build`).
 
@@ -72,8 +72,9 @@ pure (`src/services/ListOrder.js`) appliquée à la lecture par le
 - **Séries (Xtream uniquement)** : import `get_series` dans la table `series`
   (mêmes mode global + repli que V10, mêmes gardes mémoire) ; le détail
   `get_series_info` est **paresseux** (un appel à la première ouverture de la
-  série, cache local `series_info` TTL 24 h, deux formes de panneaux normalisées
-  `seasons`/`entries`) ; lecture d'épisode par le même lecteur que la VOD
+  série, cache local `series_info` TTL 24 h, trois formes de panneaux normalisées
+  `seasons`/`entries`/`episodes` Xtream réel (dictionnaire par saison, avec
+  `episode_num`) ; lecture d'épisode par le même lecteur que la VOD
   (`{base}/series/{u}/{p}/{episode_id}.{ext}`). Un échec de détail n'affecte
   jamais l'import (« Réessayer » côté UI).
 - **Catégories telles que définies par le serveur** : message additif
@@ -261,6 +262,15 @@ lecture (`_playGen`) — un rejet de `play()` dont la génération n'est plus co
 ne décrit plus aucune lecture et ne décide rien. Le xhr du fallback ne doit plus
 apparaître « canceled 0 o » ; si le flux reste noir, l'erreur affichée est désormais
 **nommée par hls.js** (réseau/media/auth) et décrit le panneau, non plus l'app.
+
+### V15 : réponse `get_series_info` Xtream réelle
+
+Certains panneaux ne renvoient pas `seasons` ni `entries`, mais la forme
+standard Xtream : `episodes: { "1": [ ... ], "2": [ ... ] }`. Le normaliseur
+prend désormais cette forme en charge, utilise `episode_num` pour afficher
+l'épisode, conserve `id` pour construire l'URL `/series/`, et garde les numéros
+de saison fournis par le serveur. La recette comprend cette forme, invalide les anciens caches `series_info`
+(`formatVersion`), et totalise **76/76 tests**.
 
 ### V14 : démarrage des chaînes FHD (fenêtre d'inactivité, 2026-09-10)
 
