@@ -1,4 +1,4 @@
-# IPTV webOS Player — implémentation (Spec V17, Plan Sprint 0→4)
+# IPTV webOS Player — implémentation (Spec V17.1, Plan Sprint 0→4)
 
 App webOS TV (cible : webOS 5.0 entrée de gamme, Chromium 68) : imports **M3U +
 XMLTV + Xtream Codes**, virtualisation TV, pipeline média NATIVE→MSE avec
@@ -10,7 +10,7 @@ watchdog, persistance Dexie v3 (vod, séries, cache de détail, catégories ; r�
 |---|---|
 | `npm ci`-style install (deps figées §2.1 : dexie 3.2.4, hls.js 1.4.14, webostvjs 1.2.4) | ✔ |
 | `npm run build` (Vite 4.5.0, target chrome68, terser, workers IIFE, inlineDynamicImports) | ✔ 31 modules transformés, bundle principal 526,01 kB minifié |
-| `npm test` (harnais maison `node:test`, **79 tests**) | ✔ 79/79 |
+| `npm test` (harnais maison `node:test`, **81 tests**) | ✔ 81/81 |
 | `tools/syntax-gate.mjs src` (interdit `?.` `??` `.flat` `Object.fromEntries` `globalThis` nu…) | ✔ 25 fichiers |
 | `tools/syntax-gate.mjs dist` (deps minifiées, occurrences sous garde tolérées et documentées) | ✔ 2 occurrences gardées (interop `typeof globalThis`, `typeof self.clients &&` de hls.js) |
 | Build store `IPTV_PRODUCTION=true` (Q3) | ✔ 526,01 kB, bundle sans aucun `console.*` |
@@ -35,15 +35,15 @@ les cinq profils UI et l'affichage de `elapsedMs`/profil final.
 
 ## Télécharger
 
-- **Archive complète V17 (source + `dist/` prêt pour `ares-package`)** : release
+- **Archive complète V17.1 (source + `dist/` prêt pour `ares-package`)** : release
   GitHub → https://github.com/ouagkamel/iptv-webos/releases ; téléchargement direct :
-  https://github.com/ouagkamel/iptv-webos/releases/download/v17/iptv-webos-v17.zip
+  https://github.com/ouagkamel/iptv-webos/releases/download/v17.1/iptv-webos-v17.1.zip
   (après publication). Code source seul : bouton « Download ZIP » de GitHub, ou
   `git clone https://github.com/ouagkamel/iptv-webos.git` puis `npm ci && npm run build`.
 - Miroir de démonstration : https://iptv-webos-demo-ef07f8.surge.sh (canal secondaire ;
   GitHub reste le canal recommandé pour l'archive TV).
 
-## Profils de benchmark Xtream V17
+## Profils de benchmark Xtream V17.1
 
 Sur chaque playlist **Xtream**, l'interface affiche le bouton `Importer` normal et
 les cinq boutons `Test import 1` à `Test import 5`. Ils déclenchent exactement le
@@ -65,7 +65,17 @@ Le badge affiche à la fin le profil utilisé et la durée totale, par exemple
 `✔ terminé — 24600 lignes · 2.9 s · Test 1 — standard (2 000 / bulkPut)`.
 Aucun import automatique n'est ajouté ; les catégories, le lecteur, le zapping,
 la navigation séries et la télécommande restent inchangés. Aucun mot de passe ne
-figure dans les événements ou la télémétrie du benchmark.
+figure dans les événements ou la télémétrie du benchmark. Les lots de staging d’un import échoué, notamment après `QuotaExceededError`, sont purgés automatiquement sans toucher au catalogue actif ; un message `STORAGE_QUOTA` indique le cas où la capacité physique reste insuffisante.
+
+## Quota de stockage après un import échoué
+
+Après une erreur d'écriture, la V17.1 supprime immédiatement les lignes
+partielles de l'import échoué. Au lancement suivant, elle nettoie également les
+anciens imports `failed` laissés par une version précédente. Le catalogue actif
+n'est jamais supprimé avant le swap. Si `STORAGE_QUOTA` persiste, la capacité
+locale est réellement insuffisante pour conserver simultanément l'ancien
+catalogue et le staging sécurisé : libérer les données du site/application puis
+relancer l'import.
 
 ## Ordre serveur des listes et du zap (révision V13, règle DB-7)
 

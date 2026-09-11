@@ -3,6 +3,10 @@
 // failImport (ne rejette jamais, §1.2-1), routage des signaux annexes.
 import { db } from './db.js';
 
+function isQuotaError(err, message) {
+  return !!(err && err.name === 'QuotaExceededError') || /quota(?:exceeded| de stockage)/i.test(message);
+}
+
 export class DataManager {
   constructor(worker, targetTableDefault) {
     this.worker = worker;
@@ -56,13 +60,34 @@ export class DataManager {
     try {
       this.worker.postMessage({ type: 'ABORT_IMPORT', importId: importId });
     } catch (e1) { /* worker déjà mort (crash) : message orphelin toléré */ }
+    const message = String((err && err.message) || err);
+    const publicMessage = isQuotaError(err, message)
+      ? 'STORAGE_QUOTA: quota de stockage local atteint ; les données actives sont conservées, relancez après nettoyage des imports échoués'
+      : message;
     try {
-      db.imports.update(importId, { status: 'failed', error: String((err && err.message) || err) })
+      db.imports.update(importId, { status: 'failed', error: message })
         .catch((e2) => { console.error('DataManager: marquage failed impossible:', e2); });
     } catch (e3) { /* DB injoignable (quota/corruption) : déjà journalisé */ }
+    // Un échec DB peut laisser les lots précédents de l'import de staging en base.
+    // Les conserver ferait grossir le quota à chaque nouvel essai, alors que
+    // l'import actif (d'un autre importId) doit rester intact. La purge ne touche
+    // donc que l'import échoué et est volontairement non bloquante pour l'événement
+    // terminal ; bootMaintenance reste le filet si la base refuse aussi DELETE.
+    this._purgeImportRows(importId).catch((ePurge) => {
+      console.error('DataManager: purge staging après échec impossible:', ePurge);
+    });
     window.dispatchEvent(new CustomEvent('import-error', {
-      detail: { importId: importId, message: String((err && err.message) || err) }
+      detail: { importId: importId, message: publicMessage }
     }));
+  }
+
+  async _purgeImportRows(importId) {
+    const tables = [db.channels, db.vod, db.series, db.series_info, db.categories, db.epg];
+    await db.transaction('rw', tables, async () => {
+      for (let i = 0; i < tables.length; i++) {
+        await tables[i].where('importId').equals(importId).delete();
+      }
+    });
   }
 
   // Routage des signaux annexes vers le régulateur réseau (§5.8).

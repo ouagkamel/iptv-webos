@@ -77,6 +77,24 @@ export class PlaylistManager {
     await db.playlists.delete(playlistId);
   }
 
+  // Un échec de quota peut être survenu avant V17 : les lots déjà écrits de
+  // l'import failed sont alors encore présents. Les supprimer avant un nouvel
+  // essai ne touche jamais l'import actif (swap/integrity conservés).
+  async _cleanupFailedImports(playlistId, kind) {
+    const ids = await db.imports.where('playlistId').equals(playlistId)
+      .and(function (row) { return row.kind === kind && row.status === 'failed'; })
+      .primaryKeys();
+    if (ids.length === 0) return;
+    const tables = [db.channels, db.vod, db.series, db.series_info, db.categories, db.epg];
+    const allTables = tables.concat([db.imports]);
+    await db.transaction('rw', allTables, async () => {
+      for (let i = 0; i < tables.length; i++) {
+        await tables[i].where('importId').anyOf(ids).delete();
+      }
+      await db.imports.bulkDelete(ids);
+    });
+  }
+
   /** Import playlist (M3U ou Xtream) — même voie pour les deux sources (§6.5). */
   async importPlaylist(playlistId, options) {
     const pl = await db.playlists.get(playlistId);
@@ -84,6 +102,7 @@ export class PlaylistManager {
     const isXtream = pl.source === 'xtream';
     if (!isXtream && !pl.m3uUrl) throw new Error('M3U_URL_MISSING');
 
+    await this._cleanupFailedImports(playlistId, 'playlist');
     const pair = this._pairs.get(isXtream ? 'xtream' : 'playlist');
     const importId = await db.imports.add({
       playlistId: playlistId, kind: 'playlist', status: 'running', createdAt: Date.now()
@@ -105,6 +124,7 @@ export class PlaylistManager {
   async importEpg(playlistId) {
     const pl = await db.playlists.get(playlistId);
     if (!pl || !pl.epgUrl) throw new Error('EPG_URL_MISSING');
+    await this._cleanupFailedImports(playlistId, 'epg');
     const pair = this._pairs.get('epg');
     const importId = await db.imports.add({
       playlistId: playlistId, kind: 'epg', status: 'running', createdAt: Date.now()

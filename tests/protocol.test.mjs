@@ -117,3 +117,57 @@ test('filet worker.onerror (crash worker) : failImport avec importId injecté', 
   assert.match(detail.message, /worker died/, 'événement import-error avec importId courant');
   pair.controller.destroy(); pair.dataManager.destroy();
 });
+
+test('QuotaExceeded : les lots du staging échoué sont purgés sans toucher à l’import actif', async () => {
+  await freshDb();
+  const pair = makePair('m3u', 'channels');
+  const plId = await addPlaylist(db, 'Quota');
+  const activeId = await addImportRow(db, plId, 'playlist');
+  const failedId = await addImportRow(db, plId, 'playlist');
+  await db.imports.update(activeId, { status: 'completed' });
+  await db.imports.update(failedId, { status: 'running' });
+  const row = function (id, importId) {
+    return { id: id, importId: importId, name: id, groupName: 'G', logo: '',
+      streamUrl: 'http://x/' + id, searchName: id.toLowerCase() };
+  };
+  await db.channels.bulkAdd([row('active:1', activeId), row('failed:1', failedId)]);
+  await db.vod.bulkAdd([row('failed-vod:1', failedId)]);
+  await db.series.bulkAdd([row('failed-series:1', failedId)]);
+
+  const errSeen = new Promise(function (resolve) {
+    window.addEventListener('import-error', function h(e) {
+      if (e.detail && e.detail.importId === failedId) {
+        window.removeEventListener('import-error', h);
+        resolve(e.detail);
+      }
+    });
+  });
+  pair.dataManager.failImport(failedId, new Error('QuotaExceededError'));
+  const quotaDetail = await errSeen;
+  assert.match(quotaDetail.message, /STORAGE_QUOTA/);
+  await new Promise(function (resolve) { setTimeout(resolve, 30); });
+
+  assert.equal(await db.channels.where('importId').equals(activeId).count(), 1);
+  assert.equal(await db.channels.where('importId').equals(failedId).count(), 0);
+  assert.equal(await db.vod.where('importId').equals(failedId).count(), 0);
+  assert.equal(await db.series.where('importId').equals(failedId).count(), 0);
+  assert.equal((await db.imports.get(failedId)).status, 'failed');
+  pair.controller.destroy(); pair.dataManager.destroy();
+});
+
+test('nouvel import : purge aussi les anciens lots failed laissés par une version antérieure', async () => {
+  await freshDb();
+  const { PlaylistManager } = await import('../src/services/PlaylistManager.js');
+  const pair = makePair('m3u', 'channels');
+  const plId = await addPlaylist(db, 'Retry', { source: 'm3u', m3uUrl: 'http://fixtures.test/retry.m3u' });
+  const failedId = await addImportRow(db, plId, 'playlist');
+  await db.imports.update(failedId, { status: 'failed' });
+  await db.channels.add({ id: failedId + ':old', importId: failedId, name: 'ancien', groupName: 'G',
+    logo: '', streamUrl: 'http://x/old', searchName: 'ancien' });
+  routeText('http://fixtures.test/retry.m3u', buildM3U(10, 2, {}));
+  const manager = new PlaylistManager({ get: function () { return pair; } });
+  const detail = await manager.importPlaylist(plId);
+  assert.equal(await db.imports.get(failedId), undefined);
+  assert.equal(await db.channels.where('importId').equals(detail.importId).count(), 10);
+  pair.controller.destroy(); pair.dataManager.destroy();
+});

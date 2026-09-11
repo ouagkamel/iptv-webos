@@ -1,4 +1,4 @@
-# SPÉCIFICATION TECHNIQUE D'EXÉCUTION & ARCHITECTURE — V17 (benchmark des écritures Xtream)
+# SPÉCIFICATION TECHNIQUE D'EXÉCUTION & ARCHITECTURE — V17.1 (récupération après quota de stockage)
 
 **Application IPTV / VOD / Live sur LG webOS — Baseline : webOS 5.0 / Chromium 68**
 
@@ -305,7 +305,15 @@ ou son absence sélectionne `bulkPut`, idempotent et réglage normal ;
 `import-rows`, la même respiration (`yieldMs`) et le même acquittement. Une
 exception `bulkAdd` suit `failImport` : `status: 'failed'`, abort du worker et
 aucun swap. `yieldMs` est borné par le worker à 0–64 ms et retombe à 32 ms si
-invalide. Le code du dépôt est normatif pour ce delta V17 (l’extrait ci-dessous résume la voie d’écriture) :
+invalide. En V17.1, toute erreur terminale de DB, notamment
+`QuotaExceededError`, purge immédiatement les lignes de staging identifiées par
+l'`importId` échoué, sans toucher à l'`importId` actif. Le prochain lancement
+purge également les reliquats `failed` laissés par une version antérieure avant
+d'ajouter un nouvel import. Le quota ne peut donc plus grossir par accumulation
+d'essais échoués ; si le couple « import actif + nouvel import de staging »
+dépasse malgré tout la capacité du téléviseur, l'import est refusé, l'ancien
+catalogue reste intact et l'UI affiche `STORAGE_QUOTA`. Le code du dépôt est
+normatif pour ce delta V17 (l’extrait ci-dessous résume la voie d’écriture) :
 
 ```javascript
 // src/data/DataManager.js
@@ -1310,6 +1318,24 @@ réception de `import-finished`, le badge affiche le profil et la durée totale 
 secondes ; cette télémétrie est additive, non bloquante et ne journalise jamais
 le mot de passe.
 
+### 6.9 Quota de stockage pendant les imports de benchmark (V17.1)
+
+Le swap atomique impose temporairement la coexistence de l'import actif et du
+nouvel import de staging : cette propriété est conservée, car supprimer
+l'ancien catalogue avant `COMPLETE` casserait l'intégrité et le rollback logique.
+Un échec de lot ou de transaction peut toutefois laisser des lignes partielles.
+`DataManager.failImport` les supprime immédiatement dans toutes les tables
+(`channels`, `vod`, `series`, `series_info`, `categories`, `epg`) par
+`importId`, et `PlaylistManager` retire au lancement suivant les imports
+`failed` historiques et leurs lignes. L'import actif n'est jamais ciblé.
+
+Si la capacité reste insuffisante même pour l'ancien catalogue plus un staging
+complet, le comportement conforme est : pas de swap partiel, ancien catalogue
+conservé, événement `import-error` avec le code `STORAGE_QUOTA`. L'opérateur
+peut alors libérer le stockage de l'application / du site puis relancer ; cette
+situation est distincte d'une accumulation de stagens échoués et ne doit pas
+être résolue par une purge silencieuse de l'import actif.
+
 ---
 
 ## 7. Pipeline Média — Machine d'État, Fallback, Watchdog, Cycle de Vie
@@ -1619,7 +1645,7 @@ ci-dessous remplace le cap dur de 10 s de l'extrait de référence §7.2.**
 
 La fixture `media-startup-fhd` (§9) vérifie : progression `FRAG_LOADING` avant
 `FRAG_LOADED`, `NETWORK_LOADING` natif, silence terminal, plafond absolu et
-événements `<video>`. La recette V17 a **79 tests** verts dans l'environnement
+événements `<video>`. La recette V17.1 a **81 tests** verts dans l'environnement
 de livraison.
 
 ---
@@ -2064,7 +2090,7 @@ tout bouton d'overlay ou de formulaire, que le moteur empêchait auparavant.
 
 Les défaillances historiques (fin de flux, purge croisée, fuseau horaire) sont **invisibles au build et au smoke test** : la recette s'appuie sur des fixtures à assertions exactes.
 
-**Progression d'import (ajout V10/V16/V17, contrat d'événements additifs)** : `ImportController.startImport` émet `import-start {importId, kind, profileId, profileLabel}` ; le worker Xtream émet `IMPORT_PHASE {importId, playlistId, phase, label}` dès l'authentification puis aux phases catégories/catalogue/écriture, routé en `import-phase` par le `DataManager` ; la pompe réseau émet `import-meta {importId, bytesTotal}` dès que `Content-Length` est connu, puis `import-progress {importId, bytesDone}` (throttle ≥ 1 % ou 256 Ko) ; à la fin réussie, `ImportController` émet `import-finished {importId, elapsedMs, profileId, profileLabel}` ; le `DataManager` émet `import-rows {importId, written, targetTable}` après chaque CHUNK écrit, et route `IMPORT_META` du worker Xtream en `import-meta {importId, totalItems}`. Le **badge d'import** (composant non interactif, hors focus D-pad, `aria-live="polite"`) affiche : pourcentage de lignes si `totalItems` connu (mode global Xtream), sinon pourcentage d'octets si `Content-Length` connu (M3U/XMLTV), sinon barre indéterminée animée (repli par catégorie, réponse sans longueur) ; fin sur `import-complete` (« ✔ terminé — n lignes »), puis durée/profil sur `import-finished` (« ✔ terminé — n lignes · s s · profil »), `import-error` (message rouge), `import-aborted`. Les événements sont purement additifs : aucun consommateur ne change le protocole §5.2/§5.8, et la suppression du badge ne peut régresser l'import.
+**Progression d'import (ajout V10/V16/V17/V17.1, contrat d'événements additifs)** : `ImportController.startImport` émet `import-start {importId, kind, profileId, profileLabel}` ; le worker Xtream émet `IMPORT_PHASE {importId, playlistId, phase, label}` dès l'authentification puis aux phases catégories/catalogue/écriture, routé en `import-phase` par le `DataManager` ; la pompe réseau émet `import-meta {importId, bytesTotal}` dès que `Content-Length` est connu, puis `import-progress {importId, bytesDone}` (throttle ≥ 1 % ou 256 Ko) ; à la fin réussie, `ImportController` émet `import-finished {importId, elapsedMs, profileId, profileLabel}` ; le `DataManager` émet `import-rows {importId, written, targetTable}` après chaque CHUNK écrit, et route `IMPORT_META` du worker Xtream en `import-meta {importId, totalItems}`. Le **badge d'import** (composant non interactif, hors focus D-pad, `aria-live="polite"`) affiche : pourcentage de lignes si `totalItems` connu (mode global Xtream), sinon pourcentage d'octets si `Content-Length` connu (M3U/XMLTV), sinon barre indéterminée animée (repli par catégorie, réponse sans longueur) ; fin sur `import-complete` (« ✔ terminé — n lignes »), puis durée/profil sur `import-finished` (« ✔ terminé — n lignes · s s · profil »), `import-error` (message rouge), `import-aborted`. Les événements sont purement additifs : aucun consommateur ne change le protocole §5.2/§5.8, et la suppression du badge ne peut régresser l'import.
 
 | Fixture | Contenu | Assertion obligatoire |
 |---|---|---|
@@ -2078,6 +2104,7 @@ Les défaillances historiques (fin de flux, purge croisée, fuseau horaire) sont
 | `default-playlist` (V16) | boot sur DB vide puis second boot | playlist Xtream par défaut créée une seule fois, sélectionnable, aucune saisie nécessaire pour atteindre Importer |
 | `import-phases` (V16) | worker Xtream avec trois catalogues globaux | phases `auth`/`categories`/`catalogue`/`write-*` visibles avant et pendant `IMPORT_META`, total et écritures inchangés ; catalogues lancés en parallèle |
 | `import-profiles` (V17) | cinq profils Xtream, dont `bulkAdd`, lots réduits dans le test Node et UI réelle contre panel mock | les cinq paramètres sont propagés ; `bulkAdd` écrit les trois tables puis swappe ; badge = profil + durée ; boutons visibles uniquement sur Xtream |
+| `quota-cleanup` (V17.1) | staging partiellement écrit puis erreur `QuotaExceededError`, avec un import actif distinct | les lignes de l'import échoué sont supprimées dans toutes les tables, l'actif reste intact ; un nouvel import nettoie aussi les reliquats `failed` historiques |
 | `m3u-20000.m3u` | 20 000 chaînes, 40 groupes | 20 000 lignes en base ; `activeImportId` permuté ; groupes paginables par `[importId+groupName]` |
 | `xmltv-644.xml` | 644 programmes | **exactement 644 lignes** `epg` ; `COMPLETE` reçu ; `status: 'completed'` |
 | `xmltv-500-exact.xml` | 500 programmes | terminaison correcte (bord de modulo) |
@@ -2194,4 +2221,5 @@ Non implémentés dans cette roadmap et **à ne pas introduire spontanément** (
 | Faux `STARTUP_FAILURE: startup timeout 10000ms` sur chaînes FHD pourtant en transfert (`.m3u8` 200/302 puis `.ts` ~3 Mo) | Trace utilisateur TV du 2026-09-10 | V14 §7.2.1 : 10 s = fenêtre sans progression ; événements média + hls.js ; `NETWORK_LOADING`/`FRAG_LOADING` actifs réarment ; plafond absolu 45 s ; tests `media-startup-fhd` | §7.1, §7.2, §7.2.1, §9 |
 | Temps silencieux avant le premier pourcentage et catalogues Xtream demandés séquentiellement ; import obligeant à ressaisir base/identifiants | Retour utilisateur webOS 26 + demande playlist par défaut (V16) | `IMPORT_PHASE` immédiat dans le badge ; appels globaux Live/VOD/Séries parallélisés, écriture conservée séquentielle ; `DEFAULT_PLAYLIST` + `ensureDefaultPlaylist` idempotent au boot, sans auto-import | §5.8, §6.5, §6.7, §9 |
 | Ralentissement surtout visible pendant « Écriture des films », « Écriture des séries » et à 99 % sur les derniers lots ; besoin de comparer sur TV réelle | Demande produit 2026-09-11 (V17) | cinq boutons `Test import 1…5` sur Xtream ; tailles 2 000/4 000/8 000, `bulkPut` ou `bulkAdd`, respiration 32/16/0/8 ms, catalogues parallèles ou séquentiels ; protocole/swap/protections inchangés ; `import-finished` expose durée + profil ; aucun mot de passe journalisé | §5.2, §5.3, §5.8, §6.8, §9 |
-**Statut : spécification gelée pour exécution (V9 + V9.1 ; V10 perf ; V11 séries & catégories ; V12 télécommande & séries deux temps ; V13 ordre serveur des listes et du zap ; V14 démarrage FHD tolérant ; V15 normalisation Xtream réelle de `get_series_info` ; V16 phases d'import visibles, catalogues Xtream parallélisés et playlist par défaut idempotente ; V17 profils de benchmark Xtream, lots/écriture/respiration configurables et mesure de durée). Toute divergence ultérieure = nouvelle révision incrémentale (V18) avec entrée de traçabilité).**
+| `QuotaExceededError` après plusieurs tests, avec risque de conserver les lots partiels des imports échoués | Retour utilisateur 2026-09-11 (V17.1) | purge immédiate du staging par `importId` dans `DataManager.failImport` ; nettoyage des anciens `failed` avant tout nouvel import ; import actif préservé ; message public `STORAGE_QUOTA` si la capacité physique reste insuffisante | §5.3, §6.9, §9 |
+**Statut : spécification gelée pour exécution (V9 + V9.1 ; V10 perf ; V11 séries & catégories ; V12 télécommande & séries deux temps ; V13 ordre serveur des listes et du zap ; V14 démarrage FHD tolérant ; V15 normalisation Xtream réelle de `get_series_info` ; V16 phases d'import visibles, catalogues Xtream parallélisés et playlist par défaut idempotente ; V17 profils de benchmark Xtream, lots/écriture/respiration configurables et mesure de durée ; V17.1 purge du staging après quota/échec et nettoyage des reliquats `failed`). Toute divergence ultérieure = nouvelle révision incrémentale (V18) avec entrée de traçabilité).**
