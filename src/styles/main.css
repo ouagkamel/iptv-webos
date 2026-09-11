@@ -23,8 +23,10 @@ input, select { background: #1a1a1a; border: 1px solid #333; color: #eee;
   padding: 10px 14px; font-size: 22px; flex: 1; border-radius: 6px; }
 .act-btn { background: #ffe100; color: #111; border: 0; font-size: 22px;
   padding: 10px 22px; border-radius: 6px; cursor: pointer; }
-.pl-row { display: flex; align-items: center; gap: 10px; padding: 10px 14px;
+.pl-row { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; padding: 10px 14px;
   background: #161616; border-radius: 8px; margin-bottom: 8px; font-size: 24px; }
+.pl-row .import-test { background: #17324a; color: #d9efff; font-size: 16px; }
+.pl-row .import-test:focus { background: #245a82; }
 .pl-row:focus { outline: 4px solid #ffe100; }
 .mini { background: #2b2b2b; color: #ddd; border: 0; padding: 6px 14px;
   font-size: 18px; border-radius: 6px; cursor: pointer; }

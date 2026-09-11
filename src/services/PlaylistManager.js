@@ -78,7 +78,7 @@ export class PlaylistManager {
   }
 
   /** Import playlist (M3U ou Xtream) — même voie pour les deux sources (§6.5). */
-  async importPlaylist(playlistId) {
+  async importPlaylist(playlistId, options) {
     const pl = await db.playlists.get(playlistId);
     if (!pl) throw new Error('Playlist introuvable');
     const isXtream = pl.source === 'xtream';
@@ -91,8 +91,10 @@ export class PlaylistManager {
 
     const job = isXtream
       ? { source: 'xtream', importId, playlistId, kind: 'playlist',
-          base: pl.base, username: pl.username, password: pl.password }
-      : { importId, playlistId, kind: 'playlist', url: pl.m3uUrl };
+          base: pl.base, username: pl.username, password: pl.password,
+          profile: options && options.profile ? options.profile : null }
+      : { importId, playlistId, kind: 'playlist', url: pl.m3uUrl,
+          profile: options && options.profile ? options.profile : null };
 
     return pair.controller.startImport(job).then(
       function (detail) { return detail; },

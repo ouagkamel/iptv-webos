@@ -34,6 +34,7 @@ self.onmessage = function (e) {
     isWaitingForAck = false;
     aborted = false;
     sortCounter = Object.create(null);
+    applyProfile(d.profile);
     cfg = { base: d.base, username: d.username, password: d.password };
     runImport();
     return;
@@ -74,8 +75,22 @@ async function fetchJson(url) {
 // mémoire est bornée par le catalogue (Content-Length > MAX_GLOBAL_BYTES → repli).
 // Le repli par catégories (boucle V9, bornée par la plus grosse catégorie)
 // conserve XP-4 : catégorie défaillante ignorée, jamais terminal.
-const CHUNK_ITEMS = 2000;
+const DEFAULT_CHUNK_ITEMS = 2000;
 const MAX_GLOBAL_BYTES = 40 * 1024 * 1024;
+let chunkItems = DEFAULT_CHUNK_ITEMS;
+let writeMode = 'put'; // put = sûr/idempotent ; add = benchmark rapide, importId neuf
+let yieldMs = 32;
+let parallelCatalogs = true;
+
+function applyProfile(profile) {
+  const p = profile || {};
+  const n = parseInt(p.chunkItems, 10);
+  chunkItems = n >= 500 && n <= 10000 ? n : DEFAULT_CHUNK_ITEMS;
+  writeMode = p.writeMode === 'add' ? 'add' : 'put';
+  const y = parseInt(p.yieldMs, 10);
+  yieldMs = y >= 0 && y <= 64 ? y : 32;
+  parallelCatalogs = p.parallelCatalogs !== false;
+}
 
 async function fetchGlobalArray(action) {
   let res;
@@ -149,11 +164,18 @@ async function runImport() {
     // Les trois catalogues sont indépendants : les récupérer en parallèle
     // supprime deux RTT séquentiels avant le premier pourcentage, sans changer
     // l'ordre d'écriture (live → vod → séries) ni la mémoire maximale des JSON.
-    const globals = await Promise.all([
-      fetchGlobalArray('get_live_streams'),
-      fetchGlobalArray('get_vod_streams'),
-      fetchGlobalArray('get_series')
-    ]);
+    let globals;
+    if (parallelCatalogs) {
+      globals = await Promise.all([
+        fetchGlobalArray('get_live_streams'),
+        fetchGlobalArray('get_vod_streams'),
+        fetchGlobalArray('get_series')
+      ]);
+    } else {
+      globals = [await fetchGlobalArray('get_live_streams'),
+                 await fetchGlobalArray('get_vod_streams'),
+                 await fetchGlobalArray('get_series')];
+    }
     let liveGlobal = globals[0];
     let vodGlobal = globals[1];
     let seriesGlobal = globals[2];
@@ -255,7 +277,7 @@ async function importItemsFlat(items, targetTable, mapFn) {
   for (let i = 0; i < items.length; i++) {
     if (aborted) return;
     pendingItems.push(mapFn(items[i], nextSortIdx(targetTable)));
-    if (pendingItems.length >= CHUNK_ITEMS) {
+    if (pendingItems.length >= chunkItems) {
       await drainAll();
     }
   }
@@ -287,21 +309,22 @@ async function importCollection(catAction, listAction, targetTable, mapFn) {
       }
       pendingTarget = targetTable;
       pendingItems.push(mapFn(items[i], groupName, nextSortIdx(targetTable)));
-      if (pendingItems.length >= CHUNK_ITEMS) {
+      if (pendingItems.length >= chunkItems) {
         await drainAll(); // PROT-1 : un seul CHUNK en vol — le producteur se suspend
       }
     }
   }
 }
 
-// Envoie tout `pendingItems` par lots de 500, un ack à la fois.
+// Envoie tout `pendingItems` par lots configurables, un ack à la fois.
 async function drainAll() {
   while (pendingItems.length > 0 && !aborted) {
     await waitForIdle();          // attend que le CHUNK en vol soit acquitté
     if (aborted || pendingItems.length === 0) return;
     isWaitingForAck = true;
-    const items = pendingItems.splice(0, CHUNK_ITEMS);
-    self.postMessage({ type: 'CHUNK', importId: currentImportId, items: items, targetTable: pendingTarget });
+    const items = pendingItems.splice(0, chunkItems);
+    self.postMessage({ type: 'CHUNK', importId: currentImportId, items: items, targetTable: pendingTarget,
+                       writeMode: writeMode, yieldMs: yieldMs });
   }
 }
 

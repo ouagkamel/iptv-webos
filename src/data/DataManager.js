@@ -113,14 +113,19 @@ export class DataManager {
     } catch (err) { console.error('DataManager: catégories non persistées:', err); }
   }
 
-  async _processChunk({ importId, items, targetTable }) {
+  async _processChunk({ importId, items, targetTable, writeMode, yieldMs }) {
     // PROT-5 : acquitter sans écrire si l'import a été avorté
     if (this.abortedImports.has(importId)) {
       this.worker.postMessage({ type: 'CHUNK_COMMITTED', importId });
       return;
     }
 
-    await db[targetTable || this.targetTableDefault].bulkPut(items);
+    const table = db[targetTable || this.targetTableDefault];
+    // bulkAdd est réservé aux profils de benchmark : chaque import possède un
+    // importId neuf, donc les clés sont nouvelles. Le mode production reste
+    // bulkPut, idempotent si un panneau/worker renvoie un lot répété.
+    if (writeMode === 'add') await table.bulkAdd(items);
+    else await table.bulkPut(items);
 
     // Progression en lignes (V10, §9) : cumuls par import, événement additif
     // émis APRÈS l'écriture (le badge ne compte jamais de lignes pas en base).
@@ -140,12 +145,15 @@ export class DataManager {
     // bloqué indéfiniment par une frame absente. Borne d'attente renforcée, sens
     // opposé à tout risque de régression des 60 FPS (§11-T3).
     await new Promise(resolve => {
+      const requested = typeof yieldMs === 'number' && yieldMs >= 0 ? Math.min(64, yieldMs) : 32;
       if (typeof document !== 'undefined' && document.hidden) {
-        setTimeout(resolve, 16);
+        setTimeout(resolve, requested);
+      } else if (requested === 0) {
+        setTimeout(resolve, 0);
       } else {
         var done = false;
         var finish = function () { if (!done) { done = true; resolve(); } };
-        var cap = setTimeout(finish, 32);
+        var cap = setTimeout(finish, requested);
         requestAnimationFrame(function () { clearTimeout(cap); setTimeout(finish, 0); });
       }
     });

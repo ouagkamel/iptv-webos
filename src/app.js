@@ -13,6 +13,7 @@ import { PlayerOSD } from './components/PlayerOSD.js';
 import { ImportBadge } from './components/ImportBadge.js';
 import { classifyKey, createRepeatGate, stepIndex, pageIndex } from './ui/RemoteKeys.js';
 import { SeriesBrowser } from './services/SeriesBrowser.js';
+import { IMPORT_PROFILES } from './data/ImportProfiles.js';
 import { CONFIG, DEFAULT_PLAYLIST } from './config.js';
 
 const state = {
@@ -206,7 +207,22 @@ async function refreshPlaylists() {
     };
     const sel = function () { state.activePlaylistId = pl.id; osd && osd.setStatus('Playlist active : ' + pl.name); loadActiveData(); };
     mk('Activer', sel);
-    mk('Importer', function () { runImport(pl.id, false); });
+    mk('Importer', function () { runImport(pl.id, false, IMPORT_PROFILES[0]); });
+    if (pl.source === 'xtream') {
+      // V17 : variantes de benchmark utilisables sur une TV réelle. Le bouton
+      // garde le même swap/protocole ; seul le réglage d'écriture change.
+      for (let pi = 0; pi < IMPORT_PROFILES.length; pi++) {
+        const profile = IMPORT_PROFILES[pi];
+        const testButton = el('button', 'mini import-test');
+        testButton.textContent = profile.shortLabel;
+        testButton.title = profile.label;
+        testButton.tabIndex = 0;
+        testButton.addEventListener('click', (function (chosen) {
+          return function (ev) { ev.stopPropagation(); runImport(pl.id, false, chosen); };
+        })(profile));
+        row.appendChild(testButton);
+      }
+    }
     mk('EPG', function () { runImport(pl.id, true); });
     mk('Annuler', function () { ctx.manager.abort(pl.id, 'epg'); ctx.manager.abort(pl.id, 'playlist'); });
     mk('Supprimer', async function () {
@@ -218,10 +234,13 @@ async function refreshPlaylists() {
   });
 }
 
-async function runImport(playlistId, isEpg) {
+async function runImport(playlistId, isEpg, profile) {
   try {
-    osd && osd.setStatus(isEpg ? 'Import EPG…' : 'Import playlist…');
-    const p = isEpg ? ctx.manager.importEpg(playlistId) : ctx.manager.importPlaylist(playlistId);
+    state.activePlaylistId = playlistId;
+    const label = profile && profile.label ? ' — ' + profile.label : '';
+    osd && osd.setStatus(isEpg ? 'Import EPG…' : 'Import playlist' + label + '…');
+    const p = isEpg ? ctx.manager.importEpg(playlistId)
+      : ctx.manager.importPlaylist(playlistId, { profile: profile || IMPORT_PROFILES[0] });
     await p;
   } catch (err) {
     osd && osd.setStatus('Import : ' + err.message);

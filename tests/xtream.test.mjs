@@ -15,7 +15,7 @@ function normalizeSearchName(name) {
   return String(name || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
 }
 
-async function runXtream(overrides) {
+async function runXtream(overrides, profile) {
   await freshDb();
   const plId = await addPlaylist(db, 'Xt', {
     source: 'xtream', base: BASE, username: USER, password: PASS
@@ -38,7 +38,7 @@ async function runXtream(overrides) {
 
   const detail = await pair.controller.startImport({
     source: 'xtream', importId: importId, playlistId: plId, kind: 'playlist',
-    base: BASE, username: USER, password: PASS
+    base: BASE, username: USER, password: PASS, profile: profile || null
   });
   window.removeEventListener('import-meta', onMeta); window.removeEventListener('import-rows', onRows);
   window.removeEventListener('import-phase', onPhase);
@@ -100,6 +100,17 @@ test('xtream-mock : 5 channels + 4 vod + 5 séries exacts, swap actif, ACCOUNT_I
   assert.equal(series['Doc Deux'].groupName, 'Docs TV');
   assert.equal(await db.vod.count(), 4, 'DB-5 : aucune série dans vod');
 
+  r.pair.controller.destroy(); r.pair.dataManager.destroy();
+});
+
+test('V17 profil benchmark : chunk réduit + bulkAdd + pause zéro conserve les trois tables', async () => {
+  const r = await runXtream({}, {
+    id: 'add-test', chunkItems: 500, writeMode: 'add', yieldMs: 0, parallelCatalogs: true
+  });
+  assert.equal(await db.channels.where('importId').equals(r.importId).count(), XTREAM_PANEL.EXPECTED.channels);
+  assert.equal(await db.vod.where('importId').equals(r.importId).count(), XTREAM_PANEL.EXPECTED.vod);
+  assert.equal(await db.series.where('importId').equals(r.importId).count(), XTREAM_PANEL.EXPECTED.series);
+  assert.equal((await db.imports.get(r.importId)).status, 'completed');
   r.pair.controller.destroy(); r.pair.dataManager.destroy();
 });
 

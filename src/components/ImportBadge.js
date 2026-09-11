@@ -1,7 +1,7 @@
 // src/components/ImportBadge.js — vignette d'état d'import (V10, §9).
 // Composant NON INTERACTIF hors FocusEngine (jamais focusable) : il écoute les
 // événements additifs window import-start / import-meta / import-progress /
-// import-phase / import-rows / import-complete / import-error / import-aborted. Aucun lien
+// import-phase / import-rows / import-complete / import-finished / import-error / import-aborted. Aucun lien
 // avec le protocole worker §5.2 : le retirer ne peut pas régresser un import.
 // Rendu XSS-safe strict : textContent uniquement (invariant §1.2-3).
 export class ImportBadge {
@@ -21,6 +21,7 @@ export class ImportBadge {
     this._onMeta = this._onMeta.bind(this);
     this._onProgress = this._onProgress.bind(this);
     this._onPhase = this._onPhase.bind(this);
+    this._onFinished = this._onFinished.bind(this);
     this._onRows = this._onRows.bind(this);
     this._onComplete = this._onComplete.bind(this);
     this._onError = this._onError.bind(this);
@@ -29,6 +30,7 @@ export class ImportBadge {
     window.addEventListener('import-meta', this._onMeta);
     window.addEventListener('import-progress', this._onProgress);
     window.addEventListener('import-phase', this._onPhase);
+    window.addEventListener('import-finished', this._onFinished);
     window.addEventListener('import-rows', this._onRows);
     window.addEventListener('import-complete', this._onComplete);
     window.addEventListener('import-error', this._onError);
@@ -41,6 +43,7 @@ export class ImportBadge {
     window.removeEventListener('import-meta', this._onMeta);
     window.removeEventListener('import-progress', this._onProgress);
     window.removeEventListener('import-phase', this._onPhase);
+    window.removeEventListener('import-finished', this._onFinished);
     window.removeEventListener('import-rows', this._onRows);
     window.removeEventListener('import-complete', this._onComplete);
     window.removeEventListener('import-error', this._onError);
@@ -70,7 +73,8 @@ export class ImportBadge {
     line.className = 'imp-row';
     var labelEl = document.createElement('span');
     labelEl.className = 'imp-label';
-    labelEl.textContent = d.kind === 'epg' ? 'Import guide (EPG)' : 'Import playlist';
+    var baseLabel = d.kind === 'epg' ? 'Import guide (EPG)' : 'Import playlist';
+    labelEl.textContent = d.profileLabel ? baseLabel + ' · ' + d.profileLabel : baseLabel;
     var pctEl = document.createElement('span');
     pctEl.className = 'imp-pct';
     pctEl.textContent = '…';
@@ -88,7 +92,8 @@ export class ImportBadge {
 
     this._lines.set(d.importId, {
       row: row, labelEl: labelEl, pctEl: pctEl, fill: fill,
-      written: 0, totalItems: 0, bytesDone: 0, bytesTotal: 0, timer: null
+      written: 0, totalItems: 0, bytesDone: 0, bytesTotal: 0, timer: null,
+      profileLabel: d.profileLabel || ''
     });
   }
 
@@ -127,6 +132,17 @@ export class ImportBadge {
     if (!st) return;
     if (typeof d.written === 'number') st.written = d.written;
     this._render(st);
+  }
+
+  _onFinished(e) {
+    var d = e && e.detail;
+    if (!d) return;
+    var st = this._lines.get(d.importId);
+    if (!st || !st.row.classList.contains('ok')) return;
+    var seconds = typeof d.elapsedMs === 'number' ? (d.elapsedMs / 1000).toFixed(1) : '?';
+    var profile = d.profileLabel || st.profileLabel;
+    st.labelEl.textContent = '✔ terminé — ' + st.written + ' lignes · ' + seconds + ' s' +
+      (profile ? ' · ' + profile : '');
   }
 
   _onComplete(e) {

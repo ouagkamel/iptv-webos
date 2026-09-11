@@ -1,22 +1,24 @@
-# IPTV webOS Player — implémentation (Spec V16, Plan Sprint 0→4)
+# IPTV webOS Player — implémentation (Spec V17, Plan Sprint 0→4)
 
 App webOS TV (cible : webOS 5.0 entrée de gamme, Chromium 68) : imports **M3U +
 XMLTV + Xtream Codes**, virtualisation TV, pipeline média NATIVE→MSE avec
 watchdog, persistance Dexie v3 (vod, séries, cache de détail, catégories ; règles DB-5/DB-6/DB-7).
 
-## Statut d'exécution (vérifié dans cet environnement, 2026-09-10)
+## Statut d'exécution (vérifié dans cet environnement, 2026-09-11)
 
 | Gate | Résultat |
 |---|---|
 | `npm ci`-style install (deps figées §2.1 : dexie 3.2.4, hls.js 1.4.14, webostvjs 1.2.4) | ✔ |
-| `npm run build` (Vite 4.5.0, target chrome68, terser, workers IIFE, inlineDynamicImports) | ✔ 26 modules, 4 bundles (3 workers séparés + 1 chunk unique) |
-| `npm test` (harnais maison `node:test`, **77 tests**) | ✔ 77/77 |
-| `tools/syntax-gate.mjs src` (interdit `?.` `??` `.flat` `Object.fromEntries` `globalThis` nu…) | ✔ 24 fichiers |
+| `npm run build` (Vite 4.5.0, target chrome68, terser, workers IIFE, inlineDynamicImports) | ✔ 31 modules transformés, bundle principal 526,01 kB minifié |
+| `npm test` (harnais maison `node:test`, **79 tests**) | ✔ 79/79 |
+| `tools/syntax-gate.mjs src` (interdit `?.` `??` `.flat` `Object.fromEntries` `globalThis` nu…) | ✔ 25 fichiers |
 | `tools/syntax-gate.mjs dist` (deps minifiées, occurrences sous garde tolérées et documentées) | ✔ 2 occurrences gardées (interop `typeof globalThis`, `typeof self.clients &&` de hls.js) |
-| Build store `IPTV_PRODUCTION=true` (Q3) | ✔ 520.27 kB, bundle sans aucun `console.*` |
+| Build store `IPTV_PRODUCTION=true` (Q3) | ✔ 526,01 kB, bundle sans aucun `console.*` |
 | Boot du build de production dans un vrai navigateur (chrome-headless-shell 153, CDP via `tools/browser-run.mjs`) | ✔ `#root` monté, 0 erreur console |
 | **Smoke navigateur réel** (`dev/smoke.html` sur le serveur Vite : workers `?worker` réels, Dexie/IndexedDB réels, import 50 lignes + swap + filet §5.5) | ✔ **SMOKE PASS (8/8)** |
 | **Harnais §9 en navigateur réel** (`tests/harness.html`, H1–H8 + test lourd H9) | ✔ **HARNESS PASS (9/9)** ; H9 : 20 000 lignes en 2,7 s, pire intervalle rAF 47 ms (budget ≤ 50 ms) |
+| **E2E télécommande / séries** (`bench/m5.mjs`, panel mock RTT 80 ms) | ✔ import + zap + play/pause + saisons/épisodes + Magic Remote |
+| **UI benchmark V17** (panel mock, navigateur réel) | ✔ 5 boutons exactement sur Xtream, bouton `Importer` conservé, badge profil + durée ; 0 erreur page |
 | Qualification §11 T1–T4 sur webOS 5.0 (émulateur/TV) | ⏳ **non exécutable ici** — spécificités webOS (ServiceBridge, décodeur matériel, D-pad RC) + pré-requis bloquant Q2 du plan |
 
 Couverture des fixtures §9 : `m3u-20000` (20 002 lignes exactes avec variantes),
@@ -28,16 +30,42 @@ waiters, filet `worker.onerror`, `xtream-mock` (5 channels + 4 vod exacts,
 (catégorie 503 ignorée), bascule de table sans CHUNK mixte, invariant §1.2-6
 (≤ 19 nœuds sur 20 000 items), matrice média complète §7.1, démarrage FHD V14
 (fenêtre d'inactivité + requête active + plafond 45 s), cycle de vie §7.4 avec
-reprise + seek, politique §7.5.
+reprise + seek, politique §7.5 ; profil V17 `bulkAdd` avec lots réduits sur les trois tables,
+les cinq profils UI et l'affichage de `elapsedMs`/profil final.
 
 ## Télécharger
 
-- **Archive complète (source + `dist/` prêt pour `ares-package`)** : dernière
-  release → https://github.com/ouagkamel/iptv-webos/releases (fichier
-  `iptv-webos-v15.zip`) ; téléchargement direct :
-  https://github.com/ouagkamel/iptv-webos/releases/download/v15/iptv-webos-v15.zip ; ou le code source seul : bouton « Download ZIP »
-  de GitHub, ou `git clone https://github.com/ouagkamel/iptv-webos.git`
-  (puis `npm ci && npm run build`).
+- **Archive complète V17 (source + `dist/` prêt pour `ares-package`)** : release
+  GitHub → https://github.com/ouagkamel/iptv-webos/releases ; téléchargement direct :
+  https://github.com/ouagkamel/iptv-webos/releases/download/v17/iptv-webos-v17.zip
+  (après publication). Code source seul : bouton « Download ZIP » de GitHub, ou
+  `git clone https://github.com/ouagkamel/iptv-webos.git` puis `npm ci && npm run build`.
+- Miroir de démonstration : https://iptv-webos-demo-ef07f8.surge.sh (canal secondaire ;
+  GitHub reste le canal recommandé pour l'archive TV).
+
+## Profils de benchmark Xtream V17
+
+Sur chaque playlist **Xtream**, l'interface affiche le bouton `Importer` normal et
+les cinq boutons `Test import 1` à `Test import 5`. Ils déclenchent exactement le
+même pipeline sécurisé (nouvel `importId`, worker, lots acquittés, swap atomique,
+purge bornée et protections d'abort) avec uniquement un réglage différent :
+
+| Bouton | Lots | Écriture | Respiration | Catalogues |
+|---|---:|---|---:|---|
+| `Test import 1` | 2 000 | `bulkPut` | 32 ms | parallèle |
+| `Test import 2` | 4 000 | `bulkPut` | 16 ms | parallèle |
+| `Test import 3` | 8 000 | `bulkPut` | 0 ms | parallèle |
+| `Test import 4` | 4 000 | `bulkAdd` | 8 ms | parallèle |
+| `Test import 5` | 2 000 | `bulkPut` | 32 ms | séquentiel |
+
+Le bouton `Importer` normal conserve `bulkPut` et le profil standard. Le profil
+`bulkAdd` est réservé au benchmark et n'est pas un fallback silencieux : s'il
+échoue, l'import est marqué en échec et aucun import partiel n'est swappé.
+Le badge affiche à la fin le profil utilisé et la durée totale, par exemple
+`✔ terminé — 24600 lignes · 2.9 s · Test 1 — standard (2 000 / bulkPut)`.
+Aucun import automatique n'est ajouté ; les catégories, le lecteur, le zapping,
+la navigation séries et la télécommande restent inchangés. Aucun mot de passe ne
+figure dans les événements ou la télémétrie du benchmark.
 
 ## Ordre serveur des listes et du zap (révision V13, règle DB-7)
 
@@ -141,6 +169,12 @@ pure (`src/services/ListOrder.js`) appliquée à la lecture par le
    quand le thread UI ne produit aucune frame (découvert au harness H9 headless) ;
    la course rAF/plafond 32 ms est désormais décrite en spec et implémentée à
    l'identique. Aucune divergence résiduelle — tracée au §13 pour l'historique.
+
+8. **Profils Xtream V17 (§6.8)** : les cinq boutons sont une variation de réglage
+   dans le même pipeline sécurisé ; `chunkItems`, `writeMode`, `yieldMs` et
+   `parallelCatalogs` sont validés dans le worker, `bulkPut` reste le défaut,
+   `bulkAdd` est explicitement diagnostique. `import-finished` mesure la durée
+   totale et le badge la rend lisible sur TV.
 
 8. **Workers inlinés (`?worker&inline`, bootstrap.js)** — en build dist, Vite 4 avec
    `base: './'` + script `type="module"` génère `new Worker(new URL(fichier,
@@ -352,7 +386,7 @@ par renommage, contenu inchangé).
 
 ## Arborescence
 
-Conforme à l'arbre gelé du plan (`SPEC-IPTV-webOS-V6-FINAL.md` ↔ `IMPLEMENTATION-PLAN.md`), dont :
+Conforme à l'arbre gelé du plan (`SPEC-IPTV-webOS-V6-FINAL.md` ↔ `IMPLEMENTATION-PLAN.md`, révision V17), dont :
 `src/data/{db,DataManager,ImportController,m3u,epg,xtream}` · `src/media/{MediaAdapter,Watchdog,DualPlayerPolicy}` ·
 `src/platform/{LifecycleAdapter,XtreamClient}` · `src/ui/{FocusEngine,VirtualList}` · `src/services/PlaylistManager` ·
 `src/{bootstrap,app}.js` · `tests/` (harnais node + harness.html/harness-run.js §9 navigateur + fixtures générées) · `dev/smoke.{html,js}` (smoke Sprint 0) · `tools/{syntax-gate,browser-run}.mjs`.

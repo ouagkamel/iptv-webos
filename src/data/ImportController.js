@@ -42,10 +42,15 @@ export class ImportController {
     this._bytesPctSent = -1;
     this._bytesDone = 0;
     this._bytesMetaSent = false;
+    const profile = job.profile || null;
+    const profileId = profile && profile.id ? profile.id : 'standard';
+    const profileLabel = profile && profile.label ? profile.label : 'standard';
+    const startedAt = Date.now();
     // Progression (V10, §9) : événement additif — aucun consommateur du
     // protocole §5.2 n'y est associé ; la suppression du badge ne régresse rien.
     window.dispatchEvent(new CustomEvent('import-start', {
-      detail: { importId: importId, kind: job.kind }
+      detail: { importId: importId, kind: job.kind,
+                profileId: profileId, profileLabel: profileLabel }
     }));
     this.abortController = typeof AbortController !== 'undefined' ? new AbortController() : null;
 
@@ -65,9 +70,11 @@ export class ImportController {
         kind: job.kind,
         base: job.base,
         username: job.username,
-        password: job.password
+        password: job.password,
+        profile: profile
       });
       return completionPromise.then(function (detail) {
+        self._emitFinished(detail, startedAt, profileId, profileLabel);
         self._teardown();
         return detail;
       }, function (err) {
@@ -80,7 +87,8 @@ export class ImportController {
       type: 'INIT_IMPORT',
       importId: importId,
       playlistId: job.playlistId,
-      kind: job.kind
+      kind: job.kind,
+      profile: profile
     });
 
     this._pumpNetwork(job).then(function () {
@@ -100,12 +108,21 @@ export class ImportController {
     });
 
     return completionPromise.then(function (detail) {
+      self._emitFinished(detail, startedAt, profileId, profileLabel);
       self._teardown();
       return detail;
     }, function (err) {
       self._teardown();
       throw err;
     });
+  }
+
+  _emitFinished(detail, startedAt, profileId, profileLabel) {
+    try {
+      window.dispatchEvent(new CustomEvent('import-finished', { detail: Object.assign({}, detail, {
+        elapsedMs: Date.now() - startedAt, profileId: profileId, profileLabel: profileLabel
+      }) }));
+    } catch (eFinished) { /* métrique UI non bloquante */ }
   }
 
   abort() {
