@@ -1,7 +1,20 @@
-// src/data/DataManager.js — spec §5.3 (verbatim).
-// File sérialisée, respiration UI compatible arrière-plan, voie terminale UNIQUE
-// failImport (ne rejette jamais, §1.2-1), routage des signaux annexes.
+// src/data/DataManager.js — propriétaire unique des écritures IndexedDB.
+//
+// V18 import par défaut :
+//   - bulkAdd exclusivement (un importId neuf rend les clés nouvelles) ;
+//   - lots de 2 000 côté worker ;
+//   - deux CHUNK en vol pour chevaucher mapping Worker et écriture IDB ;
+//   - respiration UI une fois tous les quatre lots ;
+//   - swap rapide puis garbage collection lazy de l'ancien import.
+//
+// La file de messages reste sérialisée : IndexedDB n'est jamais écrit par deux
+// traitements concurrents. Le pipeline peut cependant avoir deux messages CHUNK
+// déjà clonés/en attente pendant qu'un autre est écrit.
 import { db } from './db.js';
+
+const GC_BATCH_SIZE = 500;
+const DEFAULT_YIELD_EVERY_CHUNKS = 4;
+const MAX_YIELD_EVERY_CHUNKS = 16;
 
 function isQuotaError(err, message) {
   return !!(err && err.name === 'QuotaExceededError') || /quota(?:exceeded| de stockage)/i.test(message);
@@ -13,7 +26,10 @@ export class DataManager {
     this.targetTableDefault = targetTableDefault || 'channels';
     this.processingQueue = Promise.resolve();
     this.abortedImports = new Set();
-    this.auxListeners = [];          // routage des signaux annexes (CHUNK_PARSED → §5.8)
+    this.auxListeners = [];
+    this._rowsWritten = Object.create(null);
+    this._chunksWritten = Object.create(null);
+    this._gcTail = Promise.resolve();
     this._destroyed = false;
     this.worker.onmessage = this.handleWorkerMessage.bind(this);
   }
@@ -25,15 +41,14 @@ export class DataManager {
       if (data.type === 'CHUNK') return this._processChunk(data);
       if (data.type === 'COMPLETE') return this._processComplete(data);
       if (data.type === 'ERROR') {
-        // Erreur terminale émise par le worker (ex. XTREAM_AUTH_FAILED §6.5)
-        this.failImport(data.importId != null ? data.importId : null, new Error(data.message || 'worker ERROR'));
+        // Erreur terminale émise par le worker (ex. XTREAM_AUTH_FAILED).
+        this.failImport(data.importId != null ? data.importId : null,
+                        new Error(data.message || 'worker ERROR'));
         return undefined;
       }
-      return this._routeAux(data); // CHUNK_PARSED / ACCOUNT_INFO / CATEGORIES :
-      // signaux annexes (§5.8) — retournés dans la file pour que l'écriture
-      // db.categories soit terminée avant un COMPLETE immédiatement posterior.
+      return this._routeAux(data);
     }).catch((err) => {
-      this._handleTerminalError(err, data); // voie terminale UNIQUE — ne rejette jamais
+      this._handleTerminalError(err, data);
     });
   }
 
@@ -42,15 +57,13 @@ export class DataManager {
   }
 
   /**
-   * Voie terminale d'import UNIQUE — appelée par le catch de la file ET par le
-   * filet worker.onerror du bootstrap (qui injecte explicitement l'importId
-   * courant, cf. §3 et §5.8). Ne rejette jamais : tout échec secondaire est
-   * confiné localement (invariant §1.2-1).
+   * Voie terminale d'import unique. Elle ne rejette jamais : l'échec est
+   * transformé en status failed + événement public, puis le staging est purgé
+   * en petits lots pour ne pas bloquer encore la TV.
    */
   failImport(importId, err) {
     console.error('DataManager fatal:', err);
     if (importId == null) {
-      // Crash worker hors contexte d'import connu : journalisation via filet global
       window.dispatchEvent(new CustomEvent('worker-error', {
         detail: { message: String((err && err.message) || err) }
       }));
@@ -59,7 +72,7 @@ export class DataManager {
     this.abortedImports.add(importId);
     try {
       this.worker.postMessage({ type: 'ABORT_IMPORT', importId: importId });
-    } catch (e1) { /* worker déjà mort (crash) : message orphelin toléré */ }
+    } catch (e1) { /* worker déjà mort : message orphelin toléré */ }
     const message = String((err && err.message) || err);
     const publicMessage = isQuotaError(err, message)
       ? 'STORAGE_QUOTA: quota de stockage local atteint ; les données actives sont conservées, relancez après nettoyage des imports échoués'
@@ -67,12 +80,7 @@ export class DataManager {
     try {
       db.imports.update(importId, { status: 'failed', error: message })
         .catch((e2) => { console.error('DataManager: marquage failed impossible:', e2); });
-    } catch (e3) { /* DB injoignable (quota/corruption) : déjà journalisé */ }
-    // Un échec DB peut laisser les lots précédents de l'import de staging en base.
-    // Les conserver ferait grossir le quota à chaque nouvel essai, alors que
-    // l'import actif (d'un autre importId) doit rester intact. La purge ne touche
-    // donc que l'import échoué et est volontairement non bloquante pour l'événement
-    // terminal ; bootMaintenance reste le filet si la base refuse aussi DELETE.
+    } catch (e3) { /* DB injoignable : déjà journalisé */ }
     this._purgeImportRows(importId).catch((ePurge) => {
       console.error('DataManager: purge staging après échec impossible:', ePurge);
     });
@@ -81,17 +89,14 @@ export class DataManager {
     }));
   }
 
+  /** Purge ciblée d'un staging, sans toucher à l'import actif d'une playlist. */
   async _purgeImportRows(importId) {
     const tables = [db.channels, db.vod, db.series, db.series_info, db.categories, db.epg];
-    await db.transaction('rw', tables, async () => {
-      for (let i = 0; i < tables.length; i++) {
-        await tables[i].where('importId').equals(importId).delete();
-      }
-    });
+    for (let i = 0; i < tables.length; i++) {
+      await this._deleteImportRowsInBatches(tables[i], importId);
+    }
   }
 
-  // Routage des signaux annexes vers le régulateur réseau (§5.8).
-  // Le DataManager reste propriétaire unique de worker.onmessage.
   addAuxListener(fn) {
     if (typeof fn === 'function') this.auxListeners.push(fn);
   }
@@ -102,29 +107,30 @@ export class DataManager {
   }
 
   async _routeAux(data) {
-    if (data && data.type === 'CATEGORIES') { // V11 : catégories serveur → db.categories
-      this._writeCategories(data);
-      return; // jamais re-routé aux auxListeners : consommateur unique = DataManager
+    if (data && data.type === 'CATEGORIES') {
+      // Attendre l'écriture des catégories avant de traiter COMPLETE. Le swap
+      // peut ainsi être publié dès que le dernier message utile est effectivement
+      // persistant, sans course entre catégorie et import-complete.
+      return this._writeCategories(data);
     }
-    if (data && data.type === 'IMPORT_META') { // V10 : totaux connus → % de lignes au badge
+    if (data && data.type === 'IMPORT_META') {
       window.dispatchEvent(new CustomEvent('import-meta', { detail: {
         importId: data.importId, playlistId: data.playlistId, totalItems: data.totalItems
       } }));
     }
-    if (data && data.type === 'IMPORT_PHASE') { // V16 : activité visible avant totalItems
+    if (data && data.type === 'IMPORT_PHASE') {
       window.dispatchEvent(new CustomEvent('import-phase', { detail: {
         importId: data.importId, playlistId: data.playlistId,
         phase: data.phase, label: data.label
       } }));
     }
     for (let i = 0; i < this.auxListeners.length; i++) {
-      try { this.auxListeners[i](data); } catch (errAux) { console.error('DataManager aux listener:', errAux); }
+      try { this.auxListeners[i](data); } catch (errAux) {
+        console.error('DataManager aux listener:', errAux);
+      }
     }
   }
 
-  // Écriture idempotente par (importId, kind) : re-tir d'un même import = mêmes
-  // lignes, jamais d'accumulation. Échec DB = non bloquant pour l'import (le
-  // filtre à catégories retombe alors sur « Toutes », jamais sur une erreur).
   async _writeCategories(data) {
     if (this.abortedImports.has(data.importId)) return;
     try {
@@ -135,87 +141,152 @@ export class DataManager {
         await db.categories.where('[importId+kind]').equals([data.importId, data.kind]).delete();
         if (rows.length > 0) await db.categories.bulkAdd(rows);
       });
-    } catch (err) { console.error('DataManager: catégories non persistées:', err); }
+    } catch (err) {
+      // Les catégories sont auxiliaires : leur absence fait retomber l'UI sur
+      // « Toutes », elle ne doit pas invalider le catalogue principal.
+      console.error('DataManager: catégories non persistées:', err);
+    }
   }
 
-  async _processChunk({ importId, items, targetTable, writeMode, yieldMs }) {
-    // PROT-5 : acquitter sans écrire si l'import a été avorté
+  async _processChunk({ importId, items, targetTable, chunkId, yieldEveryChunks }) {
+    // PROT-5 : acquitter sans écrire si l'import a été avorté.
     if (this.abortedImports.has(importId)) {
-      this.worker.postMessage({ type: 'CHUNK_COMMITTED', importId });
+      this.worker.postMessage({ type: 'CHUNK_COMMITTED', importId: importId, chunkId: chunkId });
       return;
     }
 
     const table = db[targetTable || this.targetTableDefault];
-    // bulkAdd est réservé aux profils de benchmark : chaque import possède un
-    // importId neuf, donc les clés sont nouvelles. Le mode production reste
-    // bulkPut, idempotent si un panneau/worker renvoie un lot répété.
-    if (writeMode === 'add') await table.bulkAdd(items);
-    else await table.bulkPut(items);
+    const rows = Array.isArray(items) ? items : [];
+    if (!table) throw new Error('UNKNOWN_IMPORT_TABLE_' + targetTable);
 
-    // Progression en lignes (V10, §9) : cumuls par import, événement additif
-    // émis APRÈS l'écriture (le badge ne compte jamais de lignes pas en base).
-    this._rowsWritten = this._rowsWritten || Object.create(null);
-    const written = (this._rowsWritten[importId] || 0) + items.length;
-    this._rowsWritten[importId] = written;
+    // bulkAdd est imposé pour tous les imports. Chaque ligne de staging porte un
+    // importId neuf, donc sa clé est nouvelle ; aucune vérification de mise à jour
+    // n'est nécessaire comme avec bulkPut.
+    if (rows.length > 0) await table.bulkAdd(rows);
+
+    this._rowsWritten[importId] = (this._rowsWritten[importId] || 0) + rows.length;
     window.dispatchEvent(new CustomEvent('import-rows', {
-      detail: { importId: importId, written: written, targetTable: targetTable || this.targetTableDefault }
+      detail: {
+        importId: importId,
+        written: this._rowsWritten[importId],
+        targetTable: targetTable || this.targetTableDefault
+      }
     }));
 
-    // Respiration UI compatible arrière-plan :
-    // rAF est suspendu par webOS quand document.hidden === true → setTimeout obligatoire,
-    // sinon l'import se fige jusqu'au retour au premier plan.
-    // Correction V9.1 (découverte au harnais headless, utile aussi en TV sous VPU
-    // saturé ou rAF starvé) : la respiration est un RACE rAF / plafond 32 ms — le
-    // rendu suit le rythme des frames quand il y en a, mais l'import n'est jamais
-    // bloqué indéfiniment par une frame absente. Borne d'attente renforcée, sens
-    // opposé à tout risque de régression des 60 FPS (§11-T3).
-    await new Promise(resolve => {
-      const requested = typeof yieldMs === 'number' && yieldMs >= 0 ? Math.min(64, yieldMs) : 32;
-      if (typeof document !== 'undefined' && document.hidden) {
-        setTimeout(resolve, requested);
-      } else if (requested === 0) {
-        setTimeout(resolve, 0);
-      } else {
-        var done = false;
-        var finish = function () { if (!done) { done = true; resolve(); } };
-        var cap = setTimeout(finish, requested);
-        requestAnimationFrame(function () { clearTimeout(cap); setTimeout(finish, 0); });
-      }
-    });
+    this._chunksWritten[importId] = (this._chunksWritten[importId] || 0) + 1;
+    const requestedEvery = parseInt(yieldEveryChunks, 10);
+    const every = requestedEvery > 0
+      ? Math.min(MAX_YIELD_EVERY_CHUNKS, requestedEvery)
+      : DEFAULT_YIELD_EVERY_CHUNKS;
+    if (this._chunksWritten[importId] % every === 0) await this._yieldToUi();
 
-    this.worker.postMessage({ type: 'CHUNK_COMMITTED', importId });
+    this.worker.postMessage({ type: 'CHUNK_COMMITTED', importId: importId, chunkId: chunkId });
+  }
+
+  /** Une seule frame, sans pause fixe par lot. Fallback sûr si rAF est suspendu. */
+  _yieldToUi() {
+    return new Promise(function (resolve) {
+      const hidden = typeof document !== 'undefined' && document.hidden === true;
+      const raf = typeof requestAnimationFrame === 'function' ? requestAnimationFrame : null;
+      if (hidden || !raf) {
+        setTimeout(resolve, 0);
+        return;
+      }
+      let done = false;
+      let cap = null;
+      const finish = function () {
+        if (done) return;
+        done = true;
+        if (cap !== null) clearTimeout(cap);
+        resolve();
+      };
+      // Le plafond n'est pas une attente voulue : il protège contre un rAF
+      // suspendu par le moteur webOS malgré document.hidden=false.
+      cap = setTimeout(finish, 32);
+      raf(finish);
+    });
   }
 
   async _processComplete({ playlistId, importId, kind }) {
-    if (this.abortedImports.has(importId)) return; // jamais de swap sur import avorté
+    if (this.abortedImports.has(importId)) return;
     const isEpg = kind === 'epg';
-    // kind 'playlist' (M3U ou Xtream) purge channels ET vod ; kind 'epg' ne purge que epg (DB-5)
-    const targetTables = isEpg ? [db.epg] : [db.channels, db.vod, db.series, db.series_info, db.categories];
     const activeField = isEpg ? 'activeEpgImportId' : 'activeImportId';
 
-    // Swap atomique + purge strictement bornée à la playlist ET au type d'import.
-    // Hors question ici : toute clause du type notEqual(importId) non bornée,
-    // qui effacerait les imports actifs des AUTRES playlists.
-    await db.transaction('rw', [db.playlists, db.imports, db.channels, db.epg, db.vod,
-                                db.series, db.series_info, db.categories], async () => {
-      await db.playlists.update(playlistId, Object.assign({ updatedAt: Date.now() }, { [activeField]: importId }));
-
+    // Transaction courte : le pointeur actif et le statut sont changés sans
+    // supprimer l'ancien catalogue. L'ancien staging reste lisible par aucune
+    // requête UI car toutes les lectures passent par activeImportId.
+    const oldImportIds = await db.transaction('rw', [db.playlists, db.imports], async () => {
       const oldImports = await db.imports
         .where('playlistId').equals(playlistId)
         .and(i => i.id !== importId && i.kind === (isEpg ? 'epg' : 'playlist'))
         .primaryKeys();
-
-      if (oldImports.length > 0) {
-        for (let t = 0; t < targetTables.length; t++) {
-          await targetTables[t].where('importId').anyOf(oldImports).delete();
-        }
-        await db.imports.bulkDelete(oldImports);
-      }
-
+      await db.playlists.update(playlistId,
+        Object.assign({ updatedAt: Date.now() }, { [activeField]: importId }));
       await db.imports.update(importId, { status: 'completed' });
+      return oldImports;
     });
 
-    window.dispatchEvent(new CustomEvent('import-complete', { detail: { playlistId, importId, kind } }));
+    // L'UI peut afficher le catalogue immédiatement. La suppression des anciens
+    // imports est volontairement hors de la transaction et différée d'une tâche.
+    window.dispatchEvent(new CustomEvent('import-complete', {
+      detail: { playlistId, importId, kind, oldImportIds: oldImportIds.slice() }
+    }));
+    this._scheduleGarbageCollection(playlistId, importId, kind, oldImportIds);
+  }
+
+  _scheduleGarbageCollection(playlistId, currentImportId, kind, oldImportIds) {
+    if (!oldImportIds || oldImportIds.length === 0) return;
+    const ids = oldImportIds.slice();
+    const job = () => {
+      if (this._destroyed) return Promise.resolve();
+      return new Promise((resolve) => setTimeout(resolve, 0)).then(() => {
+        if (this._destroyed) return undefined;
+        return this._garbageCollectOldImports(playlistId, currentImportId, kind, ids);
+      });
+    };
+    // Sérialiser les nettoyages évite que deux re-imports ouvrent simultanément
+    // des transactions de suppression sur la même TV.
+    this._gcTail = this._gcTail.then(job).catch((err) => {
+      // Le prochain bootMaintenance purgera les lignes orphelines si la TV est
+      // suspendue ou si le moteur refuse une suppression intermédiaire.
+      console.error('DataManager: garbage collection différée:', err);
+    });
+  }
+
+  async _garbageCollectOldImports(playlistId, currentImportId, kind, oldImportIds) {
+    const playlist = await db.playlists.get(playlistId);
+    const activeField = kind === 'epg' ? 'activeEpgImportId' : 'activeImportId';
+    const activeId = playlist && playlist[activeField];
+    const ids = oldImportIds.filter(function (id) {
+      return id !== currentImportId && id !== activeId;
+    });
+    if (ids.length === 0) return;
+
+    const tables = kind === 'epg'
+      ? [db.epg]
+      : [db.channels, db.vod, db.series, db.series_info, db.categories];
+    for (let i = 0; i < ids.length; i++) {
+      for (let t = 0; t < tables.length; t++) {
+        await this._deleteImportRowsInBatches(tables[t], ids[i]);
+      }
+    }
+    await db.imports.bulkDelete(ids);
+  }
+
+  async _deleteImportRowsInBatches(table, importId) {
+    while (true) {
+      const keys = await table.where('importId').equals(importId).primaryKeys();
+      if (keys.length === 0) return;
+      for (let i = 0; i < keys.length; i += GC_BATCH_SIZE) {
+        await table.bulkDelete(keys.slice(i, i + GC_BATCH_SIZE));
+        await this._yieldToUi();
+      }
+    }
+  }
+
+  /** Utile aux tests et au diagnostic : attend les GC déjà planifiées. */
+  waitForGarbageCollection() {
+    return this._gcTail;
   }
 
   destroy() {

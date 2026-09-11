@@ -1,12 +1,15 @@
-// src/data/epg.worker.js — spec §6.1 (verbatim).
-// CarryOver texte, regex tolérante '>' dans valeurs quotées, attributs sans ordre,
-// CDATA/entités (&amp; en dernier), dates 12/14 chiffres + offset ±HHMM, PROT-1…4.
-// CHUNK_ITEMS : lot 2000 (V10, §5.2) — PROT-1 inchangé (un seul CHUNK en vol).
+// src/data/epg.worker.js — parsing XMLTV, carryOver, dates 12/14 chiffres,
+// offsets ±HHMM et CDATA/entités.
+//
+// V18 : deux CHUNK IndexedDB en vol. Le parsing XMLTV peut remplir le second
+// lot pendant que DataManager sérialise l'écriture du premier.
 const CHUNK_ITEMS = 2000;
+const MAX_CHUNKS_IN_FLIGHT = 2;
 
 let carryOver = '';
-let isWaitingForAck = false;
 let pendingItems = [];
+let inFlightChunkIds = new Set();
+let nextChunkId = 0;
 let currentImportId = null;
 let currentPlaylistId = null;
 let isStreamEnded = false;
@@ -19,22 +22,25 @@ self.onmessage = function (e) {
     currentPlaylistId = playlistId;
     carryOver = '';
     pendingItems = [];
-    isWaitingForAck = false;
+    inFlightChunkIds = new Set();
+    nextChunkId = 0;
     isStreamEnded = false;
     return;
   }
 
   if (type === 'CHUNK_COMMITTED') {
-    if (importId !== currentImportId) return; // PROT-2 : ack tardif d'import mort
-    isWaitingForAck = false;
-    flushPendingItems(isStreamEnded); // PROT-4 : drain des restes en fin de flux
+    if (importId !== currentImportId) return;
+    if (!inFlightChunkIds.has(e.data.chunkId)) return;
+    inFlightChunkIds.delete(e.data.chunkId);
+    flushPendingItems(isStreamEnded);
+    checkCompletion();
     return;
   }
 
   if (type === 'PARSE_CHUNK') {
     if (importId !== currentImportId) return;
     parseChunk(xmlChunk);
-    self.postMessage({ type: 'CHUNK_PARSED', importId: currentImportId }); // watermark §5.7
+    self.postMessage({ type: 'CHUNK_PARSED', importId: currentImportId });
     return;
   }
 
@@ -52,14 +58,13 @@ self.onmessage = function (e) {
     currentImportId = null;
     pendingItems = [];
     carryOver = '';
-    isWaitingForAck = false;
+    inFlightChunkIds.clear();
     isStreamEnded = false;
   }
 };
 
 function parseChunk(chunk) {
-  // Conserve intégralement tout fragment non fermé pour le chunk suivant :
-  // un paquet réseau peut couper <programme …> n'importe où.
+  // Conserve intégralement tout fragment non fermé pour le chunk suivant.
   const text = carryOver + chunk;
   const lastCloseIndex = text.lastIndexOf('</programme>');
 
@@ -68,11 +73,10 @@ function parseChunk(chunk) {
     return;
   }
 
-  const processableText = text.substring(0, lastCloseIndex + 12); // '</programme>'.length === 12
+  const processableText = text.substring(0, lastCloseIndex + 12);
   carryOver = text.substring(lastCloseIndex + 12);
 
-  // Tolère un '>' littéral placé DANS une valeur d'attribut quotée (légal en XML,
-  // l'échappement obligatoire ne concerne que '<' et '&') — capture adaptée en conséquence
+  // Tolère un '>' littéral dans une valeur d'attribut quotée.
   const programmeRegex = /<programme\b((?:"[^"]*"|'[^']*'|[^>"'])*)>([\s\S]*?)<\/programme>/g;
   let match;
 
@@ -84,10 +88,9 @@ function parseChunk(chunk) {
     const startTime = parseXMLTVDateToUTC(getAttribute(attrString, 'start'));
     const stopTime = parseXMLTVDateToUTC(getAttribute(attrString, 'stop'));
 
-    // Attributs absents ou dates invalides → item ignoré (jamais de epoch 0 en base)
     if (channel && startTime !== null && stopTime !== null) {
       pendingItems.push({
-        id: currentImportId + ':' + channel + ':' + startTime, // DB-1
+        id: currentImportId + ':' + channel + ':' + startTime,
         importId: currentImportId,
         channelId: channel,
         startTime: startTime,
@@ -96,14 +99,11 @@ function parseChunk(chunk) {
       });
     }
 
-    if (pendingItems.length >= CHUNK_ITEMS) {
-      flushPendingItems(false);
-    }
+    if (pendingItems.length >= CHUNK_ITEMS) flushPendingItems(false);
   }
 }
 
 function getAttribute(attrString, name) {
-  // Ordre des attributs XML non garanti + apostrophes légales en XML
   const reg = new RegExp('\\b' + name + '=["\']([^"\']*)["\']', 'i');
   const m = reg.exec(attrString);
   return m ? m[1] : null;
@@ -115,7 +115,6 @@ function extractTagText(body, tagName) {
   if (!m) return '';
 
   let text = m[1].trim();
-
   const cdataMatch = /^<!\[CDATA\[([\s\S]*?)\]\]>$/.exec(text);
   if (cdataMatch) text = cdataMatch[1];
 
@@ -124,14 +123,12 @@ function extractTagText(body, tagName) {
     .replace(/&gt;/g, '>')
     .replace(/&quot;/g, '"')
     .replace(/&apos;/g, "'")
-    .replace(/&amp;/g, '&')   // &amp; EN DERNIER (ordre des unescape)
+    .replace(/&amp;/g, '&')
     .trim();
 }
 
 function parseXMLTVDateToUTC(str) {
-  // Format XMLTV : YYYYMMDDHHMMSS ±HHMM (offset optionnel) → epoch UTC ms
   if (!str) return null;
-  // Secondes optionnelles : certains grabbers émettent des dates à 12 chiffres (sans SS)
   const m = /^(\d{4})(\d{2})(\d{2})(\d{2})(\d{2})(\d{2})?\s*([+-]\d{4})?$/.exec(String(str).trim());
   if (!m) return null;
 
@@ -144,36 +141,34 @@ function parseXMLTVDateToUTC(str) {
     const sign = m[7].charAt(0) === '-' ? -1 : 1;
     const offH = parseInt(m[7].substr(1, 2), 10);
     const offM = parseInt(m[7].substr(3, 2), 10);
-    utc -= sign * (offH * 3600 + offM * 60) * 1000; // "18:00 +0100" → 17:00 UTC
+    utc -= sign * (offH * 3600 + offM * 60) * 1000;
   }
 
   return isNaN(utc) ? null : utc;
 }
 
 function flushPendingItems(force) {
-  if (isWaitingForAck || pendingItems.length === 0) {
-    checkCompletion();
-    return;
-  }
-  if (pendingItems.length >= CHUNK_ITEMS || force) {
-    isWaitingForAck = true;
+  while (inFlightChunkIds.size < MAX_CHUNKS_IN_FLIGHT &&
+         (pendingItems.length >= CHUNK_ITEMS || (force && pendingItems.length > 0))) {
+    const chunkId = nextChunkId++;
     const chunkToSend = pendingItems.splice(0, CHUNK_ITEMS);
+    inFlightChunkIds.add(chunkId);
     self.postMessage({
       type: 'CHUNK',
       importId: currentImportId,
+      chunkId: chunkId,
       items: chunkToSend,
       targetTable: 'epg'
     });
-  } else {
-    checkCompletion();
   }
+  checkCompletion();
 }
 
 function checkCompletion() {
-  // PROT-3 : dernier ack reçu, file vide, flux terminé → terminaison
-  if (isStreamEnded && !isWaitingForAck && pendingItems.length === 0 && currentImportId !== null) {
+  if (isStreamEnded && inFlightChunkIds.size === 0 && pendingItems.length === 0 && currentImportId !== null) {
     const importId = currentImportId;
     const playlistId = currentPlaylistId;
     self.postMessage({ type: 'COMPLETE', playlistId: playlistId, importId: importId, kind: 'epg' });
+    currentImportId = null;
   }
 }

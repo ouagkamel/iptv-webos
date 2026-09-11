@@ -1,10 +1,11 @@
-// src/data/m3u.worker.js — protocole §5.2 + tokenisation §6.4 (#EXTINF/#EXTGRP),
+// src/data/m3u.worker.js — tokenisation M3U (#EXTINF/#EXTGRP),
 // id = importId + ':' + seq (DB-1), searchName normalisé (DB-3).
-// Le carryOver porte sur la DERNIÈRE LIGNE incomplète : un paquet réseau peut
-// couper une ligne #EXTINF en deux — jamais un item à cheval sur deux chunks.
-// CHUNK_ITEMS : taille de lot (V10, §5.2) — la sémantique PROT-1 (un seul CHUNK
-// en vol) est inchangée ; gain = coût fixe d'acquittement/respiration ÷ 4.
+//
+// V18 : deux CHUNK IndexedDB en vol. Le parseur peut donc continuer à produire
+// pendant que DataManager écrit le lot précédent ; le watermark réseau reste
+// indépendant et est piloté par ImportController.
 const CHUNK_ITEMS = 2000;
+const MAX_CHUNKS_IN_FLIGHT = 2;
 
 // V11 (§6.4) : catégories M3U = group-title du fichier, dans l'ordre de première
 // apparition (« définies par le serveur » = par la playlist elle-même).
@@ -12,14 +13,15 @@ let groupOrder = [];
 let groupSeen = Object.create(null);
 
 let lineCarry = '';
-let pendingName = null;     // #EXTINF vue, stream pas encore lu
-let pendingGroup = null;    // #EXTGRP ou group-title de l'EXTINF courant
+let pendingName = null;
+let pendingGroup = null;
 let pendingChannelId = null;
 let pendingLogo = null;
 let seq = 0;
 
-let isWaitingForAck = false;
 let pendingItems = [];
+let inFlightChunkIds = new Set();
+let nextChunkId = 0;
 let currentImportId = null;
 let currentPlaylistId = null;
 let isStreamEnded = false;
@@ -37,30 +39,33 @@ self.onmessage = function (e) {
     pendingName = null; pendingGroup = null; pendingChannelId = null; pendingLogo = null;
     seq = 0;
     pendingItems = [];
-    isWaitingForAck = false;
+    inFlightChunkIds = new Set();
+    nextChunkId = 0;
     isStreamEnded = false;
     return;
   }
 
   if (type === 'CHUNK_COMMITTED') {
-    if (data.importId !== currentImportId) return; // PROT-2
-    isWaitingForAck = false;
-    flushPendingItems(isStreamEnded);               // PROT-4
+    if (data.importId !== currentImportId) return;
+    if (!inFlightChunkIds.has(data.chunkId)) return;
+    inFlightChunkIds.delete(data.chunkId);
+    flushPendingItems(isStreamEnded);
+    checkCompletion();
     return;
   }
 
   if (type === 'PARSE_CHUNK') {
     if (data.importId !== currentImportId) return;
     parseChunk(data.xmlChunk, false);
-    self.postMessage({ type: 'CHUNK_PARSED', importId: currentImportId }); // watermark §5.7
+    self.postMessage({ type: 'CHUNK_PARSED', importId: currentImportId });
     return;
   }
 
   if (type === 'END_OF_STREAM') {
     if (data.importId !== currentImportId) return;
     isStreamEnded = true;
-    parseChunk('', true);      // solde la dernière ligne ; un #EXTINF sans URL est écarté
-    flushPendingItems(true);   // drain forcé du résiduel (< 500)
+    parseChunk('', true);      // solde la dernière ligne ; EXTINF sans URL écarté
+    flushPendingItems(true);   // envoie jusqu'à deux lots puis les suivants sur ACK
     checkCompletion();
     return;
   }
@@ -71,7 +76,7 @@ self.onmessage = function (e) {
     pendingItems = [];
     lineCarry = '';
     pendingName = null; pendingGroup = null; pendingChannelId = null; pendingLogo = null;
-    isWaitingForAck = false;
+    inFlightChunkIds.clear();
     isStreamEnded = false;
   }
 };
@@ -84,11 +89,11 @@ function parseChunk(chunk, isFinal) {
   if (isFinal && lineCarry.length > 0) {
     const last = lineCarry;
     lineCarry = '';
-    handleLine(last, true);
+    handleLine(last);
   }
   for (let i = 0; i < lines.length; i++) {
-    handleLine(lines[i], false);
-    if (pendingItems.length >= CHUNK_ITEMS) flushPendingItems(false); // PROT-1 : max 1 CHUNK en vol
+    handleLine(lines[i]);
+    if (pendingItems.length >= CHUNK_ITEMS) flushPendingItems(false);
   }
 }
 
@@ -97,7 +102,7 @@ function attr(str, name) {
   return m ? m[1] : null;
 }
 
-function handleLine(rawLine, isFinal) {
+function handleLine(rawLine) {
   const line = rawLine.replace(/\r$/, '').trim();
   if (line.length === 0) return;
 
@@ -109,7 +114,7 @@ function handleLine(rawLine, isFinal) {
     pendingChannelId = attr(attrsPart, 'tvg-id');
     pendingLogo = attr(attrsPart, 'tvg-logo');
     const g = attr(attrsPart, 'group-title');
-    pendingGroup = g !== null ? g : null; // #EXTGRP éventuel prendra le dessus ci-dessous
+    pendingGroup = g !== null ? g : null;
     return;
   }
 
@@ -118,52 +123,53 @@ function handleLine(rawLine, isFinal) {
     return;
   }
 
-  if (line.charAt(0) === '#') return; // autres directives (#EXTVLCOPT, #EXTM3U…) ignorées
+  if (line.charAt(0) === '#') return;
 
-  // Ligne stream : l'item se concrétise (un nom est optionnel → repli sur l'URL)
   const name = pendingName !== null ? pendingName : line.substring(line.lastIndexOf('/') + 1);
   const grp = pendingGroup || 'Autres';
   if (!groupSeen[grp]) { groupSeen[grp] = true; groupOrder.push(grp); }
   pendingItems.push({
-    sortIdx: seq, // V13 §5.3 : ordre du fichier (source de vérité du « serveur » M3U)
-    id: currentImportId + ':' + seq, // DB-1 : seq = compteur incrémental dans le fichier
+    sortIdx: seq,
+    id: currentImportId + ':' + seq,
     importId: currentImportId,
     name: name,
-    channelId: pendingChannelId,      // jointure EPG (tvg-id)
+    channelId: pendingChannelId,
     groupName: grp,
     logo: pendingLogo || '',
     streamUrl: line,
-    searchName: normalizeSearchName(name) // DB-3
+    searchName: normalizeSearchName(name)
   });
   seq += 1;
   pendingName = null; pendingGroup = null; pendingChannelId = null; pendingLogo = null;
 }
 
 function normalizeSearchName(name) {
-  // Règle DB-3 — minuscules + diacritiques retirés
   return String(name || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
 }
 
 function flushPendingItems(force) {
-  if (isWaitingForAck || pendingItems.length === 0) {
-    checkCompletion();
-    return;
-  }
-  if (pendingItems.length >= CHUNK_ITEMS || force) {
-    isWaitingForAck = true;
+  while (inFlightChunkIds.size < MAX_CHUNKS_IN_FLIGHT &&
+         (pendingItems.length >= CHUNK_ITEMS || (force && pendingItems.length > 0))) {
+    const chunkId = nextChunkId++;
     const items = pendingItems.splice(0, CHUNK_ITEMS);
-    self.postMessage({ type: 'CHUNK', importId: currentImportId, items: items, targetTable: 'channels' });
-  } else {
-    checkCompletion();
+    inFlightChunkIds.add(chunkId);
+    self.postMessage({
+      type: 'CHUNK',
+      importId: currentImportId,
+      chunkId: chunkId,
+      items: items,
+      targetTable: 'channels'
+    });
   }
+  checkCompletion();
 }
 
 function checkCompletion() {
-  // PROT-3 : flux terminé + dernier ack reçu + file vide → terminaison unique
-  if (isStreamEnded && !isWaitingForAck && pendingItems.length === 0 && currentImportId !== null) {
+  // Flux terminé + aucun lot en vol + file vide → terminaison unique.
+  if (isStreamEnded && inFlightChunkIds.size === 0 && pendingItems.length === 0 && currentImportId !== null) {
     const importId = currentImportId;
     const playlistId = currentPlaylistId;
-    currentImportId = null; // jamais de double COMPLETE (file d'acks résiduels)
+    currentImportId = null;
     if (groupOrder.length > 0) {
       const cats = [];
       for (let g = 0; g < groupOrder.length; g++) cats.push({ name: groupOrder[g] });

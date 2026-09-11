@@ -2,6 +2,7 @@
 // Lecteur réseau + watermark 4 chunks texte (§5.7) + terminaison garantie dans
 // tous les cas + PROT-6. Listeners de complétion attachés AVANT le premier envoi.
 import { Capabilities } from '../utils/CapabilityDetector.js';
+import { DEFAULT_IMPORT_PROFILE } from './ImportProfiles.js';
 
 const MAX_INFLIGHT_TEXT = 4;                 // watermark réseau (§5.7)
 const FALLBACK_MAX_BYTES = 30 * 1024 * 1024; // 30 Mo (politique §5.4)
@@ -42,9 +43,9 @@ export class ImportController {
     this._bytesPctSent = -1;
     this._bytesDone = 0;
     this._bytesMetaSent = false;
-    const profile = job.profile || null;
-    const profileId = profile && profile.id ? profile.id : 'standard';
-    const profileLabel = profile && profile.label ? profile.label : 'standard';
+    const profile = job.profile || DEFAULT_IMPORT_PROFILE;
+    const profileId = profile.id || DEFAULT_IMPORT_PROFILE.id;
+    const profileLabel = profile.label || DEFAULT_IMPORT_PROFILE.label;
     const startedAt = Date.now();
     // Progression (V10, §9) : événement additif — aucun consommateur du
     // protocole §5.2 n'y est associé ; la suppression du badge ne régresse rien.

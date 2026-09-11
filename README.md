@@ -1,4 +1,4 @@
-# IPTV webOS Player — implémentation (Spec V17.1, Plan Sprint 0→4)
+# IPTV webOS Player — implémentation (V18 import optimisé, base V17.1)
 
 App webOS TV (cible : webOS 5.0 entrée de gamme, Chromium 68) : imports **M3U +
 XMLTV + Xtream Codes**, virtualisation TV, pipeline média NATIVE→MSE avec
@@ -9,8 +9,8 @@ watchdog, persistance Dexie v3 (vod, séries, cache de détail, catégories ; r�
 | Gate | Résultat |
 |---|---|
 | `npm ci`-style install (deps figées §2.1 : dexie 3.2.4, hls.js 1.4.14, webostvjs 1.2.4) | ✔ |
-| `npm run build` (Vite 4.5.0, target chrome68, terser, workers IIFE, inlineDynamicImports) | ✔ 31 modules transformés, bundle principal 526,01 kB minifié |
-| `npm test` (harnais maison `node:test`, **81 tests**) | ✔ 81/81 |
+| `npm run build` (Vite 4.5.0, target chrome68, terser, workers IIFE, inlineDynamicImports) | ✔ 31 modules transformés, bundle principal 530,03 kB minifié |
+| `npm test` (harnais maison `node:test`, variantes de benchmark supprimées) | ✔ 81/81 |
 | `tools/syntax-gate.mjs src` (interdit `?.` `??` `.flat` `Object.fromEntries` `globalThis` nu…) | ✔ 25 fichiers |
 | `tools/syntax-gate.mjs dist` (deps minifiées, occurrences sous garde tolérées et documentées) | ✔ 2 occurrences gardées (interop `typeof globalThis`, `typeof self.clients &&` de hls.js) |
 | Build store `IPTV_PRODUCTION=true` (Q3) | ✔ 526,01 kB, bundle sans aucun `console.*` |
@@ -18,20 +18,17 @@ watchdog, persistance Dexie v3 (vod, séries, cache de détail, catégories ; r�
 | **Smoke navigateur réel** (`dev/smoke.html` sur le serveur Vite : workers `?worker` réels, Dexie/IndexedDB réels, import 50 lignes + swap + filet §5.5) | ✔ **SMOKE PASS (8/8)** |
 | **Harnais §9 en navigateur réel** (`tests/harness.html`, H1–H8 + test lourd H9) | ✔ **HARNESS PASS (9/9)** ; H9 : 20 000 lignes en 2,7 s, pire intervalle rAF 47 ms (budget ≤ 50 ms) |
 | **E2E télécommande / séries** (`bench/m5.mjs`, panel mock RTT 80 ms) | ✔ import + zap + play/pause + saisons/épisodes + Magic Remote |
-| **UI benchmark V17** (panel mock, navigateur réel) | ✔ 5 boutons exactement sur Xtream, bouton `Importer` conservé, badge profil + durée ; 0 erreur page |
+| **UI import V18** | ⏳ à rejouer dans le navigateur réel : un seul bouton `Importer` playlist, import EPG séparé |
 | Qualification §11 T1–T4 sur webOS 5.0 (émulateur/TV) | ⏳ **non exécutable ici** — spécificités webOS (ServiceBridge, décodeur matériel, D-pad RC) + pré-requis bloquant Q2 du plan |
 
 Couverture des fixtures §9 : `m3u-20000` (20 002 lignes exactes avec variantes),
 `xmltv-644` (preuve de terminaison PROT-3/4), `xmltv-500-exact`, offsets ±HHMM,
 dates-12, attrs (`>` quoté/quotes simples/ordre), CDATA+entités, coupe 7 Ko,
-`duo-playlists` (non-purge croisée), PROT-6, abort à ~premier CHUNK, watermark
-waiters, filet `worker.onerror`, `xtream-mock` (5 channels + 4 vod exacts,
+`duo-playlists` (non-purge croisée + GC lazy), PROT-6, abort à ~premier CHUNK,
+watermark waiters, filet `worker.onerror`, `xtream-mock` (5 channels + 4 vod exacts,
 `ACCOUNT_INFO.maxConnections=2`), `xtream-auth-fail` (zéro écriture), XP-4
-(catégorie 503 ignorée), bascule de table sans CHUNK mixte, invariant §1.2-6
-(≤ 19 nœuds sur 20 000 items), matrice média complète §7.1, démarrage FHD V14
-(fenêtre d'inactivité + requête active + plafond 45 s), cycle de vie §7.4 avec
-reprise + seek, politique §7.5 ; profil V17 `bulkAdd` avec lots réduits sur les trois tables,
-les cinq profils UI et l'affichage de `elapsedMs`/profil final.
+(catégorie 503 ignorée), bascule de table sans CHUNK mixte, deux lots en vol,
+`bulkAdd` exclusif, objets Xtream compacts et import par défaut V18.
 
 ## Télécharger
 
@@ -43,39 +40,43 @@ les cinq profils UI et l'affichage de `elapsedMs`/profil final.
 - Miroir de démonstration : https://iptv-webos-demo-ef07f8.surge.sh (canal secondaire ;
   GitHub reste le canal recommandé pour l'archive TV).
 
-## Profils de benchmark Xtream V17.1
+## Import par défaut V18
 
-Sur chaque playlist **Xtream**, l'interface affiche le bouton `Importer` normal et
-les cinq boutons `Test import 1` à `Test import 5`. Ils déclenchent exactement le
-même pipeline sécurisé (nouvel `importId`, worker, lots acquittés, swap atomique,
-purge bornée et protections d'abort) avec uniquement un réglage différent :
+Les variantes de benchmark `Test import 1` à `Test import 5` ont été supprimées
+de l’interface. Il n’existe plus qu’un bouton **Importer** par playlist ; il
+utilise le profil de production défini dans `src/data/ImportProfiles.js` :
 
-| Bouton | Lots | Écriture | Respiration | Catalogues |
-|---|---:|---|---:|---|
-| `Test import 1` | 2 000 | `bulkPut` | 32 ms | parallèle |
-| `Test import 2` | 4 000 | `bulkPut` | 16 ms | parallèle |
-| `Test import 3` | 8 000 | `bulkPut` | 0 ms | parallèle |
-| `Test import 4` | 4 000 | `bulkAdd` | 8 ms | parallèle |
-| `Test import 5` | 2 000 | `bulkPut` | 32 ms | séquentiel |
+| Réglage | Valeur | Effet |
+|---|---:|---|
+| taille d’un lot | 2 000 lignes | zone de confort TV entre 1 000 et 2 500 |
+| écriture | `bulkAdd` exclusivement | aucune vérification de remplacement sur un nouvel `importId` |
+| lots en vol | 2 | chevauchement du mapping Worker et de l’écriture IndexedDB |
+| respiration | 1 frame tous les 4 lots | pas de `setTimeout` fixe à chaque lot |
+| catalogues Xtream | parallèle | live, VOD et séries sont demandés selon le chemin V10 |
 
-Le bouton `Importer` normal conserve `bulkPut` et le profil standard. Le profil
-`bulkAdd` est réservé au benchmark et n'est pas un fallback silencieux : s'il
-échoue, l'import est marqué en échec et aucun import partiel n'est swappé.
-Le badge affiche à la fin le profil utilisé et la durée totale, par exemple
-`✔ terminé — 24600 lignes · 2.9 s · Test 1 — standard (2 000 / bulkPut)`.
-Aucun import automatique n'est ajouté ; les catégories, le lecteur, le zapping,
-la navigation séries et la télécommande restent inchangés. Aucun mot de passe ne
-figure dans les événements ou la télémétrie du benchmark. Les lots de staging d’un import échoué, notamment après `QuotaExceededError`, sont purgés automatiquement sans toucher au catalogue actif ; un message `STORAGE_QUOTA` indique le cas où la capacité physique reste insuffisante.
+Le `DataManager` sérialise toujours les écritures, mais le Worker peut préparer
+le lot suivant pendant que le lot courant est écrit. Les ACK portent un
+`chunkId`, ce qui protège contre les ACK tardifs ou dupliqués. Les objets envoyés
+par `xtream.worker.js` sont réduits aux propriétés nécessaires à l’affichage et
+à la lecture ; le fallback `JSON.stringify/parse` n’est pas activé, car il
+ajouterait un aller-retour CPU inutile à ces objets déjà plats.
+
+Le swap final ne supprime plus l’ancien catalogue dans la transaction de fin.
+`activeImportId` est changé rapidement, `import-complete` est publié, puis une
+GC différée supprime les anciennes lignes par lots de 500. Si l’application est
+arrêtée avant cette GC, `bootMaintenance()` retrouve les lignes orphelines au
+prochain démarrage.
 
 ## Quota de stockage après un import échoué
 
-Après une erreur d'écriture, la V17.1 supprime immédiatement les lignes
-partielles de l'import échoué. Au lancement suivant, elle nettoie également les
-anciens imports `failed` laissés par une version précédente. Le catalogue actif
-n'est jamais supprimé avant le swap. Si `STORAGE_QUOTA` persiste, la capacité
-locale est réellement insuffisante pour conserver simultanément l'ancien
-catalogue et le staging sécurisé : libérer les données du site/application puis
-relancer l'import.
+Après une erreur d'écriture, la V18 marque l'import `failed` et purge son
+staging par petits lots sans toucher au catalogue actif. Lors d'un import réussi,
+le swap est court : la GC des anciens imports est différée et sérialisée. Au
+lancement suivant, `bootMaintenance()` nettoie les lignes devenues orphelines ;
+les anciens `failed` laissés par une version précédente sont aussi nettoyés au
+prochain nouvel essai. Si `STORAGE_QUOTA` persiste, la capacité locale est
+réelement insuffisante pour conserver simultanément l'ancien catalogue et le
+staging sécurisé : libérer les données du site/application puis relancer.
 
 ## Ordre serveur des listes et du zap (révision V13, règle DB-7)
 
@@ -133,10 +134,11 @@ pure (`src/services/ListOrder.js`) appliquée à la lecture par le
   40 Mo (mémoire bornée par le catalogue, pas par la plus grosse catégorie).
   Mesuré (harnais headless, mock 900 catégories, RTT 80 ms, 23 400 lignes) :
   **74,4 s → 2,4 s** dans l'app réelle.
-- **`CHUNK_ITEMS = 2000`** dans les trois workers (500 → 2000) : le coût fixe
-  par lot (ack + respiration rAF/plafond 32 ms) est amorti ÷4 ; PROT-1 (un seul
-  CHUNK en vol) inchangé. Mesuré sur 60 000 lignes M3U localhost : 6,62 s →
-  5,77 s (le solde est I/O d'écriture, qui ne se divise pas).
+- **`CHUNK_ITEMS = 2000`** dans les trois workers, avec **deux CHUNK en vol** :
+  le Worker continue le mapping pendant l'écriture IndexedDB du lot précédent.
+  `DataManager` utilise `bulkAdd` exclusivement et respire une frame tous les
+  quatre lots, au lieu d'attendre un délai fixe après chaque lot. Le watermark
+  réseau M3U/XMLTV reste séparé et borné à quatre chunks texte.
 - **Badge de progression** (`src/components/ImportBadge.js`, §9) : % de lignes
   si le worker a publié `IMPORT_META` (mode global), sinon % d'octets si
   `Content-Length` est connu (M3U/XMLTV), sinon barre indéterminée animée
@@ -180,13 +182,13 @@ pure (`src/services/ListOrder.js`) appliquée à la lecture par le
    la course rAF/plafond 32 ms est désormais décrite en spec et implémentée à
    l'identique. Aucune divergence résiduelle — tracée au §13 pour l'historique.
 
-8. **Profils Xtream V17 (§6.8)** : les cinq boutons sont une variation de réglage
-   dans le même pipeline sécurisé ; `chunkItems`, `writeMode`, `yieldMs` et
-   `parallelCatalogs` sont validés dans le worker, `bulkPut` reste le défaut,
-   `bulkAdd` est explicitement diagnostique. `import-finished` mesure la durée
-   totale et le badge la rend lisible sur TV.
+8. **Import V18** : les cinq variantes de benchmark et leurs boutons ont été
+   retirés. Le chemin normal utilise `bulkAdd`, 2 000 lignes, deux lots en vol
+   et une respiration périodique par frame. Le swap publie `import-complete`
+   avant la GC lazy des anciens imports ; `bootMaintenance()` reste le filet de
+   reprise après arrêt avant nettoyage.
 
-8. **Workers inlinés (`?worker&inline`, bootstrap.js)** — en build dist, Vite 4 avec
+9. **Workers inlinés (`?worker&inline`, bootstrap.js)** — en build dist, Vite 4 avec
    `base: './'` + script `type="module"` génère `new Worker(new URL(fichier,
    document.baseURI))` (car `document.currentScript` est `null` en contexte module) :
    les workers séparés de `dist/assets/` étaient donc cherchés à la racine du document

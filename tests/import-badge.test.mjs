@@ -68,15 +68,15 @@ test('badge : meta totalItems → % de lignes ; meta bytesTotal → % octets en 
 
 test('badge : complete → ✔ + n lignes ; error → ✗ message ; borné à 3 lignes', () => {
   withBadge((badge) => {
-    emit('import-start', { importId: 5, kind: 'playlist', profileLabel: 'Test 2 — lots 4 000' });
+    emit('import-start', { importId: 5, kind: 'playlist', profileLabel: 'Import par défaut — 2 000 / bulkAdd / 2 lots en vol' });
     emit('import-rows', { importId: 5, written: 42 });
     emit('import-complete', { importId: 5, kind: 'playlist', playlistId: 1 });
     const st = badge._lines.get(5);
     assert.ok(st.row.classList.contains('ok'));
     assert.ok(!st.row.classList.contains('indet'));
     assert.equal(st.labelEl.textContent, '✔ terminé — 42 lignes');
-    emit('import-finished', { importId: 5, elapsedMs: 1234, profileLabel: 'Test 2 — lots 4 000' });
-    assert.equal(st.labelEl.textContent, '✔ terminé — 42 lignes · 1.2 s · Test 2 — lots 4 000');
+    emit('import-finished', { importId: 5, elapsedMs: 1234, profileLabel: 'Import par défaut — 2 000 / bulkAdd / 2 lots en vol' });
+    assert.equal(st.labelEl.textContent, '✔ terminé — 42 lignes · 1.2 s · Import par défaut — 2 000 / bulkAdd / 2 lots en vol');
     assert.equal(st.pctEl.textContent, '100 %');
 
     emit('import-start', { importId: 6, kind: 'playlist' });

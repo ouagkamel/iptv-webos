@@ -1,59 +1,24 @@
-// src/data/ImportProfiles.js — profils de test d'import V17.
-// Un profil ne change pas le protocole : il choisit uniquement la taille des
-// CHUNK, le type d'écriture IDB et la respiration entre deux lots. Les boutons
-// UI servent à comparer ces variantes sur une vraie TV ; « standard » reste le
-// réglage de production sûr.
-export const IMPORT_PROFILES = [
-  {
-    id: 'standard',
-    shortLabel: 'Test import 1',
-    label: 'Test 1 — standard (2 000 / bulkPut)',
-    chunkItems: 2000,
-    writeMode: 'put',
-    yieldMs: 32,
-    parallelCatalogs: true
-  },
-  {
-    id: 'put4000',
-    shortLabel: 'Test import 2',
-    label: 'Test 2 — lots 4 000 (bulkPut)',
-    chunkItems: 4000,
-    writeMode: 'put',
-    yieldMs: 16,
-    parallelCatalogs: true
-  },
-  {
-    id: 'put8000',
-    shortLabel: 'Test import 3',
-    label: 'Test 3 — lots 8 000 (pause minimale)',
-    chunkItems: 8000,
-    writeMode: 'put',
-    yieldMs: 0,
-    parallelCatalogs: true
-  },
-  {
-    id: 'add4000',
-    shortLabel: 'Test import 4',
-    label: 'Test 4 — lots 4 000 (bulkAdd)',
-    chunkItems: 4000,
-    writeMode: 'add',
-    yieldMs: 8,
-    parallelCatalogs: true
-  },
-  {
-    id: 'sequential',
-    shortLabel: 'Test import 5',
-    label: 'Test 5 — catalogues séquentiels',
-    chunkItems: 2000,
-    writeMode: 'put',
-    yieldMs: 32,
-    parallelCatalogs: false
-  }
-];
+// src/data/ImportProfiles.js — réglage unique de production.
+//
+// L'interface ne propose plus de variantes de benchmark. Tous les imports
+// utilisent ce profil : lots de 2 000 lignes, bulkAdd exclusivement, deux lots
+// IndexedDB en vol et une respiration d'interface toutes les quatre écritures.
+// Le champ writeMode est conservé comme information de protocole/documentation,
+// mais DataManager impose bulkAdd même si un appel ancien fournit un autre mode.
+export const DEFAULT_IMPORT_PROFILE = Object.freeze({
+  id: 'default',
+  label: 'Import par défaut — 2 000 / bulkAdd / 2 lots en vol',
+  chunkItems: 2000,
+  writeMode: 'add',
+  parallelCatalogs: true,
+  maxInFlightChunks: 2,
+  yieldEveryChunks: 4
+});
 
-export function importProfileById(id) {
-  for (let i = 0; i < IMPORT_PROFILES.length; i++) {
-    if (IMPORT_PROFILES[i].id === id) return IMPORT_PROFILES[i];
-  }
-  return IMPORT_PROFILES[0];
+// Compatibilité source minimale pour les consommateurs qui importaient encore
+// IMPORT_PROFILES : il n'existe désormais qu'un seul profil, sans boutons test.
+export const IMPORT_PROFILES = Object.freeze([DEFAULT_IMPORT_PROFILE]);
+
+export function importProfileById() {
+  return DEFAULT_IMPORT_PROFILE;
 }

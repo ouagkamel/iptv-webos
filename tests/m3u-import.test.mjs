@@ -72,15 +72,19 @@ test('duo-playlists : l’import B ne supprime AUCUNE ligne de A ; re-import ide
   assert.equal(await db.channels.where('importId').equals(impA1).count(), 10, 'A intact');
   assert.equal(await db.channels.where('importId').equals(impB).count(), 5, 'B importé');
 
-  // re-import A : purge bornée à A (l’ancien import A disparaît, B intact), compte stable
+  // re-import A : swap rapide, puis GC lazy bornée à A (B reste intact).
   const impA2 = await addImportRow(db, plA, 'playlist');
   await runImport(pair.controller, pair, plA, impA2, urlA);
 
-  assert.equal(await db.channels.where('importId').equals(impA1).count(), 0, 'ancien import A purgé');
+  assert.equal(await db.channels.where('importId').equals(impA1).count(), 10,
+    'ancien import encore présent juste après le swap rapide');
   assert.equal(await db.channels.where('importId').equals(impA2).count(), 10, 'A rechargé, même compte');
   assert.equal(await db.channels.where('importId').equals(impB).count(), 5, 'B toujours intact');
+
+  await pair.dataManager.waitForGarbageCollection();
+  assert.equal(await db.channels.where('importId').equals(impA1).count(), 0, 'ancien import purgé par GC lazy');
   const oldImportRow = await db.imports.get(impA1);
-  assert.equal(oldImportRow, undefined, 'ligne imports de l’ancien import supprimée au swap');
+  assert.equal(oldImportRow, undefined, 'ligne imports supprimée après le swap');
 
   pair.controller.destroy(); pair.dataManager.destroy();
 });

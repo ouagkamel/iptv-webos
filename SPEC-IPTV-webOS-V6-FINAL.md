@@ -1,4 +1,4 @@
-# SPÉCIFICATION TECHNIQUE D'EXÉCUTION & ARCHITECTURE — V17.1 (récupération après quota de stockage)
+# SPÉCIFICATION TECHNIQUE D'EXÉCUTION & ARCHITECTURE — V18 (import TV optimisé, swap lazy)
 
 **Application IPTV / VOD / Live sur LG webOS — Baseline : webOS 5.0 / Chromium 68**
 
@@ -254,7 +254,7 @@ db.version(3).stores({
 
 **Règle de clés (invariant DB-1) — qui génère quoi :**
 - `playlists.id`, `imports.id` : auto-incrémentés (`++id`), créés une seule fois via la couche applicative.
-- `channels.id` : **chaîne applicative déterministe `${importId}:${seq}`**, générée par le worker à l'émission de chaque item (`seq` = compteur incrémental dans le fichier). Ce schéma rend `bulkPut` idempotent (un re-téléchargement recrée les mêmes clés → écrasement, pas de doublons).
+- `channels.id` : **chaîne applicative déterministe `${importId}:${seq}`**, générée par le worker à l'émission de chaque item (`seq` = compteur incrémental dans le fichier). Chaque import reçoit un `importId` neuf ; les clés sont donc nouvelles et l'écriture de contenu peut utiliser `bulkAdd` exclusivement.
 - `epg.id` : **chaîne applicative `${importId}:${channelId}:${startTime}`** — déduplication naturelle des programmes identiques réémis lors d'un refresh EPG.
 
 **Règle DB-2 — index :** `[importId+groupName]` sert la pagination par groupe ; `searchName` sert la recherche (`startsWith`) ; `[importId+channelId+startTime]` sert la requête EPG chronologique (`between([imp, ch, t0], [imp, ch, t1)])`) ; `stopTime` (seul) sert la purge d'expiration. `logo` et `streamUrl` ne sont **jamais indexés** (coût d'écriture et disque sans cas d'usage).
@@ -263,202 +263,128 @@ db.version(3).stores({
 
 **Règle DB-4 — séparation des types d'import :** `imports.kind ∈ { 'playlist', 'epg' }`. Un import de playlist écrit dans `channels` et met à jour `playlists.activeImportId` ; un import EPG écrit dans `epg` et met à jour `playlists.activeEpgImportId`. La purge d'un type ne touche **jamais** la table de l'autre (cf. §5.4).
 
-### 5.2 Protocole d'Import Commun (workers M3U, EPG et Xtream)
+### 5.2 Protocole d'Import Commun (workers M3U, EPG et Xtream) — V18
 
-Pour M3U/EPG, `CHUNK_ITEMS` reste fixé à 2 000. Pour Xtream V17, le même
-protocole accepte une taille choisie par le profil (2 000, 4 000 ou 8 000 dans
-l'UI), sans jamais autoriser plus d'un lot en vol. Les champs `writeMode` et
-`yieldMs` sont optionnels sur `CHUNK` et ne sont émis que par le worker Xtream.
+`CHUNK_ITEMS` vaut **2 000 éléments** dans le chemin normal. Le worker Xtream
+n'accepte une variation interne qu'entre 1 000 et 2 500 éléments ; le profil
+embarqué utilise 2 000. Aucun bouton de benchmark ne permet de changer cette
+valeur dans l'UI.
 
+Le protocole autorise **deux CHUNK IndexedDB en vol**. Ce nombre est volontairement
+conservateur pour les téléviseurs : il fournit le chevauchement Worker/IndexedDB
+sans conserver trois lots complets de 2 000 objets dans un moteur webOS ancien.
+Le watermark réseau M3U/XMLTV reste indépendant et demeure limité à quatre
+`PARSE_CHUNK` texte en vol.
+
+```text
+Main Thread / DataManager                    Worker
+       │  INIT_IMPORT {importId, playlistId, kind, profile} ───────▶│
+       │                                                            │
+       │  PARSE_CHUNK {importId, chunk} ───────────────────────────▶│ M3U/XMLTV
+       │  ◀──────── CHUNK_PARSED {importId}                         │ watermark réseau
+       │  ◀──────── CHUNK {importId, chunkId, items, targetTable}    │ lot 1
+       │  ◀──────── CHUNK {importId, chunkId, items, targetTable}    │ lot 2 possible
+       │  bulkAdd(lot 1) — file IDB sérialisée                    │ mapping continue
+       │  CHUNK_COMMITTED {importId, chunkId} ─────────────────────▶│ libère un slot
+       │  bulkAdd(lot 2)                                             │ lot suivant possible
+       │  …                                                          │
+       │  END_OF_STREAM {importId} ────────────────────────────────▶│ flush résiduel
+       │  ◀──────── COMPLETE {playlistId, importId, kind}            │ aucun lot en vol
+       │  swap court : activeImportId / activeEpgImportId            │
+       │  import-complete immédiat                                   │
+       │  GC lazy en arrière-plan ou au prochain boot                │
+Erreur DB / abort :
+       │  ABORT_IMPORT {importId} ─────────────────────────────────▶│ vide ses tampons
+       │  CHUNK_COMMITTED {importId, chunkId}, sans écriture        │ se débloque
 ```
-Main Thread                              Worker
-    │  INIT_IMPORT {importId, playlistId, kind[, profile]} ▶
-    │                                            │  (état interne réinitialisé)
-    │  PARSE_CHUNK {importId, chunk}   ────────▶ │  parsing + accumulation (M3U/EPG)
-    │  ◀────────  CHUNK_PARSED {importId}        │  (ack de parsing : pilotage réseau, §5.7)
-    │  ◀────────  CHUNK {importId, items, targetTable[, writeMode, yieldMs]} │  lot suspendu
-    │  bulkPut (ou bulkAdd de diagnostic Xtream) → respiration UI
-    │  CHUNK_COMMITTED {importId}  ────────────▶ │  worker reprend
-    │  …                                         │
-    │  END_OF_STREAM {importId}  ──────────────▶ │  flush forcé résiduel
-    │  ◀────────  CHUNK (résidus) × n            │  drainé par acks jusqu'à vide
-    │  ◀────────  COMPLETE {playlistId, importId}│  émis quand file vide + dernier ack reçu
-    │  swap atomique + purge bornée (§5.4)       │
-Erreur DB en cours de route :
-    │  ABORT_IMPORT {importId} ────────────────▶ │  worker vide ses tampons
-    │  ack résiduel des CHUNK déjà en vol (sans écriture)
-```
 
-**Invariants du protocole :**
-- PROT-1 : le worker n'émet qu'un seul `CHUNK` en vol à la fois (`isWaitingForAck`).
-- PROT-2 : tout `CHUNK_COMMITTED` dont l'`importId` ≠ import courant est ignoré (ack tardif d'un import avorté).
-- PROT-3 : `COMPLETE` n'est émis que si `isStreamEnded ∧ ¬isWaitingForAck ∧ pendingItems.length === 0`.
-- PROT-4 : **les restes partiels (< CHUNK_ITEMS) sont drainables après chaque ack une fois le flux terminé** — le handler d'ack force le flush avec l'état `isStreamEnded`. *(C'est la correction du deadlock de fin de flux : sans cette règle, tout import dont le total résiduel après dernier lot plein est < CHUNK_ITEMS ne termine jamais. V10 : `CHUNK_ITEMS = 2000` par défaut — V17 autorise 2 000/4 000/8 000 pour Xtream, la sémantique PROT-1 « un seul CHUNK en vol » étant **inchangée** ; gain mesuré : coût fixe d'acquittement/respiration ÷4, cf. annexe perf V10.)*
-- PROT-5 : en cas d'`ABORT_IMPORT`, le main thread continue d'acquitter (`CHUNK_COMMITTED`) les lots déjà reçus **sans les écrire**, afin de ne jamais laisser le worker suspendu — l'import est marqué `status: 'failed'`.
-- PROT-6 : **un seul import en vol par worker** (son état interne est singleton). Un second déclenchement est rejeté par l'ImportController (événement `import-busy`, promesse rejetée). L'UI désactive le contrôle d'import pendant toute la durée de l'opération.
+**Invariants du protocole V18 :**
 
-### 5.3 DataManager (file sérialisée, respiration, erreur terminale sans rejet secondaire)
+- **PROT-1** : `0 < nombre de CHUNK en vol ≤ 2`. Le worker attend un slot avant
+de produire le troisième ; il ne bloque donc plus après chaque lot.
+- **PROT-2** : l'ACK doit correspondre à l'`importId` courant **et** à un
+`chunkId` encore en vol. Un ACK tardif, dupliqué ou provenant d'un ancien import
+est ignoré.
+- **PROT-3** : `COMPLETE` n'est émis que si le flux est terminé, la file locale
+est vide et le nombre de CHUNK en vol est nul.
+- **PROT-4** : après `END_OF_STREAM`, les résidus inférieurs à 2 000 sont
+également envoyés ; chaque ACK peut libérer le lot résiduel suivant jusqu'à ce
+que la file soit vide.
+- **PROT-5** : en cas d'`ABORT_IMPORT`, le main thread acquitte les CHUNK déjà
+reçus sans les écrire. Les lots déjà persistés sont purgés par `importId` et
+l'import devient `failed`.
+- **PROT-6** : un seul import reste actif par paire Worker/Controller. Le
+parallélisme V18 concerne les lots d'un même import, pas deux imports concurrents.
+- **PROT-7** : l'écriture de contenu d'import utilise **toujours `bulkAdd`**.
+Chaque clé de staging inclut un nouvel `importId`, donc une collision indique
+une anomalie réelle et ne doit pas être masquée par une mise à jour silencieuse.
 
-V17 ajoute deux métadonnées facultatives au message `CHUNK`. `writeMode: 'put'`
-ou son absence sélectionne `bulkPut`, idempotent et réglage normal ;
-`writeMode: 'add'` sélectionne `bulkAdd` uniquement pour le profil diagnostique Xtream 4. Les deux modes passent par la même file sérialisée, le même compteur
-`import-rows`, la même respiration (`yieldMs`) et le même acquittement. Une
-exception `bulkAdd` suit `failImport` : `status: 'failed'`, abort du worker et
-aucun swap. `yieldMs` est borné par le worker à 0–64 ms et retombe à 32 ms si
-invalide. En V17.1, toute erreur terminale de DB, notamment
-`QuotaExceededError`, purge immédiatement les lignes de staging identifiées par
-l'`importId` échoué, sans toucher à l'`importId` actif. Le prochain lancement
-purge également les reliquats `failed` laissés par une version antérieure avant
-d'ajouter un nouvel import. Le quota ne peut donc plus grossir par accumulation
-d'essais échoués ; si le couple « import actif + nouvel import de staging »
-dépasse malgré tout la capacité du téléviseur, l'import est refusé, l'ancien
-catalogue reste intact et l'UI affiche `STORAGE_QUOTA`. Le code du dépôt est
-normatif pour ce delta V17 (l’extrait ci-dessous résume la voie d’écriture) :
+### 5.3 DataManager, bulkAdd, respiration et swap rapide — V18
+
+`src/data/DataManager.js` reste l'unique propriétaire des écritures IndexedDB.
+Il garde une `processingQueue` sérialisée : deux `bulkAdd` ne s'exécutent jamais
+simultanément, mais le worker peut déjà avoir cloné et envoyé le lot suivant
+pendant l'écriture du lot courant.
 
 ```javascript
-// src/data/DataManager.js
-import { db } from './db.js';
-
-export class DataManager {
-  constructor(worker, targetTableDefault) {
-    this.worker = worker;
-    this.targetTableDefault = targetTableDefault || 'channels';
-    this.processingQueue = Promise.resolve();
-    this.abortedImports = new Set();
-    this.auxListeners = [];          // routage des signaux annexes (CHUNK_PARSED → §5.8)
-    this._destroyed = false;
-    this.worker.onmessage = this.handleWorkerMessage.bind(this);
+async _processChunk({ importId, items, targetTable, chunkId, yieldEveryChunks }) {
+  if (this.abortedImports.has(importId)) {
+    this.worker.postMessage({ type: 'CHUNK_COMMITTED', importId, chunkId });
+    return;
   }
 
-  handleWorkerMessage(event) {
-    const data = event.data;
-    this.processingQueue = this.processingQueue.then(() => {
-      if (this._destroyed) return undefined;
-      if (data.type === 'CHUNK') return this._processChunk(data);
-      if (data.type === 'COMPLETE') return this._processComplete(data);
-      if (data.type === 'ERROR') {
-        // Erreur terminale émise par le worker (ex. XTREAM_AUTH_FAILED §6.5)
-        this.failImport(data.importId != null ? data.importId : null, new Error(data.message || 'worker ERROR'));
-        return undefined;
-      }
-      this._routeAux(data); // CHUNK_PARSED / ACCOUNT_INFO et signaux annexes (§5.8, §6.5)
-      return undefined;
-    }).catch((err) => {
-      this._handleTerminalError(err, data); // voie terminale UNIQUE — ne rejette jamais
-    });
-  }
+  await db[targetTable].bulkAdd(items);       // unique voie d'écriture contenu
+  emit('import-rows', { importId, written, targetTable });
 
-  _handleTerminalError(err, data) {
-    this.failImport(data && data.importId != null ? data.importId : null, err);
-  }
-
-  /**
-   * Voie terminale d'import UNIQUE — appelée par le catch de la file ET par le
-   * filet worker.onerror du bootstrap (qui injecte explicitement l'importId
-   * courant, cf. §3 et §5.8). Ne rejette jamais : tout échec secondaire est
-   * confiné localement (invariant §1.2-1).
-   */
-  failImport(importId, err) {
-    console.error('DataManager fatal:', err);
-    if (importId == null) {
-      // Crash worker hors contexte d'import connu : journalisation via filet global
-      window.dispatchEvent(new CustomEvent('worker-error', {
-        detail: { message: String((err && err.message) || err) }
-      }));
-      return;
-    }
-    this.abortedImports.add(importId);
-    try {
-      this.worker.postMessage({ type: 'ABORT_IMPORT', importId: importId });
-    } catch (e1) { /* worker déjà mort (crash) : message orphelin toléré */ }
-    try {
-      db.imports.update(importId, { status: 'failed', error: String((err && err.message) || err) })
-        .catch((e2) => { console.error('DataManager: marquage failed impossible:', e2); });
-    } catch (e3) { /* DB injoignable (quota/corruption) : déjà journalisé */ }
-    window.dispatchEvent(new CustomEvent('import-error', {
-      detail: { importId: importId, message: String((err && err.message) || err) }
-    }));
-  }
-
-  // Routage des signaux annexes vers le régulateur réseau (§5.8).
-  // Le DataManager reste propriétaire unique de worker.onmessage.
-  addAuxListener(fn) {
-    if (typeof fn === 'function') this.auxListeners.push(fn);
-  }
-
-  removeAuxListener(fn) {
-    const i = this.auxListeners.indexOf(fn);
-    if (i !== -1) this.auxListeners.splice(i, 1);
-  }
-
-  _routeAux(data) {
-    for (let i = 0; i < this.auxListeners.length; i++) {
-      try { this.auxListeners[i](data); } catch (errAux) { console.error('DataManager aux listener:', errAux); }
-    }
-  }
-
-  async _processChunk({ importId, items, targetTable, writeMode, yieldMs }) {
-    if (this.abortedImports.has(importId)) {
-      this.worker.postMessage({ type: 'CHUNK_COMMITTED', importId });
-      return;
-    }
-    const table = db[targetTable || this.targetTableDefault];
-    if (writeMode === 'add') await table.bulkAdd(items);
-    else await table.bulkPut(items);
-    // import-rows est émis après l'écriture ; la respiration ne peut jamais bloquer.
-    const requested = typeof yieldMs === 'number' && yieldMs >= 0 ? Math.min(64, yieldMs) : 32;
-    await new Promise(resolve => {
-      if (typeof document !== 'undefined' && document.hidden) setTimeout(resolve, requested);
-      else if (requested === 0) setTimeout(resolve, 0);
-      else {
-        var done = false;
-        var finish = function () { if (!done) { done = true; resolve(); } };
-        var cap = setTimeout(finish, requested);
-        requestAnimationFrame(function () { clearTimeout(cap); setTimeout(finish, 0); });
-      }
-    });
-    this.worker.postMessage({ type: 'CHUNK_COMMITTED', importId });
-  }
-
-  async _processComplete({ playlistId, importId, kind }) {
-    if (this.abortedImports.has(importId)) return; // jamais de swap sur import avorté
-    const isEpg = kind === 'epg';
-    // kind 'playlist' (M3U ou Xtream) purge channels ET vod ; kind 'epg' ne purge que epg (DB-5)
-    const targetTables = isEpg ? [db.epg] : [db.channels, db.vod];
-    const activeField = isEpg ? 'activeEpgImportId' : 'activeImportId';
-
-    // Swap atomique + purge strictement bornée à la playlist ET au type d'import.
-    // Hors question ici : toute clause du type notEqual(importId) non bornée,
-    // qui effacerait les imports actifs des AUTRES playlists.
-    await db.transaction('rw', [db.playlists, db.imports, db.channels, db.epg, db.vod], async () => {
-      await db.playlists.update(playlistId, Object.assign({ updatedAt: Date.now() }, { [activeField]: importId }));
-
-      const oldImports = await db.imports
-        .where('playlistId').equals(playlistId)
-        .and(i => i.id !== importId && i.kind === (isEpg ? 'epg' : 'playlist'))
-        .primaryKeys();
-
-      if (oldImports.length > 0) {
-        for (let t = 0; t < targetTables.length; t++) {
-          await targetTables[t].where('importId').anyOf(oldImports).delete();
-        }
-        await db.imports.bulkDelete(oldImports);
-      }
-
-      await db.imports.update(importId, { status: 'completed' });
-    });
-
-    window.dispatchEvent(new CustomEvent('import-complete', { detail: { playlistId, importId, kind } }));
-  }
-
-  destroy() {
-    if (this._destroyed) return;
-    this._destroyed = true;
-    this.worker.onmessage = null;
-    this.auxListeners = [];
-  }
+  // Une frame tous les quatre lots par défaut, pas un délai fixe à chaque lot.
+  if (++chunksWritten % yieldEveryChunks === 0) await yieldOneFrameOrTimeout();
+  this.worker.postMessage({ type: 'CHUNK_COMMITTED', importId, chunkId });
 }
 ```
+
+`yieldOneFrameOrTimeout()` utilise `requestAnimationFrame` lorsque le document
+est visible et `setTimeout(0)` lorsque webOS suspend les frames en arrière-plan.
+Un plafond court protège le worker contre un moteur qui ne déclencherait pas
+la frame ; ce plafond n'est pas une pause cumulative à chaque CHUNK. La valeur
+normative est `yieldEveryChunks = 4`, bornée à 16.
+
+Les objets envoyés par `xtream.worker.js` sont construits par des mappeurs
+compacts (`mapLiveItem`, `mapVodItem`, `mapSeriesItem`) : chaînes et nombres
+utiles uniquement (`id`, `importId`, `name`, `groupName`, `logo`, URL, recherche,
+ordre et champs métier série). Les propriétés inconnues du JSON Xtream ne
+traversent pas `postMessage`. Aucun détour `JSON.stringify/JSON.parse` n'est
+activé par défaut : avec des objets déjà plats, ce détour ajouterait une
+sérialisation et un parsing supplémentaires.
+
+#### Swap et garbage collection lazy
+
+`DataManager._processComplete()` ne supprime plus les dizaines de milliers de
+lignes anciennes dans la transaction de fin. Il exécute une transaction courte
+qui :
+
+1. trouve les anciens `importId` de la même playlist et du même type ;
+2. écrit `playlists.activeImportId` ou `activeEpgImportId` ;
+3. marque le nouvel import `completed` ;
+4. publie immédiatement `import-complete`.
+
+La suppression est ensuite planifiée par `_scheduleGarbageCollection()`. Pour
+chaque ancien `importId`, `_deleteImportRowsInBatches()` supprime les clés par
+tranches de **500 lignes**, avec une respiration entre les tranches, puis
+supprime la ligne `imports`. Les tables ciblées sont :
+
+- playlist : `channels`, `vod`, `series`, `series_info`, `categories` ;
+- EPG : `epg` uniquement.
+
+La GC est sérialisée par `DataManager._gcTail` et ne peut pas cibler le nouvel
+import actif. Si la TV est arrêtée avant son exécution, `PlaylistManager.bootMaintenance()`
+purge au prochain démarrage les lignes dont l'`importId` n'est ni actif ni un
+import récent conservé par la grâce de cinq minutes. Cette voie ne supprime
+jamais le catalogue actif.
+
+Les erreurs de quota et les annulations utilisent la même purge par `importId`,
+mais sans modifier le pointeur actif. Le message public reste `STORAGE_QUOTA`
+si le couple « catalogue actif + staging nécessaire » dépasse réellement la
+capacité disponible.
 
 ### 5.4 Fallback Non-Streaming (politique actée)
 
@@ -471,7 +397,8 @@ Si `canStreamFetch === false` :
 
 Dans `bootstrap.js`, après ouverture Dexie :
 1. `imports.where('status').equals('running')` → marquer `failed` (l'app a été tuée en cours d'import).
-2. Orphelins : tout `importId` présent dans `channels`/`epg`/`vod` qui n'est ni un `activeImportId`/`activeEpgImportId` référencé, ni un import `running` récent (< 5 min), est purgé (`anyOf`). C'est le mécanisme de « suppression différée » rendu sûr : un kill entre le swap et la purge se rattrape au prochain boot sans corruption.
+2. Orphelins : tout `importId` présent dans `channels`/`epg`/`vod`/`series`/`series_info`/`categories` qui n'est ni un `activeImportId`/`activeEpgImportId` référencé, ni un import `running` récent (< 5 min), est purgé par lots (`anyOf`). C'est le mécanisme de « suppression différée » rendu sûr : un kill entre le swap et la GC lazy se rattrape au prochain boot sans corruption.
+3. Les anciennes lignes `imports` terminées peuvent être supprimées après la purge de leur staging ; les lignes `failed` restent disponibles jusqu'au prochain nettoyage ciblé avant nouvel import.
 
 ### 5.6 Rétention EPG
 
@@ -1281,60 +1208,67 @@ M3U, et l'onglet Séries affiche « aucune donnée » sans erreur.
   augmenter le nombre d'items conservés simultanément par rapport au mode global
   précédent ; les phases permettent de distinguer réseau/JSON de l'écriture IDB.
 
-### 6.8 Profils de benchmark Xtream V17 — boutons Test import 1 à 5
+### 6.8 Import par défaut Xtream/M3U/EPG — V18
 
-Sur chaque ligne de playlist `source: 'xtream'`, l'interface affiche, en plus du
-bouton **Importer** normal, exactement cinq boutons visibles : **Test import 1**,
-**Test import 2**, **Test import 3**, **Test import 4** et **Test import 5**. Ils
-appellent tous `PlaylistManager.importPlaylist(playlistId, { profile })` et
-empruntent donc le même `importId` neuf, le même worker, le même protocole
-`CHUNK_COMMITTED`, le même swap atomique et les mêmes purges bornées. Aucun bouton
-ne déclenche d'import automatiquement au boot ; les playlists M3U n'affichent
-aucun bouton de benchmark.
+Les cinq variantes `Test import 1` à `Test import 5` et leurs boutons UI sont
+supprimés. `app.js` affiche un seul bouton **Importer** pour une playlist et un
+bouton **EPG** séparé. Tous les imports de contenu utilisent
+`DEFAULT_IMPORT_PROFILE` (`src/data/ImportProfiles.js`) :
 
-Le profil est appliqué uniquement dans `xtream.worker.js`. Les valeurs sont
-bornées (`chunkItems` entre 500 et 10 000, `yieldMs` entre 0 et 64 ms) ; toute
-valeur inconnue retombe sur le réglage standard. `DataManager` choisit
-`bulkPut` par défaut et n'utilise `bulkAdd` que lorsque le profil le demande.
-`bulkAdd` est une variante diagnostique : les clés sont propres à l'`importId`
-neuf ; si elle échoue, la voie d'erreur normale marque l'import en échec et
-aucun swap ne peut exposer un import partiel. Le bouton **Importer** normal reste
-le réglage de référence sûr et idempotent (`bulkPut`).
+| Paramètre | Valeur normative | Portée |
+|---|---:|---|
+| `chunkItems` | 2 000 | Xtream ; M3U et EPG sont également fixés à 2 000 |
+| écriture contenu | `bulkAdd` | toutes les tables alimentées par CHUNK |
+| `MAX_CHUNKS_IN_FLIGHT` | 2 | chaque worker M3U, EPG et Xtream |
+| `yieldEveryChunks` | 4 | respiration DataManager par frame |
+| `parallelCatalogs` | `true` | appels globaux Live/VOD/Séries Xtream |
+| `MAX_GLOBAL_BYTES` | 40 MiB | repli Xtream par catégories |
 
-| Bouton | Profil | Lots | Écriture | Respiration | Catalogues |
-|---|---|---:|---|---:|---|
-| `Test import 1` | standard | 2 000 | `bulkPut` | 32 ms | parallèle |
-| `Test import 2` | lots 4 000 | 4 000 | `bulkPut` | 16 ms | parallèle |
-| `Test import 3` | lots 8 000 | 8 000 | `bulkPut` | 0 ms | parallèle |
-| `Test import 4` | lots 4 000 | 4 000 | `bulkAdd` | 8 ms | parallèle |
-| `Test import 5` | diagnostic séquentiel | 2 000 | `bulkPut` | 32 ms | séquentiel |
+Le champ historique `writeMode` n'est plus un sélecteur opérationnel :
+`DataManager._processChunk()` appelle toujours `bulkAdd`. Les variantes hors
+zone TV (4 000 et 8 000) ne sont plus acceptées par le profil embarqué ; un
+réglage interne éventuel est borné à 1 000–2 500 éléments.
 
-Le worker conserve l'ordre d'écriture **chaînes → films → séries** et attend
-un accusé pour chaque lot : les protections de fin de flux, d'abort, de swap et
-de purge ne sont pas désactivées. Le profil est propagé dans `import-start` et
-le temps mesuré depuis le démarrage du job jusqu'à `COMPLETE` est émis dans
-`import-finished` sous `elapsedMs`, avec `profileId` et `profileLabel`. Après
-réception de `import-finished`, le badge affiche le profil et la durée totale en
-secondes ; cette télémétrie est additive, non bloquante et ne journalise jamais
-le mot de passe.
+Les workers envoient un `chunkId` monotone sur chaque CHUNK. Le DataManager
+répond avec le même identifiant. Le worker ne se bloque qu'après deux lots non
+acquittés ; il peut donc mapper le lot suivant pendant l'écriture du lot courant.
+Le `yieldMs` par lot est supprimé : le DataManager rend la main une frame tous
+les quatre lots, avec `setTimeout(0)` lorsque le document est caché ou que
+`requestAnimationFrame` ne répond pas.
 
-### 6.9 Quota de stockage pendant les imports de benchmark (V17.1)
+Les mappeurs `mapLiveItem`, `mapVodItem` et `mapSeriesItem` ne copient que les
+champs consommés par l'UI, la recherche, les catégories et le lecteur. Les
+propriétés supplémentaires renvoyées par le panneau Xtream ne traversent pas
+le structured clone. Le détour JSON n'est pas activé par défaut, car les objets
+sont déjà aplatis et le double parsing coûterait du CPU sur les appareils visés.
 
-Le swap atomique impose temporairement la coexistence de l'import actif et du
-nouvel import de staging : cette propriété est conservée, car supprimer
-l'ancien catalogue avant `COMPLETE` casserait l'intégrité et le rollback logique.
-Un échec de lot ou de transaction peut toutefois laisser des lignes partielles.
-`DataManager.failImport` les supprime immédiatement dans toutes les tables
-(`channels`, `vod`, `series`, `series_info`, `categories`, `epg`) par
-`importId`, et `PlaylistManager` retire au lancement suivant les imports
-`failed` historiques et leurs lignes. L'import actif n'est jamais ciblé.
+### 6.9 Swap rapide et garbage collection lazy — V18
 
-Si la capacité reste insuffisante même pour l'ancien catalogue plus un staging
-complet, le comportement conforme est : pas de swap partiel, ancien catalogue
-conservé, événement `import-error` avec le code `STORAGE_QUOTA`. L'opérateur
-peut alors libérer le stockage de l'application / du site puis relancer ; cette
-situation est distincte d'une accumulation de stagens échoués et ne doit pas
-être résolue par une purge silencieuse de l'import actif.
+La coexistence temporaire de l'ancien catalogue et du staging reste obligatoire
+pour la sécurité. En revanche, la suppression des anciennes lignes ne fait plus
+partie de la transaction finale :
+
+1. `DataManager._processComplete()` change le pointeur actif ;
+2. marque le nouvel import `completed` ;
+3. émet immédiatement `import-complete` ;
+4. planifie `_scheduleGarbageCollection()`.
+
+La GC supprime les lignes de l'ancien `importId` par lots de 500, avec une
+respiration entre lots, puis la ligne `imports`. Le périmètre est borné par
+`playlistId` et `kind` : `channels`, `vod`, `series`, `series_info`,
+`categories` pour un import de playlist ; `epg` pour un import EPG. Un ancien
+`importId` ne peut pas être supprimé s'il est devenu le pointeur actif entre-temps.
+
+Si webOS tue l'application avant la GC, `PlaylistManager.bootMaintenance()`
+rejoue le nettoyage des lignes orphelines au prochain démarrage. L'import actif
+est toujours protégé. Les imports `failed` historiques sont nettoyés par
+`_cleanupFailedImports()` avant un nouvel import.
+
+Une erreur `QuotaExceededError` sur un staging déclenche la voie terminale
+`failImport()`, qui marque l'import en échec et purge ses lignes par
+`importId`, sans supprimer l'actif. Si le stockage ne permet réellement pas de
+conserver actif + staging, l'événement public `STORAGE_QUOTA` est conservé et
+le swap n'est pas effectué.
 
 ---
 
@@ -2222,4 +2156,22 @@ Non implémentés dans cette roadmap et **à ne pas introduire spontanément** (
 | Temps silencieux avant le premier pourcentage et catalogues Xtream demandés séquentiellement ; import obligeant à ressaisir base/identifiants | Retour utilisateur webOS 26 + demande playlist par défaut (V16) | `IMPORT_PHASE` immédiat dans le badge ; appels globaux Live/VOD/Séries parallélisés, écriture conservée séquentielle ; `DEFAULT_PLAYLIST` + `ensureDefaultPlaylist` idempotent au boot, sans auto-import | §5.8, §6.5, §6.7, §9 |
 | Ralentissement surtout visible pendant « Écriture des films », « Écriture des séries » et à 99 % sur les derniers lots ; besoin de comparer sur TV réelle | Demande produit 2026-09-11 (V17) | cinq boutons `Test import 1…5` sur Xtream ; tailles 2 000/4 000/8 000, `bulkPut` ou `bulkAdd`, respiration 32/16/0/8 ms, catalogues parallèles ou séquentiels ; protocole/swap/protections inchangés ; `import-finished` expose durée + profil ; aucun mot de passe journalisé | §5.2, §5.3, §5.8, §6.8, §9 |
 | `QuotaExceededError` après plusieurs tests, avec risque de conserver les lots partiels des imports échoués | Retour utilisateur 2026-09-11 (V17.1) | purge immédiate du staging par `importId` dans `DataManager.failImport` ; nettoyage des anciens `failed` avant tout nouvel import ; import actif préservé ; message public `STORAGE_QUOTA` si la capacité physique reste insuffisante | §5.3, §6.9, §9 |
-**Statut : spécification gelée pour exécution (V9 + V9.1 ; V10 perf ; V11 séries & catégories ; V12 télécommande & séries deux temps ; V13 ordre serveur des listes et du zap ; V14 démarrage FHD tolérant ; V15 normalisation Xtream réelle de `get_series_info` ; V16 phases d'import visibles, catalogues Xtream parallélisés et playlist par défaut idempotente ; V17 profils de benchmark Xtream, lots/écriture/respiration configurables et mesure de durée ; V17.1 purge du staging après quota/échec et nettoyage des reliquats `failed`). Toute divergence ultérieure = nouvelle révision incrémentale (V18) avec entrée de traçabilité).**
+**Statut : spécification gelée pour exécution V18** (V9 + V9.1 ; V10 perf ; V11 séries & catégories ; V12 télécommande & séries deux temps ; V13 ordre serveur des listes et du zap ; V14 démarrage FHD tolérant ; V15 normalisation Xtream réelle de `get_series_info` ; V16 phases d'import visibles, catalogues Xtream parallélisés et playlist par défaut idempotente ; V17/V17.1 profils puis récupération quota ; **V18 suppression des boutons de benchmark, `bulkAdd` exclusif, deux CHUNK en vol, objets compacts, respiration par frame et GC lazy après swap**). Toute divergence ultérieure = nouvelle révision incrémentale avec entrée de traçabilité.
+
+### Traçabilité V18 — demande d'optimisation TV du 2026-09-11
+
+| Demande | Décision implémentée | Fichiers / garanties |
+|---|---|---|
+| Supprimer les tests d'import | Un seul profil de production et un seul bouton `Importer`; `tests/import-profiles.test.mjs` supprimé | `src/app.js`, `src/data/ImportProfiles.js`, `PlaylistManager.importPlaylist()` |
+| Forcer `bulkAdd` | `DataManager._processChunk()` appelle uniquement `table.bulkAdd(items)` | PROT-7, nouvel `importId` par import |
+| Dimension TV | 2 000 lignes par lot; borne interne 1 000–2 500 Xtream | trois workers, `DEFAULT_IMPORT_PROFILE` |
+| Éliminer le ping-pong | deux CHUNK en vol, `chunkId` dans CHUNK/ACK | `xtream.worker.js`, `m3u.worker.js`, `epg.worker.js`, PROT-1/2 |
+| Réduire le structured clone | mappeurs Xtream plats et champs explicitement sélectionnés; pas de JSON stringify/parse par défaut | `mapLiveItem`, `mapVodItem`, `mapSeriesItem` |
+| Réduire `yieldMs` | `yieldEveryChunks = 4`; une frame rAF ou `setTimeout(0)` masqué; plus de pause fixe à chaque lot | `DataManager._yieldToUi()` |
+| Éviter le blocage à 99 % | transaction de swap courte puis `import-complete`; suppression lazy par tranches de 500 | `_processComplete()`, `_scheduleGarbageCollection()`, `_deleteImportRowsInBatches()` |
+| Crash avant GC | maintenance au prochain boot sur les lignes orphelines, actif protégé | `PlaylistManager.bootMaintenance()` |
+
+La V17 reste l'historique publié (`v17.1`) ; cette V18 est la révision de travail
+non publiée qui porte les modifications ci-dessus. Les passages V17 conservés
+dans la matrice décrivent l'historique et sont supersédés par les règles
+normatives V18 des §§5.2–5.3 et 6.8–6.9.

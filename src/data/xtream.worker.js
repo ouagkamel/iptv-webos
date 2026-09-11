@@ -1,20 +1,23 @@
 // src/data/xtream.worker.js — spec §6.5 (amendement V9).
-// Import natif Xtream Codes : le worker effectue lui-même ses fetch, de façon
-// séquentielle et paginée par catégorie (mémoire bornée par la plus grosse
-// catégorie). Protocole §5.2 (PROT-1…4) + ACCOUNT_INFO + ERROR (XP-1…XP-4).
+// Import natif Xtream Codes : le worker effectue lui-même ses fetch, utilise le
+// catalogue global puis le repli paginé par catégorie. V18 : lots TV de 2 000,
+// deux CHUNK en vol, objets compacts et ACK identifiés par chunkId. Protocole
+// §5.2 (PROT-1…7) + ACCOUNT_INFO + ERROR (XP-1…XP-4).
 //
-// Écart assumé vs le pseudo-code de référence §6.5 : l'attente d'ack est une
-// promesse résolue par CHUNK_COMMITTED au lieu d'un polling setInterval(16 ms)
-// — comportement identique, sans timer résiduel (cohérent avec l'esprit
-// anti-timer-zombie de la V8).
-let isWaitingForAck = false;
+// Le worker peut maintenant préparer deux lots pendant que DataManager écrit le
+// précédent. Les ACK portent un chunkId : un ACK tardif ou dupliqué ne libère
+// jamais le mauvais lot.
+const MAX_CHUNKS_IN_FLIGHT = 2;
+let inFlightChunkIds = new Set();
+let nextChunkId = 0;
+let slotWaiters = [];
+let idleWaiters = [];
 let pendingItems = [];
 let pendingTarget = 'channels';
 let currentImportId = null;
 let currentPlaylistId = null;
 let aborted = false;
 let cfg = null; // { base, username, password }
-let ackWaiters = [];
 // V13 §5.3 : position d'arrivée par table (ordre serveur), lue au tri d'affichage.
 let sortCounter = Object.create(null);
 function nextSortIdx(targetTable) {
@@ -31,7 +34,10 @@ self.onmessage = function (e) {
     currentPlaylistId = d.playlistId;
     pendingItems = [];
     pendingTarget = 'channels';
-    isWaitingForAck = false;
+    inFlightChunkIds = new Set();
+    nextChunkId = 0;
+    slotWaiters = [];
+    idleWaiters = [];
     aborted = false;
     sortCounter = Object.create(null);
     applyProfile(d.profile);
@@ -40,19 +46,20 @@ self.onmessage = function (e) {
     return;
   }
   if (d.type === 'CHUNK_COMMITTED') {
-    if (d.importId !== currentImportId) return; // PROT-2
-    isWaitingForAck = false;
-    const waiters = ackWaiters.splice(0, ackWaiters.length);
-    for (let i = 0; i < waiters.length; i++) waiters[i]();
+    if (d.importId !== currentImportId) return; // ACK d'un import mort
+    if (!inFlightChunkIds.has(d.chunkId)) return; // ACK tardif ou dupliqué
+    inFlightChunkIds.delete(d.chunkId);
+    releaseSlotWaiters();
+    if (inFlightChunkIds.size === 0) releaseIdleWaiters();
     return;
   }
   if (d.type === 'ABORT_IMPORT') {
     aborted = true;
     currentImportId = null;
     pendingItems = [];
-    isWaitingForAck = false;
-    const waiters = ackWaiters.splice(0, ackWaiters.length);
-    for (let i = 0; i < waiters.length; i++) waiters[i](); // libère le producteur suspendu
+    inFlightChunkIds.clear();
+    releaseSlotWaiters();
+    releaseIdleWaiters();
   }
 };
 
@@ -76,19 +83,20 @@ async function fetchJson(url) {
 // Le repli par catégories (boucle V9, bornée par la plus grosse catégorie)
 // conserve XP-4 : catégorie défaillante ignorée, jamais terminal.
 const DEFAULT_CHUNK_ITEMS = 2000;
+const MIN_CHUNK_ITEMS = 1000;
+const MAX_CHUNK_ITEMS = 2500;
+const DEFAULT_YIELD_EVERY_CHUNKS = 4;
 const MAX_GLOBAL_BYTES = 40 * 1024 * 1024;
 let chunkItems = DEFAULT_CHUNK_ITEMS;
-let writeMode = 'put'; // put = sûr/idempotent ; add = benchmark rapide, importId neuf
-let yieldMs = 32;
+let yieldEveryChunks = DEFAULT_YIELD_EVERY_CHUNKS;
 let parallelCatalogs = true;
 
 function applyProfile(profile) {
   const p = profile || {};
   const n = parseInt(p.chunkItems, 10);
-  chunkItems = n >= 500 && n <= 10000 ? n : DEFAULT_CHUNK_ITEMS;
-  writeMode = p.writeMode === 'add' ? 'add' : 'put';
-  const y = parseInt(p.yieldMs, 10);
-  yieldMs = y >= 0 && y <= 64 ? y : 32;
+  chunkItems = n >= MIN_CHUNK_ITEMS && n <= MAX_CHUNK_ITEMS ? n : DEFAULT_CHUNK_ITEMS;
+  const every = parseInt(p.yieldEveryChunks, 10);
+  yieldEveryChunks = every > 0 && every <= 16 ? every : DEFAULT_YIELD_EVERY_CHUNKS;
   parallelCatalogs = p.parallelCatalogs !== false;
 }
 
@@ -278,7 +286,7 @@ async function importItemsFlat(items, targetTable, mapFn) {
     if (aborted) return;
     pendingItems.push(mapFn(items[i], nextSortIdx(targetTable)));
     if (pendingItems.length >= chunkItems) {
-      await drainAll();
+      await drainAvailable();
     }
   }
 }
@@ -310,73 +318,125 @@ async function importCollection(catAction, listAction, targetTable, mapFn) {
       pendingTarget = targetTable;
       pendingItems.push(mapFn(items[i], groupName, nextSortIdx(targetTable)));
       if (pendingItems.length >= chunkItems) {
-        await drainAll(); // PROT-1 : un seul CHUNK en vol — le producteur se suspend
+        await drainAvailable(); // au plus deux CHUNK en vol
       }
     }
   }
 }
 
-// Envoie tout `pendingItems` par lots configurables, un ack à la fois.
-async function drainAll() {
-  while (pendingItems.length > 0 && !aborted) {
-    await waitForIdle();          // attend que le CHUNK en vol soit acquitté
-    if (aborted || pendingItems.length === 0) return;
-    isWaitingForAck = true;
-    const items = pendingItems.splice(0, chunkItems);
-    self.postMessage({ type: 'CHUNK', importId: currentImportId, items: items, targetTable: pendingTarget,
-                       writeMode: writeMode, yieldMs: yieldMs });
+// Envoie les lots pleins disponibles sans attendre la fin des écritures. Si les
+// deux emplacements sont occupés, l'appel attend seulement qu'un slot se libère,
+// puis le mapping reprend : CPU Worker et IndexedDB travaillent en parallèle.
+async function drainAvailable() {
+  while (pendingItems.length >= chunkItems && !aborted) {
+    await waitForSlot();
+    if (aborted || pendingItems.length < chunkItems) return;
+    sendChunk(pendingItems.splice(0, chunkItems));
   }
 }
 
+// En fin de table/import, envoie aussi le résiduel puis attend les deux ACK.
+async function drainAll() {
+  while (pendingItems.length > 0 && !aborted) {
+    await waitForSlot();
+    if (aborted || pendingItems.length === 0) break;
+    sendChunk(pendingItems.splice(0, chunkItems));
+  }
+  if (!aborted) await waitForIdle();
+}
+
+function sendChunk(items) {
+  const chunkId = nextChunkId++;
+  inFlightChunkIds.add(chunkId);
+  self.postMessage({
+    type: 'CHUNK',
+    importId: currentImportId,
+    chunkId: chunkId,
+    items: items,
+    targetTable: pendingTarget,
+    yieldEveryChunks: yieldEveryChunks
+  });
+}
+
+function waitForSlot() {
+  if (aborted || inFlightChunkIds.size < MAX_CHUNKS_IN_FLIGHT) return Promise.resolve();
+  return new Promise(function (resolve) { slotWaiters.push(resolve); });
+}
+
 function waitForIdle() {
-  if (!isWaitingForAck) return Promise.resolve();
-  return new Promise(function (resolve) { ackWaiters.push(resolve); });
+  if (aborted || inFlightChunkIds.size === 0) return Promise.resolve();
+  return new Promise(function (resolve) { idleWaiters.push(resolve); });
+}
+
+function releaseSlotWaiters() {
+  while (slotWaiters.length > 0 && inFlightChunkIds.size < MAX_CHUNKS_IN_FLIGHT) {
+    slotWaiters.shift()();
+  }
+}
+
+function releaseIdleWaiters() {
+  const waiters = idleWaiters.splice(0, idleWaiters.length);
+  for (let i = 0; i < waiters.length; i++) waiters[i]();
+}
+
+// Les panneaux renvoient souvent beaucoup de métadonnées inutiles. Ces trois
+// mappeurs fabriquent des objets plats et bornés : aucune propriété du JSON
+// Xtream original ne traverse postMessage par accident.
+function compactText(value) {
+  return value == null ? '' : String(value);
 }
 
 function mapLiveItem(s, groupName, sortIdx) {
+  const streamId = compactText(s.stream_id);
+  const name = compactText(s.name);
+  const importId = currentImportId0();
   return {
-    sortIdx: sortIdx | 0, // V13 : ordre serveur (rang de catégorie + position)
-    id: currentImportId0() + ':' + s.stream_id,
-    importId: currentImportId0(),
-    name: String(s.name || ''),
-    channelId: s.epg_channel_id ? String(s.epg_channel_id) : null, // jointure EPG xmltv.php
-    groupName: groupName,
-    logo: s.stream_icon || '',
+    sortIdx: sortIdx | 0,
+    id: importId + ':' + streamId,
+    importId: importId,
+    name: name,
+    channelId: s.epg_channel_id ? compactText(s.epg_channel_id) : null,
+    groupName: compactText(groupName),
+    logo: compactText(s.stream_icon),
     streamUrl: cfg.base + '/live/' + encodeURIComponent(cfg.username) + '/' +
-               encodeURIComponent(cfg.password) + '/' + s.stream_id + '.m3u8',
-    searchName: normalizeSearchName(s.name)
+               encodeURIComponent(cfg.password) + '/' + encodeURIComponent(streamId) + '.m3u8',
+    searchName: normalizeSearchName(name)
   };
 }
 
 function mapVodItem(s, groupName, sortIdx) {
-  const name = String(s.name || '');
+  const streamId = compactText(s.stream_id);
+  const name = compactText(s.name);
+  const importId = currentImportId0();
   return {
     sortIdx: sortIdx | 0,
-    id: currentImportId0() + ':' + s.stream_id,
-    importId: currentImportId0(),
+    id: importId + ':' + streamId,
+    importId: importId,
     name: name,
-    groupName: groupName,
-    logo: s.stream_icon || '',
+    groupName: compactText(groupName),
+    logo: compactText(s.stream_icon),
     streamUrl: cfg.base + '/movie/' + encodeURIComponent(cfg.username) + '/' +
-               encodeURIComponent(cfg.password) + '/' + s.stream_id + '.' +
-               (s.container_extension || 'mp4'),
-    searchName: normalizeSearchName(s.name)
+               encodeURIComponent(cfg.password) + '/' + encodeURIComponent(streamId) + '.' +
+               compactText(s.container_extension || 'mp4'),
+    searchName: normalizeSearchName(name)
   };
 }
 
 function mapSeriesItem(s, groupName, sortIdx) {
-  const name = String(s.name || '');
+  const seriesId = compactText(s.series_id);
+  const name = compactText(s.name);
+  const importId = currentImportId0();
   return {
     sortIdx: sortIdx | 0,
-    id: currentImportId0() + ':' + s.series_id,
-    importId: currentImportId0(),
-    seriesId: String(s.series_id),
+    id: importId + ':' + seriesId,
+    importId: importId,
+    seriesId: seriesId,
     name: name,
-    groupName: groupName,
-    logo: s.cover || s.stream_icon || '',
-    plot: String(s.plot || ''),
-    rating: s.rating == null ? '' : String(s.rating),
-    releaseDate: s.releaseDate || s.release_date || '',
+    groupName: compactText(groupName),
+    logo: compactText(s.cover || s.stream_icon),
+    plot: compactText(s.plot),
+    rating: s.rating == null ? '' : compactText(s.rating),
+    releaseDate: compactText(s.releaseDate || s.release_date),
     searchName: normalizeSearchName(name)
   };
 }

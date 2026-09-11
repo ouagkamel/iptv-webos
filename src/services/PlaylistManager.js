@@ -5,6 +5,7 @@
 import { db } from '../data/db.js';
 import { XtreamClient } from '../platform/XtreamClient.js';
 import { orderRows } from './ListOrder.js';
+import { DEFAULT_IMPORT_PROFILE } from '../data/ImportProfiles.js';
 
 const RUNNING_GRACE_MS = 5 * 60 * 1000; // §5.5 : import « running » récent non orphelin
 const EPG_RETENTION_MS = 86400000;      // §5.6
@@ -111,9 +112,9 @@ export class PlaylistManager {
     const job = isXtream
       ? { source: 'xtream', importId, playlistId, kind: 'playlist',
           base: pl.base, username: pl.username, password: pl.password,
-          profile: options && options.profile ? options.profile : null }
+          profile: DEFAULT_IMPORT_PROFILE }
       : { importId, playlistId, kind: 'playlist', url: pl.m3uUrl,
-          profile: options && options.profile ? options.profile : null };
+          profile: DEFAULT_IMPORT_PROFILE };
 
     return pair.controller.startImport(job).then(
       function (detail) { return detail; },
@@ -130,7 +131,8 @@ export class PlaylistManager {
       playlistId: playlistId, kind: 'epg', status: 'running', createdAt: Date.now()
     });
     return pair.controller.startImport({ importId: importId, playlistId: playlistId,
-                                         kind: 'epg', url: pl.epgUrl });
+                                         kind: 'epg', url: pl.epgUrl,
+                                         profile: DEFAULT_IMPORT_PROFILE });
   }
 
   abort(playlistId, kind) {
@@ -185,8 +187,10 @@ export class PlaylistManager {
   /**
    * §5.5 — Reprise sur crash au boot :
    *  1. imports « running » (tués avec l'app) → 'failed' ;
-   *  2. orphelins : lignes channels/epg/vod dont l'importId n'est ni référencé
-   *     actif, ni porté par un import running récent (< 5 min) → purge anyOf.
+   *  2. orphelins : lignes channels/epg/vod/series/series_info/categories dont
+   *     l'importId n'est ni référencé actif, ni porté par un import running récent
+   *     (< 5 min) → purge anyOf ;
+   *  3. lignes imports completed non actives → suppression de métadonnée par lots.
    * §5.6 — rétention EPG : stopTime < now − 24 h → delete.
    */
   async bootMaintenance() {
@@ -228,6 +232,21 @@ export class PlaylistManager {
                                freshRunning.playlist || new Set());
       await this._purgeOrphans(db.epg, activeEpgIds,
                                freshRunning.epg || new Set());
+
+      // Un swap interrompu après publication peut laisser une ligne imports
+      // completed sans données utiles. Les lignes failed restent conservées pour
+      // le diagnostic et seront retirées par _cleanupFailedImports avant un essai.
+      const protectedIds = new Set();
+      activePlaylistIds.forEach(function (id) { protectedIds.add(id); });
+      activeEpgIds.forEach(function (id) { protectedIds.add(id); });
+      (freshRunning.playlist || new Set()).forEach(function (id) { protectedIds.add(id); });
+      (freshRunning.epg || new Set()).forEach(function (id) { protectedIds.add(id); });
+      const completedStale = (await db.imports.toArray())
+        .filter(function (row) { return row.status === 'completed' && !protectedIds.has(row.id); })
+        .map(function (row) { return row.id; });
+      for (let i = 0; i < completedStale.length; i += 500) {
+        await db.imports.bulkDelete(completedStale.slice(i, i + 500));
+      }
     });
 
     // §5.6 — purge d'expiration (index stopTime seul, règle DB-2)

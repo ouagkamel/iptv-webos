@@ -78,6 +78,39 @@ test('watermark : waiter suspendu libéré à teardown → resolve(false), jamai
   pair.controller.destroy(); pair.dataManager.destroy();
 });
 
+test('V18 : deux CHUNK en vol, ACK chunkId et pipeline sans ping-pong', async () => {
+  await freshDb();
+  const plId = await addPlaylist(db, 'DoubleBuffer');
+  const importId = await addImportRow(db, plId, 'playlist');
+  const url = 'http://fixtures.test/double-buffer.m3u';
+  routeText(url, buildM3U(5000, 5, {}));
+
+  const pair = makePair('m3u', 'channels');
+  let inFlight = 0;
+  let maxInFlight = 0;
+  const chunkIds = [];
+  const workerSelfPost = pair.worker._self.postMessage;
+  pair.worker._self.postMessage = function (message) {
+    if (message && message.type === 'CHUNK') {
+      inFlight += 1;
+      maxInFlight = Math.max(maxInFlight, inFlight);
+      chunkIds.push(message.chunkId);
+    }
+    return workerSelfPost(message);
+  };
+  const workerPost = pair.worker.postMessage.bind(pair.worker);
+  pair.worker.postMessage = function (message) {
+    if (message && message.type === 'CHUNK_COMMITTED') inFlight -= 1;
+    return workerPost(message);
+  };
+
+  await pair.controller.startImport({ importId, playlistId: plId, kind: 'playlist', url });
+  assert.ok(maxInFlight >= 2, 'le worker a effectivement chevauché deux CHUNK');
+  assert.deepEqual(chunkIds, [0, 1, 2], 'chunkId monotones et ACK ciblés');
+  assert.equal(await db.channels.where('importId').equals(importId).count(), 5000);
+  pair.controller.destroy(); pair.dataManager.destroy();
+});
+
 test('PROT-2 : CHUNK_COMMITTED d’un import mort ignoré par le worker epg', async () => {
   // worker seul : on vérifie qu’un ack avec mauvais importId ne déclenche aucun flush
   await freshDb();

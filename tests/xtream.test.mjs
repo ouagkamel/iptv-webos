@@ -6,6 +6,7 @@ import assert from 'node:assert/strict';
 import { freshDb, db, makePair, addImportRow, addPlaylist } from './helpers/dbx.mjs';
 import { XTREAM_PANEL, routeXtreamPanel } from './helpers/fixtures.mjs';
 import { XtreamClient } from '../src/platform/XtreamClient.js';
+import { DEFAULT_IMPORT_PROFILE } from '../src/data/ImportProfiles.js';
 
 const BASE = 'http://panel.test';
 const USER = 'u1';
@@ -103,14 +104,22 @@ test('xtream-mock : 5 channels + 4 vod + 5 séries exacts, swap actif, ACCOUNT_I
   r.pair.controller.destroy(); r.pair.dataManager.destroy();
 });
 
-test('V17 profil benchmark : chunk réduit + bulkAdd + pause zéro conserve les trois tables', async () => {
-  const r = await runXtream({}, {
-    id: 'add-test', chunkItems: 500, writeMode: 'add', yieldMs: 0, parallelCatalogs: true
-  });
+test('import Xtream par défaut : bulkAdd, lot TV de 2 000 et catalogue complet', async () => {
+  assert.equal(DEFAULT_IMPORT_PROFILE.chunkItems, 2000);
+  assert.equal(DEFAULT_IMPORT_PROFILE.writeMode, 'add');
+  assert.equal(DEFAULT_IMPORT_PROFILE.maxInFlightChunks, 2);
+  assert.equal(DEFAULT_IMPORT_PROFILE.yieldEveryChunks, 4);
+  const r = await runXtream();
   assert.equal(await db.channels.where('importId').equals(r.importId).count(), XTREAM_PANEL.EXPECTED.channels);
   assert.equal(await db.vod.where('importId').equals(r.importId).count(), XTREAM_PANEL.EXPECTED.vod);
   assert.equal(await db.series.where('importId').equals(r.importId).count(), XTREAM_PANEL.EXPECTED.series);
   assert.equal((await db.imports.get(r.importId)).status, 'completed');
+
+  const live = await db.channels.where('importId').equals(r.importId).first();
+  assert.deepEqual(Object.keys(live).sort(), [
+    'channelId', 'groupName', 'id', 'importId', 'logo', 'name',
+    'searchName', 'sortIdx', 'streamUrl'
+  ], 'objet live compact avant et après postMessage');
   r.pair.controller.destroy(); r.pair.dataManager.destroy();
 });
 
@@ -174,7 +183,7 @@ test('V11 séries (repli) : catégorie de séries 503 → ignorée, import compl
   r.pair.controller.destroy(); r.pair.dataManager.destroy();
 });
 
-test('V11 catégories serveur : ordre exact (live/vod/series) + purge complète à la réimportation', async () => {
+test('V11 catégories serveur : ordre exact (live/vod/series) + GC lazy à la réimportation', async () => {
   await freshDb();
   const plId = await addPlaylist(db, 'Cat', { source: 'xtream', base: BASE, username: USER, password: PASS });
   const importId = await addImportRow(db, plId, 'playlist');
@@ -194,10 +203,15 @@ test('V11 catégories serveur : ordre exact (live/vod/series) + purge complète 
   const importId2 = await addImportRow(db, plId, 'playlist');
   await pair.controller.startImport({ source: 'xtream', importId: importId2, playlistId: plId,
                                      kind: 'playlist', base: BASE, username: USER, password: PASS });
-  assert.equal(await db.categories.where('importId').equals(importId).count(), 0, 'catégories de l’import périmé purgées');
+  assert.equal(await db.categories.where('importId').equals(importId).count(), 5,
+    'anciennes catégories encore disponibles pendant le swap rapide');
   assert.equal(await db.categories.where('importId').equals(importId2).count(), 5);
-  assert.equal(await db.series.where('importId').equals(importId).count(), 0, 'séries périmées purgées');
+  assert.equal(await db.series.where('importId').equals(importId).count(), 5,
+    'anciennes séries conservées pendant le swap');
   assert.equal(await db.series.where('importId').equals(importId2).count(), 5);
+  await pair.dataManager.waitForGarbageCollection();
+  assert.equal(await db.categories.where('importId').equals(importId).count(), 0, 'anciennes catégories purgées par GC');
+  assert.equal(await db.series.where('importId').equals(importId).count(), 0, 'séries périmées purgées par GC');
   pair.controller.destroy(); pair.dataManager.destroy();
 });
 
