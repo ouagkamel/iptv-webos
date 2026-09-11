@@ -1,4 +1,4 @@
-# SPÉCIFICATION TECHNIQUE D'EXÉCUTION & ARCHITECTURE — V18 (import TV optimisé, swap lazy)
+# SPÉCIFICATION TECHNIQUE D'EXÉCUTION & ARCHITECTURE — V19 (index minimal, import TV optimisé)
 
 **Application IPTV / VOD / Live sur LG webOS — Baseline : webOS 5.0 / Chromium 68**
 
@@ -240,9 +240,16 @@ db.version(2).stores({
 // v3 (révision V11, §6.6/§6.4) : séries + cache paresseux + catégories serveur.
 // Toujours additive seule ; aucune réécriture des stores v1/v2.
 db.version(3).stores({
-  series:      'id, importId, [importId+groupName], searchName', // mêmes index que vod
+  series:      'id, importId, [importId+groupName], searchName', // schéma historique
   series_info: 'id, importId',                                   // détail lazy, TTL 24 h
   categories:  '++cid, importId, [importId+kind]'                // ordre serveur conservé
+});
+
+// v4 (V19) : index minimal pour les catalogues volumineux.
+db.version(4).stores({
+  channels: 'id, importId',
+  vod:      'id, importId',
+  series:   'id, importId'
 });
 ```
 
@@ -257,7 +264,7 @@ db.version(3).stores({
 - `channels.id` : **chaîne applicative déterministe `${importId}:${seq}`**, générée par le worker à l'émission de chaque item (`seq` = compteur incrémental dans le fichier). Chaque import reçoit un `importId` neuf ; les clés sont donc nouvelles et l'écriture de contenu peut utiliser `bulkAdd` exclusivement.
 - `epg.id` : **chaîne applicative `${importId}:${channelId}:${startTime}`** — déduplication naturelle des programmes identiques réémis lors d'un refresh EPG.
 
-**Règle DB-2 — index :** `[importId+groupName]` sert la pagination par groupe ; `searchName` sert la recherche (`startsWith`) ; `[importId+channelId+startTime]` sert la requête EPG chronologique (`between([imp, ch, t0], [imp, ch, t1)])`) ; `stopTime` (seul) sert la purge d'expiration. `logo` et `streamUrl` ne sont **jamais indexés** (coût d'écriture et disque sans cas d'usage).
+**Règle DB-2 — index minimal V19 :** les tables `channels`, `vod` et `series` ne conservent que leur clé primaire `id` et l'index `importId`, nécessaire à la lecture de l'import actif et à la purge bornée. `groupName`, `searchName` et `channelId` restent des propriétés de données : le filtrage par catégorie, la recherche préfixe et la jointure EPG côté UI se font après chargement des lignes de l'import actif en JavaScript. Cette réduction évite de maintenir trois index secondaires sur chaque ligne de catalogue. La table `epg` conserve `[importId+channelId+startTime]` pour la fenêtre chronologique et `stopTime` pour la purge d'expiration ; `categories` conserve `[importId+kind]` pour l'ordre serveur. `logo` et `streamUrl` ne sont **jamais indexés**.
 
 **Règle DB-3 — normalisation recherche :** `searchName = name.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '')` — calculé côté worker.
 
@@ -1270,6 +1277,44 @@ Une erreur `QuotaExceededError` sur un staging déclenche la voie terminale
 conserver actif + staging, l'événement public `STORAGE_QUOTA` est conservé et
 le swap n'est pas effectué.
 
+### 6.10 Régime d'index minimal — V19
+
+La stratégie « Blob / JSON » a été examinée mais n'est pas activée dans le
+chemin par défaut. Elle réduirait le nombre d'enregistrements, mais imposerait
+de conserver une catégorie entière en mémoire avant son écriture, ferait perdre
+la granularité de reprise/purge par ligne et fragiliserait les grosses catégories
+ainsi que la consultation EPG. Elle ajouterait aussi une migration de lecture
+à double format pour les catalogues V3/V18 déjà présents. Sans mesure terrain
+confirmant la taille maximale des catégories et la limite de taille d'un record
+IndexedDB sur chaque génération webOS ciblée, ce changement est classé
+**WARNING expérimental**, pas comme remplacement sûr du protocole V18.
+
+La partie sûre et directement applicable de cette proposition est le régime
+d'index : une migration Dexie V4 supprime les index secondaires inutilisés des
+tables `channels`, `vod` et `series` :
+
+```javascript
+db.version(4).stores({
+  channels: 'id, importId',
+  vod:      'id, importId',
+  series:   'id, importId'
+});
+```
+
+Les propriétés `groupName`, `searchName` et `channelId` restent stockées, mais
+effectuent désormais leur filtrage ou leur recherche en JavaScript après la
+lecture des lignes de l'import actif. L'index `importId` reste indispensable
+pour le staging, le swap et la GC. `epg` conserve ses index de fenêtre
+chronologique et de rétention ; `categories` conserve son index composé d'ordre
+serveur. La migration est additive du point de vue des données : elle reconstruit
+le schéma et retire uniquement des index, sans supprimer de ligne de catalogue.
+
+Ce compromis réduit la write amplification sans changer le format des objets,
+les clés DB-1, les lectures de l'UI, le protocole `bulkAdd`, la sécurité du swap
+ou la compatibilité webOS 5 / Chromium 68. Un Blob/JSON pourra être évalué plus
+tard sur une branche dédiée avec tests de taille, mémoire, recherche, EPG,
+annulation et reprise avant toute adoption normative.
+
 ---
 
 ## 7. Pipeline Média — Machine d'État, Fallback, Watchdog, Cycle de Vie
@@ -1579,7 +1624,7 @@ ci-dessous remplace le cap dur de 10 s de l'extrait de référence §7.2.**
 
 La fixture `media-startup-fhd` (§9) vérifie : progression `FRAG_LOADING` avant
 `FRAG_LOADED`, `NETWORK_LOADING` natif, silence terminal, plafond absolu et
-événements `<video>`. La recette V17.1 a **81 tests** verts dans l'environnement
+événements `<video>`. La recette V19 a **83 tests** verts dans l'environnement
 de livraison.
 
 ---
@@ -2036,8 +2081,9 @@ Les défaillances historiques (fin de flux, purge croisée, fuseau horaire) sont
 | `remote-keys` (V12) | table de classement pure (chaque keyCode × chaque contexte), `stepIndex`/`pageIndex`, gate à horloge injectée | aucun vol de touche dans les champs ; zap/OK/PROG mappés en lecteur ; pages circulaires ; gate : 20 ms avalé / 46 ms passe / compteurs indépendants par type |
 | `media-startup-fhd` (V14) | adaptateur avec fenêtre d'inactivité courte injectée : `NETWORK_LOADING`, `FRAG_LOADING` avant `FRAG_LOADED`, silence, progression sans `playing` | aucun faux fallback/`STARTUP_FAILURE` pendant une requête active ; silence terminal échoue ; plafond absolu échoue même si les marqueurs continuent ; événements natifs réarment |
 | `default-playlist` (V16) | boot sur DB vide puis second boot | playlist Xtream par défaut créée une seule fois, sélectionnable, aucune saisie nécessaire pour atteindre Importer |
+| `db-schema-v4` (V19) | base V3 avec lignes historiques et index secondaires | migration conserve les données/propriétés, retire uniquement les index inutiles de `channels`/`vod`/`series`, index EPG/catégories inchangés |
 | `import-phases` (V16) | worker Xtream avec trois catalogues globaux | phases `auth`/`categories`/`catalogue`/`write-*` visibles avant et pendant `IMPORT_META`, total et écritures inchangés ; catalogues lancés en parallèle |
-| `import-profiles` (V17) | cinq profils Xtream, dont `bulkAdd`, lots réduits dans le test Node et UI réelle contre panel mock | les cinq paramètres sont propagés ; `bulkAdd` écrit les trois tables puis swappe ; badge = profil + durée ; boutons visibles uniquement sur Xtream |
+| `import-default` (V18/V19) | profil unique Xtream/M3U/EPG et double buffer | `bulkAdd`, lots de 2 000, deux CHUNK en vol, aucune variante de benchmark UI ; index catalogue minimaux vérifiés |
 | `quota-cleanup` (V17.1) | staging partiellement écrit puis erreur `QuotaExceededError`, avec un import actif distinct | les lignes de l'import échoué sont supprimées dans toutes les tables, l'actif reste intact ; un nouvel import nettoie aussi les reliquats `failed` historiques |
 | `m3u-20000.m3u` | 20 000 chaînes, 40 groupes | 20 000 lignes en base ; `activeImportId` permuté ; groupes paginables par `[importId+groupName]` |
 | `xmltv-644.xml` | 644 programmes | **exactement 644 lignes** `epg` ; `COMPLETE` reçu ; `status: 'completed'` |
@@ -2156,7 +2202,7 @@ Non implémentés dans cette roadmap et **à ne pas introduire spontanément** (
 | Temps silencieux avant le premier pourcentage et catalogues Xtream demandés séquentiellement ; import obligeant à ressaisir base/identifiants | Retour utilisateur webOS 26 + demande playlist par défaut (V16) | `IMPORT_PHASE` immédiat dans le badge ; appels globaux Live/VOD/Séries parallélisés, écriture conservée séquentielle ; `DEFAULT_PLAYLIST` + `ensureDefaultPlaylist` idempotent au boot, sans auto-import | §5.8, §6.5, §6.7, §9 |
 | Ralentissement surtout visible pendant « Écriture des films », « Écriture des séries » et à 99 % sur les derniers lots ; besoin de comparer sur TV réelle | Demande produit 2026-09-11 (V17) | cinq boutons `Test import 1…5` sur Xtream ; tailles 2 000/4 000/8 000, `bulkPut` ou `bulkAdd`, respiration 32/16/0/8 ms, catalogues parallèles ou séquentiels ; protocole/swap/protections inchangés ; `import-finished` expose durée + profil ; aucun mot de passe journalisé | §5.2, §5.3, §5.8, §6.8, §9 |
 | `QuotaExceededError` après plusieurs tests, avec risque de conserver les lots partiels des imports échoués | Retour utilisateur 2026-09-11 (V17.1) | purge immédiate du staging par `importId` dans `DataManager.failImport` ; nettoyage des anciens `failed` avant tout nouvel import ; import actif préservé ; message public `STORAGE_QUOTA` si la capacité physique reste insuffisante | §5.3, §6.9, §9 |
-**Statut : spécification gelée pour exécution V18** (V9 + V9.1 ; V10 perf ; V11 séries & catégories ; V12 télécommande & séries deux temps ; V13 ordre serveur des listes et du zap ; V14 démarrage FHD tolérant ; V15 normalisation Xtream réelle de `get_series_info` ; V16 phases d'import visibles, catalogues Xtream parallélisés et playlist par défaut idempotente ; V17/V17.1 profils puis récupération quota ; **V18 suppression des boutons de benchmark, `bulkAdd` exclusif, deux CHUNK en vol, objets compacts, respiration par frame et GC lazy après swap**). Toute divergence ultérieure = nouvelle révision incrémentale avec entrée de traçabilité.
+**Statut : spécification gelée pour exécution V19** (V9 + V9.1 ; V10 perf ; V11 séries & catégories ; V12 télécommande & séries deux temps ; V13 ordre serveur des listes et du zap ; V14 démarrage FHD tolérant ; V15 normalisation Xtream réelle de `get_series_info` ; V16 phases d'import visibles, catalogues Xtream parallélisés et playlist par défaut idempotente ; V17/V17.1 profils puis récupération quota ; **V18 suppression des boutons de benchmark, `bulkAdd` exclusif, deux CHUNK en vol, objets compacts, respiration par frame et GC lazy après swap ; V19 régime d'index minimal Dexie sur les catalogues**). Toute divergence ultérieure = nouvelle révision incrémentale avec entrée de traçabilité.
 
 ### Traçabilité V18 — demande d'optimisation TV du 2026-09-11
 
@@ -2171,7 +2217,20 @@ Non implémentés dans cette roadmap et **à ne pas introduire spontanément** (
 | Éviter le blocage à 99 % | transaction de swap courte puis `import-complete`; suppression lazy par tranches de 500 | `_processComplete()`, `_scheduleGarbageCollection()`, `_deleteImportRowsInBatches()` |
 | Crash avant GC | maintenance au prochain boot sur les lignes orphelines, actif protégé | `PlaylistManager.bootMaintenance()` |
 
-La V17 reste l'historique publié (`v17.1`) ; cette V18 est la révision de travail
-non publiée qui porte les modifications ci-dessus. Les passages V17 conservés
-dans la matrice décrivent l'historique et sont supersédés par les règles
-normatives V18 des §§5.2–5.3 et 6.8–6.9.
+La V17 reste l'historique publié (`v17.1`) ; la V18 est publiée sous le tag
+`v18`. La V19 porte la migration d'index décrite ci-dessus et conserve les règles
+normatives V18 des §§5.2–5.3 et 6.8–6.9. Les passages V17/V18 conservés dans la
+matrice décrivent l'historique ; les règles V19 de §6.10 sont désormais les plus
+récentes pour le schéma Dexie.
+
+### Traçabilité V19 — réduction de la write amplification du catalogue
+
+| Demande / constat | Décision | Fichiers / garanties |
+|---|---|---|
+| Index secondaires multipliant le coût d'écriture | Migration Dexie V4 : `channels`, `vod` et `series` ne gardent que `id` + `importId` | `src/data/db.js`, index `groupName`, `searchName` et `channelId` retirés sans perte de données |
+| Recherche et catégories | Filtrage par catégorie et recherche après chargement de l'import actif, en JavaScript | `PlaylistManager._ordered()`, propriétés métier conservées |
+| EPG et ordre serveur | Index EPG chronologique/rétention et index `categories.[importId+kind]` conservés | les fenêtres EPG et les sélecteurs de catégories ne régressent pas |
+| Proposition Blob / JSON | Non activée par défaut : classée WARNING expérimental faute de mesure de taille/limites record webOS et à cause de la migration double format | §6.10 ; le protocole V18 `bulkAdd`/swap/GC reste le chemin sûr |
+
+Validation V19 : **83/83 tests**, gate syntaxe Chromium 68, build Vite,
+smoke navigateur et harness navigateur verts.

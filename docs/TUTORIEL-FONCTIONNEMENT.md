@@ -1,6 +1,6 @@
 # IPTV webOS Player — tutoriel détaillé de fonctionnement
 
-**Révision expliquée : V18 (base publiée V17.1)**  
+**Révision expliquée : V19 (V18 publiée, index Dexie minimaux)**
 **Cible : LG webOS 5 / Chromium 68, avec conservation de la compatibilité des versions ultérieures**
 
 Ce document décrit le fonctionnement réel du projet, dans l’ordre où il s’exécute :
@@ -161,7 +161,14 @@ Le schéma a évolué de manière additive :
 
 - version 1 : playlists, imports, chaînes, EPG ;
 - version 2 : films VOD ;
-- version 3 : séries, cache de détail et catégories.
+- version 3 : séries, cache de détail et catégories ;
+- version 4 (V19) : index minimal sur `channels`, `vod` et `series` (`id` + `importId`).
+
+La version 4 retire les index secondaires `groupName`, `searchName` et `channelId`
+sans supprimer les propriétés ni les lignes. Les listes étant déjà chargées en
+mémoire pour la virtualisation, le filtrage par catégorie et la recherche restent
+effectués en JavaScript. Les index EPG et catégories nécessaires à leurs requêtes
+sont conservés.
 
 ### 2.4 Build compatible Chromium 68
 
@@ -651,6 +658,29 @@ catégories. Pour M3U/XMLTV, sans `ReadableStream`, le fallback reste plafonné 
 texte. Ces limites protègent la mémoire même si le nombre de lignes final est
 inconnu.
 
+### 7.7 Pourquoi le format Blob/JSON n’est pas activé par défaut
+
+La proposition de stocker une catégorie entière dans une seule chaîne JSON est
+intéressante pour un prototype : elle diminue le nombre de records IndexedDB.
+Elle a toutefois quatre coûts importants pour cette application :
+
+- il faut conserver et sérialiser toute une catégorie avant l’écriture ;
+- une erreur ou une annulation perd la granularité de reprise par ligne ;
+- une très grosse catégorie peut dépasser une limite de record du moteur TV ;
+- les anciennes bases V3/V18 devraient être lues dans deux formats pendant une
+  migration longue.
+
+La V19 applique donc la partie sûre de la recommandation : la migration Dexie V4
+retire les index secondaires inutiles de `channels`, `vod` et `series`. Chaque
+table conserve uniquement `id` et `importId` comme clé/index de catalogue. Les
+objets gardent `groupName`, `searchName` et `channelId`, mais ces propriétés sont
+filtrées en JavaScript après chargement de l’import actif. Les index EPG et
+catégories nécessaires à leurs requêtes sont conservés.
+
+Ce choix réduit la write amplification sans modifier le protocole V18, les clés,
+le swap, la GC ou la compatibilité Chromium 68. Un stockage Blob/JSON pourra
+être mesuré séparément sur une TV réelle avant une éventuelle V20.
+
 ## 8. Import Xtream : déroulement complet
 
 ### 8.1 Entrée dans `ImportController.startImport()`
@@ -1010,9 +1040,11 @@ ancien import actif       → visible et lisible
 nouvel import staging     → en cours de construction
 ```
 
-Cette coexistence protège l’utilisateur contre un import partiel. La V18 ne
-supprime plus l’ancien catalogue dans la transaction finale, car une suppression
-massive à 99 % peut monopoliser IndexedDB et donner l’impression d’un blocage.
+Cette coexistence protège l’utilisateur contre un import partiel. Depuis la V18,
+la suppression de l’ancien catalogue n’est plus faite dans la transaction finale,
+car une suppression massive à 99 % peut monopoliser IndexedDB et donner
+l’impression d’un blocage. La V19 réduit en plus les index secondaires du
+catalogue pour diminuer la write amplification.
 
 ### 10.1 Swap court et GC lazy
 
@@ -1616,6 +1648,7 @@ catalogue actuel + nouveau catalogue en construction
 C’est le prix de la protection contre les imports partiels. La V18 publie le
 nouveau pointeur rapidement, puis supprime l’ancien catalogue par petites
 tranches ; elle ne supprime jamais l’actif avant que le nouveau soit complet.
+La V19 réduit également les index d’écriture sans changer la lecture fonctionnelle.
 
 Pour un grand panneau Xtream sur une TV à quota très réduit, le bon diagnostic
 est donc :

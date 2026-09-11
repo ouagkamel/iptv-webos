@@ -36,12 +36,14 @@ test('m3u-20000 : 20 000 lignes, swap actif, groupes paginables, clés DB-1', as
   const absent = await db.channels.get(importId + ':999999');
   assert.equal(absent, undefined);
 
-  // pagination par groupe via [importId+groupName]
-  const g3 = await db.channels.where('[importId+groupName]').equals([importId, 'Groupe 3']).count();
-  assert.ok(g3 >= 500, 'groupe paginable via index composé');
+  // V19 : le catalogue est filtré en mémoire après le seul index importId ;
+  // groupName n'est plus un index de stockage (réduction de write amplification).
+  const activeRows = await db.channels.where('importId').equals(importId).toArray();
+  const g3 = activeRows.filter(function (row) { return row.groupName === 'Groupe 3'; }).length;
+  assert.ok(g3 >= 500, 'groupe filtrable en mémoire après importId');
 
   // #EXTGRP override + DB-3 (searchName sans diacritiques) — le schéma figé
-  // n'indexe pas `name` : on filtre sur l'index importId (règle DB-2 respectée).
+  // n'indexe ni `name` ni `searchName` : la recherche reste côté JavaScript.
   const rows = await db.channels.where('importId').equals(importId).toArray();
   const byName = {}; rows.forEach(x => { byName[x.name] = x; });
   assert.equal(byName['tv sans group'].groupName, 'Groupe EXTGRP');

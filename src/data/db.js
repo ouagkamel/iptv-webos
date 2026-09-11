@@ -29,3 +29,14 @@ db.version(3).stores({
   series_info: 'id, importId',
   categories:  '++cid, importId, [importId+kind]'
 });
+
+// v4 (V19) : régime d'index minimal pour réduire la write amplification sur les
+// catalogues volumineux. L'UI charge déjà les lignes de l'import actif puis filtre,
+// recherche et trie en JavaScript ; groupName, searchName et channelId ne sont
+// donc pas des index de lecture nécessaires. La migration retire uniquement ces
+// index secondaires et conserve les données, les clés primaires et importId.
+db.version(4).stores({
+  channels: 'id, importId',
+  vod:      'id, importId',
+  series:   'id, importId'
+});

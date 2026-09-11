@@ -1,24 +1,24 @@
-# IPTV webOS Player — implémentation (V18 import optimisé, base V17.1)
+# IPTV webOS Player — implémentation (V19 index minimal, base V18 publiée)
 
 App webOS TV (cible : webOS 5.0 entrée de gamme, Chromium 68) : imports **M3U +
 XMLTV + Xtream Codes**, virtualisation TV, pipeline média NATIVE→MSE avec
-watchdog, persistance Dexie v3 (vod, séries, cache de détail, catégories ; règles DB-5/DB-6/DB-7).
+watchdog, persistance Dexie (migration logique V4 : vod, séries, cache de détail, catégories ; index catalogue minimaux ; règles DB-5/DB-6/DB-7).
 
 ## Statut d'exécution (vérifié dans cet environnement, 2026-09-11)
 
 | Gate | Résultat |
 |---|---|
 | `npm ci`-style install (deps figées §2.1 : dexie 3.2.4, hls.js 1.4.14, webostvjs 1.2.4) | ✔ |
-| `npm run build` (Vite 4.5.0, target chrome68, terser, workers IIFE, inlineDynamicImports) | ✔ 31 modules transformés, bundle principal 530,03 kB minifié |
-| `npm test` (harnais maison `node:test`, variantes de benchmark supprimées) | ✔ 81/81 |
+| `npm run build` (Vite 4.5.0, target chrome68, terser, workers IIFE, inlineDynamicImports) | ✔ 31 modules transformés, bundle principal 530,12 kB minifié |
+| `npm test` (harnais maison `node:test`, variantes de benchmark supprimées) | ✔ 83/83 |
 | `tools/syntax-gate.mjs src` (interdit `?.` `??` `.flat` `Object.fromEntries` `globalThis` nu…) | ✔ 25 fichiers |
 | `tools/syntax-gate.mjs dist` (deps minifiées, occurrences sous garde tolérées et documentées) | ✔ 2 occurrences gardées (interop `typeof globalThis`, `typeof self.clients &&` de hls.js) |
-| Build store `IPTV_PRODUCTION=true` (Q3) | ✔ 526,01 kB, bundle sans aucun `console.*` |
+| Build store `IPTV_PRODUCTION=true` (Q3) | ✔ 528,35 kB, bundle sans aucun `console.*` |
 | Boot du build de production dans un vrai navigateur (chrome-headless-shell 153, CDP via `tools/browser-run.mjs`) | ✔ `#root` monté, 0 erreur console |
 | **Smoke navigateur réel** (`dev/smoke.html` sur le serveur Vite : workers `?worker` réels, Dexie/IndexedDB réels, import 50 lignes + swap + filet §5.5) | ✔ **SMOKE PASS (8/8)** |
 | **Harnais §9 en navigateur réel** (`tests/harness.html`, H1–H8 + test lourd H9) | ✔ **HARNESS PASS (9/9)** ; H9 : 20 000 lignes en 2,7 s, pire intervalle rAF 47 ms (budget ≤ 50 ms) |
 | **E2E télécommande / séries** (`bench/m5.mjs`, panel mock RTT 80 ms) | ✔ import + zap + play/pause + saisons/épisodes + Magic Remote |
-| **UI import V18** | ⏳ à rejouer dans le navigateur réel : un seul bouton `Importer` playlist, import EPG séparé |
+| **UI import V19** | ✔ un seul bouton `Importer` playlist, import EPG séparé, index catalogue V4 vérifiés |
 | Qualification §11 T1–T4 sur webOS 5.0 (émulateur/TV) | ⏳ **non exécutable ici** — spécificités webOS (ServiceBridge, décodeur matériel, D-pad RC) + pré-requis bloquant Q2 du plan |
 
 Couverture des fixtures §9 : `m3u-20000` (20 002 lignes exactes avec variantes),
@@ -28,9 +28,15 @@ dates-12, attrs (`>` quoté/quotes simples/ordre), CDATA+entités, coupe 7 Ko,
 watermark waiters, filet `worker.onerror`, `xtream-mock` (5 channels + 4 vod exacts,
 `ACCOUNT_INFO.maxConnections=2`), `xtream-auth-fail` (zéro écriture), XP-4
 (catégorie 503 ignorée), bascule de table sans CHUNK mixte, deux lots en vol,
-`bulkAdd` exclusif, objets Xtream compacts et import par défaut V18.
+`bulkAdd` exclusif, objets Xtream compacts, import par défaut V18 et migration d’index V19.
 
 ## Télécharger
+
+- **Version V19 (source + spécification + migration Dexie V4)** : release
+  GitHub → https://github.com/ouagkamel/iptv-webos/releases/tag/v19 ; archive
+  directe : https://github.com/ouagkamel/iptv-webos/releases/download/v19/iptv-webos-v19.zip
+- **Version V18** : release historique de l’import optimisé →
+  https://github.com/ouagkamel/iptv-webos/releases/tag/v18
 
 - **Archive complète V17.1 (source + `dist/` prêt pour `ares-package`)** : release
   GitHub → https://github.com/ouagkamel/iptv-webos/releases ; téléchargement direct :
@@ -40,7 +46,7 @@ watermark waiters, filet `worker.onerror`, `xtream-mock` (5 channels + 4 vod exa
 - Miroir de démonstration : https://iptv-webos-demo-ef07f8.surge.sh (canal secondaire ;
   GitHub reste le canal recommandé pour l'archive TV).
 
-## Import par défaut V18
+## Import par défaut V18, index V19
 
 Les variantes de benchmark `Test import 1` à `Test import 5` ont été supprimées
 de l’interface. Il n’existe plus qu’un bouton **Importer** par playlist ; il
@@ -66,6 +72,22 @@ Le swap final ne supprime plus l’ancien catalogue dans la transaction de fin.
 GC différée supprime les anciennes lignes par lots de 500. Si l’application est
 arrêtée avant cette GC, `bootMaintenance()` retrouve les lignes orphelines au
 prochain démarrage.
+
+## Régime d’index V19
+
+La V19 applique la partie sûre de la recommandation « régime d’index » :
+`channels`, `vod` et `series` ne conservent plus que la clé primaire `id` et
+l’index `importId`. Les propriétés `groupName`, `searchName` et `channelId`
+restent disponibles, mais le filtrage et la recherche sont exécutés en JavaScript
+après chargement de l’import actif.
+
+Les index EPG (`[importId+channelId+startTime]`, `stopTime`) et catégories
+(`[importId+kind]`) sont conservés car ils sont réellement utilisés. La migration
+Dexie V4 ne supprime aucune donnée.
+
+Le format Blob/JSON par catégorie n’est pas activé par défaut : il nécessite une
+mesure TV des tailles de records, de la mémoire et de la reprise sur erreur avant
+de remplacer le protocole V18.
 
 ## Quota de stockage après un import échoué
 
@@ -122,7 +144,7 @@ pure (`src/services/ListOrder.js`) appliquée à la lecture par le
   première apparition). Chaque liste Chaînes / Films / Séries est précédée d'un
   sélecteur de catégorie (« Toutes les catégories » en tête) ; le filtre
   s'applique avant la recherche préfixe et le plafond de rendu.
-- **DB v3 (additive)** : `series`, `series_info`, `categories` ; purge/swap
+- **DB v3 puis V4 (additives)** : `series`, `series_info`, `categories`, puis index catalogue minimaux ; purge/swap
   bornés §5.3 étendus aux trois tables ; boot maintenance idem.
 
 ## Performance d'import (révision V10)
@@ -188,7 +210,12 @@ pure (`src/services/ListOrder.js`) appliquée à la lecture par le
    avant la GC lazy des anciens imports ; `bootMaintenance()` reste le filet de
    reprise après arrêt avant nettoyage.
 
-9. **Workers inlinés (`?worker&inline`, bootstrap.js)** — en build dist, Vite 4 avec
+9. **Régime d’index V19** : la migration Dexie V4 retire les index secondaires
+   inutilisés de `channels`, `vod` et `series`. Le filtrage et la recherche restent
+   en JavaScript ; les index réellement utilisés par l’EPG et les catégories sont
+   conservés. Le Blob/JSON reste expérimental, non activé sans mesure TV.
+
+10. **Workers inlinés (`?worker&inline`, bootstrap.js)** — en build dist, Vite 4 avec
    `base: './'` + script `type="module"` génère `new Worker(new URL(fichier,
    document.baseURI))` (car `document.currentScript` est `null` en contexte module) :
    les workers séparés de `dist/assets/` étaient donc cherchés à la racine du document
@@ -398,7 +425,7 @@ par renommage, contenu inchangé).
 
 ## Arborescence
 
-Conforme à l'arbre gelé du plan (`SPEC-IPTV-webOS-V6-FINAL.md` ↔ `IMPLEMENTATION-PLAN.md`, révision V17), dont :
+Conforme à l'arbre gelé du plan (`SPEC-IPTV-webOS-V6-FINAL.md` ↔ `IMPLEMENTATION-PLAN.md`, révision V19), dont :
 `src/data/{db,DataManager,ImportController,m3u,epg,xtream}` · `src/media/{MediaAdapter,Watchdog,DualPlayerPolicy}` ·
 `src/platform/{LifecycleAdapter,XtreamClient}` · `src/ui/{FocusEngine,VirtualList}` · `src/services/PlaylistManager` ·
 `src/{bootstrap,app}.js` · `tests/` (harnais node + harness.html/harness-run.js §9 navigateur + fixtures générées) · `dev/smoke.{html,js}` (smoke Sprint 0) · `tools/{syntax-gate,browser-run}.mjs`.
