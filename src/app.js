@@ -16,7 +16,7 @@ import { SeriesBrowser } from './services/SeriesBrowser.js';
 import { CONFIG, DEFAULT_PLAYLIST } from './config.js';
 
 const state = {
-  tab: 'playlists',
+  tab: 'playlists', // profiles screen; selecting a profile opens the home dashboard
   playlists: [],
   activePlaylistId: null,
   items: { live: [], vod: [], series: [] },
@@ -37,6 +37,7 @@ let seriesOverlay = null;
 let seriesCtx = null;   // { pl, item, payload, level:'seasons'|'episodes', seasonIdx }
 let seriesRefs = null;  // nœuds stables de l'overlay (body, closeB)
 let seriesBack = null;  // handler courant de la pile LIFO du panneau
+let profileModalBack = null;
 const lists = {};
 const catSelects = {};
 const CATALOG_KINDS = ['live', 'vod', 'series'];
@@ -69,26 +70,46 @@ async function main() {
 
 function buildLayout() {
   root.innerHTML = '';
+  root.className = 'vision-shell';
 
-  const header = el('header', 'hdr');
-  header.appendChild(tabButton('playlists', 'Playlistes'));
-  header.appendChild(tabButton('live', 'Chaînes'));
-  header.appendChild(tabButton('vod', 'Films'));
-  header.appendChild(tabButton('series', 'Séries'));
-  root.appendChild(header);
+  const sidebar = el('aside', 'vision-sidebar');
+  const brand = el('div', 'vision-brand');
+  const brandMark = el('span', 'vision-brand-mark'); brandMark.textContent = 'V';
+  const brandName = el('span', 'vision-brand-name'); brandName.textContent = 'VisionTV';
+  brand.appendChild(brandMark); brand.appendChild(brandName); sidebar.appendChild(brand);
 
-  const body = el('div', 'body');
+  const nav = el('nav', 'vision-nav');
+  nav.appendChild(navButton('home', 'Accueil', 'home'));
+  nav.appendChild(navButton('live', 'En Direct', 'tv'));
+  nav.appendChild(navButton('vod', 'Films', 'film'));
+  nav.appendChild(navButton('series', 'Séries', 'clapper'));
+  nav.appendChild(navButton('favorites', 'Favoris', 'star'));
+  nav.appendChild(navButton('playlists', 'Profils', 'user'));
+  sidebar.appendChild(nav);
+  const settings = navButton('settings', 'Paramètres', 'settings');
+  settings.classList.add('vision-settings');
+  sidebar.appendChild(settings);
+
+  const main = el('main', 'vision-main');
+  const body = el('div', 'vision-views');
   state.views = {
+    home: buildHomeView(),
+    favorites: buildFavoritesView(),
+    settings: buildSettingsView(),
     playlists: buildPlaylistsView(),
     live: buildListView('live'),
     vod: buildListView('vod'),
     series: buildListView('series')
   };
+  body.appendChild(state.views.home);
+  body.appendChild(state.views.favorites);
+  body.appendChild(state.views.settings);
   body.appendChild(state.views.playlists);
   body.appendChild(state.views.live);
   body.appendChild(state.views.vod);
   body.appendChild(state.views.series);
-  root.appendChild(body);
+  main.appendChild(body);
+  root.appendChild(sidebar); root.appendChild(main);
 }
 
 function el(tag, cls) {
@@ -97,46 +118,289 @@ function el(tag, cls) {
   return n;
 }
 
+function svgIcon(name, size) {
+  const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+  svg.setAttribute('viewBox', '0 0 24 24');
+  svg.setAttribute('width', String(size || 24)); svg.setAttribute('height', String(size || 24));
+  svg.setAttribute('aria-hidden', 'true'); svg.classList.add('svg-icon');
+  const paths = {
+    home: 'M3 10.5 12 3l9 7.5v9a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z',
+    tv: 'M4 6h16a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1z M8 22h8 M12 18v4',
+    film: 'M4 4h16v16H4z M4 9h16 M4 15h16 M8 4v5 M16 4v5 M8 15v5 M16 15v5',
+    clapper: 'M3 7h18v13H3z M3 7l3-4h4L7 7l4-4h4l-3 4 4-4h4l-3 4',
+    user: 'M20 21a8 8 0 0 0-16 0 M12 13a4 4 0 1 0 0-8 4 4 0 0 0 0 8z',
+    settings: 'M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8z M4.9 4.9l1.4 1.4 M17.7 17.7l1.4 1.4 M4 12H2 M22 12h-2 M4.9 19.1l1.4-1.4 M17.7 6.3l1.4-1.4 M12 4V2 M12 22v-2',
+    play: 'M8 5v14l11-7z',
+    pause: 'M8 5v14 M16 5v14',
+    plus: 'M12 5v14 M5 12h14',
+    trash: 'M5 7h14 M10 11v6 M14 11v6 M8 7l1-3h6l1 3 M7 7l1 14h8l1-14',
+    info: 'M12 11v6 M12 7h.01 M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0z',
+    close: 'M6 6l12 12 M18 6 6 18'
+  };
+  const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+  path.setAttribute('d', paths[name] || paths.info); path.setAttribute('fill', 'none');
+  path.setAttribute('stroke', 'currentColor'); path.setAttribute('stroke-width', '1.8');
+  path.setAttribute('stroke-linecap', 'round'); path.setAttribute('stroke-linejoin', 'round');
+  svg.appendChild(path); return svg;
+}
+
+function navButton(tab, label, iconName) {
+  const b = tabButton(tab, label);
+  b.classList.add('nav-button'); b.appendChild(svgIcon(iconName, 24));
+  const text = el('span', 'nav-label'); text.textContent = label; b.appendChild(text);
+  return b;
+}
+
 function tabButton(tab, label) {
   const b = el('button', 'tab-btn');
-  b.textContent = label;
-  b.tabIndex = 0;
+  b.setAttribute('aria-label', label); b.setAttribute('data-tab', tab); b.title = label; b.tabIndex = 0;
   b.addEventListener('click', function () { state.tab = tab; renderTab(); });
   return b;
 }
 
-function buildPlaylistsView() {
-  const view = el('div', 'view view-playlists');
+function buildHomeView() {
+  const view = el('div', 'view view-home');
+  const top = el('div', 'home-topbar');
+  const intro = el('div', 'home-intro');
+  const eyebrow = el('span', 'eyebrow'); eyebrow.textContent = 'VISIONTV'; intro.appendChild(eyebrow);
+  const title = el('h1'); title.textContent = 'Découverte'; intro.appendChild(title);
+  const subtitle = el('p'); subtitle.textContent = 'Votre divertissement, réinventé.'; intro.appendChild(subtitle);
+  top.appendChild(intro);
+  const profile = el('button', 'home-profile'); profile.tabIndex = 0;
+  const profileAvatar = el('span', 'home-profile-avatar'); profileAvatar.textContent = 'V';
+  const profileName = el('span'); profileName.textContent = 'Profil';
+  const clock = el('time', 'home-clock'); clock.textContent = '--:--';
+  profile.appendChild(profileAvatar); profile.appendChild(profileName); profile.appendChild(clock);
+  profile.addEventListener('click', function () { state.tab = 'playlists'; renderTab(); });
+  top.appendChild(profile); view.appendChild(top);
 
-  const form = el('div', 'pl-form');
-  const nameI = input('Nom', 'text'); form.appendChild(field('Nom', nameI));
-  const srcS = el('select'); srcS.tabIndex = 0;
-  [['m3u', 'M3U (URL)'], ['xtream', 'Xtream (URL+identifiants)']].forEach(function (o) {
-    const op = el('option'); op.value = o[0]; op.textContent = o[1]; srcS.appendChild(op);
-  });
-  form.appendChild(field('Source', srcS));
-  const m3uI = input('URL .m3u', 'text'); form.appendChild(field('URL playlist', m3uI));
-  const epgI = input('URL xmltv (optionnel)', 'text'); form.appendChild(field('URL EPG', epgI));
-  const baseI = input('https://panel:port', 'text'); form.appendChild(field('Base Xtream', baseI));
-  const userI = input('username', 'text'); form.appendChild(field('Utilisateur', userI));
-  const passI = input('password', 'password'); form.appendChild(field('Mot de passe', passI));
-  // XP-3 : jamais de journalisation des credentials (mot de passe jamais lu dans un log)
-  const save = button('Enregistrer la playlist', async function () {
-    try {
-      await ctx.manager.create({
-        name: nameI.value, source: srcS.value, m3uUrl: m3uI.value, epgUrl: epgI.value,
-        base: baseI.value, username: userI.value, password: passI.value
-      });
-      osd && osd.setStatus('Playlist enregistrée');
-      await refreshPlaylists(); renderTab();
-    } catch (err) { osd && osd.setStatus('Refus : ' + err.message); }
-  });
-  form.appendChild(save);
-  view.appendChild(form);
+  const hero = el('section', 'home-hero');
+  const heroArt = el('div', 'hero-art');
+  const heroOrb = el('div', 'hero-orb'); heroArt.appendChild(heroOrb);
+  const heroCopy = el('div', 'hero-copy');
+  const heroKicker = el('span', 'hero-kicker'); heroKicker.textContent = 'À LA UNE'; heroCopy.appendChild(heroKicker);
+  const heroTitle = el('h2'); heroTitle.textContent = 'Bienvenue sur VisionTV'; heroCopy.appendChild(heroTitle);
+  const heroMeta = el('div', 'hero-meta'); heroMeta.textContent = 'TV en direct  ·  Films  ·  Séries'; heroCopy.appendChild(heroMeta);
+  const heroPlot = el('p'); heroPlot.textContent = 'Importez votre accès et retrouvez vos chaînes et contenus dans une interface pensée pour la télécommande.'; heroCopy.appendChild(heroPlot);
+  const heroActions = el('div', 'hero-actions');
+  const heroPlay = button('Importer une playlist', function () {
+    if (state.activePlaylistId != null) runImport(state.activePlaylistId, false); else { state.tab = 'playlists'; renderTab(); }
+  }); heroPlay.classList.add('vision-primary'); heroPlay.insertBefore(svgIcon('play', 20), heroPlay.firstChild);
+  const heroInfo = button('En savoir plus', function () { if (osd) osd.setStatus('Sélectionnez un contenu pour commencer'); }); heroInfo.classList.add('vision-ghost'); heroActions.appendChild(heroPlay); heroActions.appendChild(heroInfo);
+  heroCopy.appendChild(heroActions); hero.appendChild(heroArt); hero.appendChild(heroCopy); view.appendChild(hero);
 
-  state.plListEl = el('div', 'pl-list');
-  view.appendChild(state.plListEl);
+  const liveHeader = sectionHeader('En direct pour vous', 'Voir tout', function () { state.tab = 'live'; renderTab(); });
+  view.appendChild(liveHeader);
+  const liveRow = el('div', 'home-card-row'); view.appendChild(liveRow);
+  const contentHeader = sectionHeader('À découvrir', 'Films et séries', function () { state.tab = 'vod'; renderTab(); });
+  view.appendChild(contentHeader);
+  const contentRow = el('div', 'home-card-row'); view.appendChild(contentRow);
+  state.homeRefs = { view: view, profile: profile, profileAvatar: profileAvatar, profileName: profileName,
+    clock: clock, hero: hero, heroTitle: heroTitle, heroMeta: heroMeta, heroPlot: heroPlot,
+    heroKicker: heroKicker, heroPlay: heroPlay, liveRow: liveRow, contentRow: contentRow };
+  if (!state.homeClockTimer) {
+    state.homeClockTimer = setInterval(function () { updateHomeClock(); }, 30000);
+  }
   return view;
+}
+
+function sectionHeader(label, actionLabel, onClick) {
+  const head = el('div', 'section-header');
+  const h = el('h2'); h.textContent = label; head.appendChild(h);
+  const b = button(actionLabel, onClick); b.classList.add('section-action'); head.appendChild(b);
+  return head;
+}
+
+function updateHomeClock() {
+  if (!state.homeRefs || !state.homeRefs.clock) return;
+  const now = new Date();
+  const hh = String(now.getHours()).padStart(2, '0');
+  const mm = String(now.getMinutes()).padStart(2, '0');
+  state.homeRefs.clock.textContent = hh + ':' + mm;
+}
+
+function renderHomeView() {
+  const refs = state.homeRefs;
+  if (!refs) return;
+  updateHomeClock();
+  const active = state.playlists.filter(function (p) { return p.id === state.activePlaylistId; })[0];
+  const profileName = active ? String(active.name || 'Profil') : 'Profil';
+  refs.profileName.textContent = profileName;
+  refs.profileAvatar.textContent = profileName.slice(0, 1).toUpperCase();
+
+  const live = lists.live && lists.live.items ? lists.live.items.slice(0, 6) : [];
+  const vod = lists.vod && lists.vod.items ? lists.vod.items.slice(0, 5) : [];
+  const lead = live.length ? live[0] : (vod.length ? vod[0] : null);
+  refs.heroKicker.textContent = lead ? (live.length ? 'EN DIRECT' : 'À LA UNE') : 'VISIONTV';
+  refs.heroTitle.textContent = lead ? String(lead.name || 'Votre programme') : 'Bienvenue sur VisionTV';
+  refs.heroMeta.textContent = lead ? [lead.groupName, lead.rating ? '★ ' + lead.rating : '', lead.releaseDate].filter(Boolean).join('  ·  ') : 'TV en direct  ·  Films  ·  Séries';
+  refs.heroPlot.textContent = lead && lead.plot ? String(lead.plot) : 'Importez votre accès et retrouvez vos chaînes et contenus dans une interface pensée pour la télécommande.';
+  refs.heroPlay.textContent = '';
+  refs.heroPlay.appendChild(svgIcon(lead ? 'play' : 'plus', 20));
+  refs.heroPlay.appendChild(document.createTextNode(lead ? 'Regarder maintenant' : 'Importer une playlist'));
+  refs.heroPlay.onclick = function () {
+    if (lead) activateChannel(live.length ? 'live' : 'vod', lead, 0);
+    else if (state.activePlaylistId != null) runImport(state.activePlaylistId, false);
+    else { state.tab = 'playlists'; renderTab(); }
+  };
+  renderHomeCards(refs.liveRow, live, 'live', 'Aucune chaîne importée');
+  renderHomeCards(refs.contentRow, vod, 'vod', 'Les films apparaîtront après un import Xtream');
+}
+
+function renderHomeCards(host, rows, kind, emptyText) {
+  host.innerHTML = '';
+  if (!rows.length) {
+    const empty = el('div', 'home-empty-card');
+    empty.appendChild(svgIcon(kind === 'live' ? 'tv' : 'film', 28));
+    const copy = el('span'); copy.textContent = emptyText; empty.appendChild(copy);
+    host.appendChild(empty); return;
+  }
+  rows.forEach(function (item, index) {
+    const card = el('button', 'content-card'); card.tabIndex = 0;
+    const thumb = el('span', 'content-thumb');
+    if (item.logo) { const img = document.createElement('img'); img.src = String(item.logo); img.alt = ''; thumb.appendChild(img); }
+    else { const letter = el('span'); letter.textContent = String(item.name || 'V').slice(0, 1).toUpperCase(); thumb.appendChild(letter); }
+    const cardTitle = el('span', 'content-title'); cardTitle.textContent = String(item.name || 'Sans titre');
+    const cardMeta = el('small'); cardMeta.textContent = kind === 'live' ? 'En direct' : (item.groupName || 'Catalogue');
+    card.appendChild(thumb); card.appendChild(cardTitle); card.appendChild(cardMeta);
+    card.addEventListener('click', function () { activateChannel(kind, item, index); });
+    host.appendChild(card);
+  });
+}
+
+function buildFavoritesView() {
+  const view = el('div', 'view view-simple');
+  const head = el('div', 'simple-head');
+  const kicker = el('span', 'eyebrow'); kicker.textContent = 'VOS SÉLECTIONS'; head.appendChild(kicker);
+  const title = el('h1'); title.textContent = 'Favoris'; head.appendChild(title);
+  const sub = el('p'); sub.textContent = 'Retrouvez vos chaînes et programmes préférés au même endroit.'; head.appendChild(sub);
+  view.appendChild(head);
+  const empty = el('div', 'simple-empty'); empty.appendChild(svgIcon('star', 42));
+  const emptyTitle = el('h2'); emptyTitle.textContent = 'Aucun favori pour le moment'; empty.appendChild(emptyTitle);
+  const emptyText = el('p'); emptyText.textContent = 'Ouvrez un catalogue et ajoutez vos contenus favoris depuis votre téléviseur.'; empty.appendChild(emptyText);
+  const browse = button('Parcourir les chaînes', function () { state.tab = 'live'; renderTab(); }); browse.classList.add('vision-primary'); empty.appendChild(browse);
+  view.appendChild(empty); return view;
+}
+
+function buildSettingsView() {
+  const view = el('div', 'view view-simple');
+  const head = el('div', 'simple-head');
+  const kicker = el('span', 'eyebrow'); kicker.textContent = 'VISIONTV'; head.appendChild(kicker);
+  const title = el('h1'); title.textContent = 'Paramètres'; head.appendChild(title);
+  const sub = el('p'); sub.textContent = 'Gérez votre accès et les préférences de lecture.'; head.appendChild(sub);
+  view.appendChild(head);
+  const cards = el('div', 'settings-grid');
+  const profileCard = el('div', 'settings-card');
+  const pTitle = el('h2'); pTitle.textContent = 'Profils et accès'; profileCard.appendChild(pTitle);
+  const pText = el('p'); pText.textContent = 'Ajoutez un compte Xtream ou un lien M3U, importez votre catalogue et gérez vos accès.'; profileCard.appendChild(pText);
+  const pButton = button('Gérer les profils', function () { state.tab = 'playlists'; renderTab(); }); pButton.classList.add('vision-primary'); profileCard.appendChild(pButton); cards.appendChild(profileCard);
+  const deviceCard = el('div', 'settings-card');
+  const dTitle = el('h2'); dTitle.textContent = 'Lecture TV'; deviceCard.appendChild(dTitle);
+  const dText = el('p'); dText.textContent = 'La lecture utilise le lecteur natif et le mode de secours compatible webOS.'; deviceCard.appendChild(dText);
+  const dBadge = el('span', 'settings-badge'); dBadge.textContent = 'Optimisé pour la télécommande'; deviceCard.appendChild(dBadge); cards.appendChild(deviceCard);
+  view.appendChild(cards); return view;
+}
+
+function buildPlaylistsView() {
+  const view = el('div', 'view view-profiles');
+  const brand = el('div', 'profile-brand');
+  const mark = el('span', 'vision-brand-mark'); mark.textContent = 'V';
+  const name = el('span'); name.textContent = 'VisionTV';
+  brand.appendChild(mark); brand.appendChild(name); view.appendChild(brand);
+
+  const stage = el('div', 'profile-stage');
+  const heading = el('h1'); heading.textContent = 'Qui regarde la TV ?'; stage.appendChild(heading);
+  const subtitle = el('p'); subtitle.textContent = 'Sélectionnez un profil pour accéder à vos contenus.'; stage.appendChild(subtitle);
+  const empty = el('div', 'profile-empty');
+  const monitor = el('div', 'empty-monitor'); monitor.appendChild(el('span', 'empty-screen'));
+  empty.appendChild(monitor);
+  const emptyTitle = el('strong'); emptyTitle.textContent = 'Aucun profil configuré'; empty.appendChild(emptyTitle);
+  const emptyText = el('span'); emptyText.textContent = 'Ajoutez un accès IPTV pour commencer.'; empty.appendChild(emptyText);
+  stage.appendChild(empty); state.profileEmptyEl = empty;
+  state.plListEl = el('div', 'profile-grid'); stage.appendChild(state.plListEl);
+
+  const add = button('Ajouter un profil', openProfileModal);
+  add.classList.add('vision-primary', 'profile-add'); add.insertBefore(svgIcon('plus', 24), add.firstChild);
+  stage.appendChild(add); view.appendChild(stage);
+
+  const layer = el('div', 'profile-modal-layer'); layer.style.display = 'none';
+  const panel = el('div', 'profile-modal');
+  const modalHead = el('div', 'modal-head');
+  const modalTitle = el('h2'); modalTitle.textContent = 'Ajouter un accès'; modalHead.appendChild(modalTitle);
+  const close = button('', closeProfileModal); close.classList.add('icon-button'); close.appendChild(svgIcon('close', 22));
+  modalHead.appendChild(close); panel.appendChild(modalHead);
+
+  const srcS = el('select'); srcS.tabIndex = -1;
+  const xOpt = el('option'); xOpt.value = 'xtream'; xOpt.textContent = 'Compte Xtream'; srcS.appendChild(xOpt);
+  const mOpt = el('option'); mOpt.value = 'm3u'; mOpt.textContent = 'Lien M3U'; srcS.appendChild(mOpt);
+  srcS.classList.add('source-select');
+  const sourceTabs = el('div', 'source-tabs');
+  const xtab = button('Compte Xtream', function () { srcS.value = 'xtream'; setProfileSource(); });
+  const mtab = button('Lien M3U', function () { srcS.value = 'm3u'; setProfileSource(); });
+  sourceTabs.appendChild(xtab); sourceTabs.appendChild(mtab); sourceTabs.appendChild(srcS); panel.appendChild(sourceTabs);
+
+  const form = el('div', 'profile-form');
+  const nameI = input('Nom du profil (ex : Salon)', 'text');
+  const m3uI = input('Lien M3U (https://…)', 'url');
+  const epgI = input('Lien XMLTV optionnel (https://…)', 'url');
+  const baseI = input('Lien du serveur (http://…)', 'url');
+  const userI = input('Username', 'text');
+  const passI = input('Password', 'password');
+  form.appendChild(nameI); form.appendChild(m3uI); form.appendChild(epgI); form.appendChild(baseI);
+  form.appendChild(userI); form.appendChild(passI); panel.appendChild(form);
+
+  const save = button('Connecter', async function () {
+    try {
+      await ctx.manager.create({ name: nameI.value, source: srcS.value, m3uUrl: m3uI.value,
+        epgUrl: epgI.value, base: baseI.value, username: userI.value, password: passI.value });
+      closeProfileModal(); await refreshPlaylists(); renderTab();
+    } catch (err) { setProfileFormError(err.message); }
+  });
+  save.classList.add('vision-primary', 'modal-submit'); save.insertBefore(svgIcon('plus', 22), save.firstChild); panel.appendChild(save);
+  const error = el('div', 'profile-form-error'); panel.appendChild(error);
+  layer.appendChild(panel); view.appendChild(layer);
+  state.profileForm = { layer: layer, source: srcS, xtab: xtab, mtab: mtab,
+    name: nameI, m3u: m3uI, epg: epgI, base: baseI, user: userI, pass: passI, error: error };
+  setProfileSource();
+  return view;
+}
+
+function setProfileFormError(message) {
+  if (state.profileForm) state.profileForm.error.textContent = String(message || '');
+}
+
+function setProfileSource() {
+  const f = state.profileForm;
+  if (!f) return;
+  const xtream = f.source.value === 'xtream';
+  f.xtab.classList.toggle('selected', xtream); f.mtab.classList.toggle('selected', !xtream);
+  f.m3u.style.display = xtream ? 'none' : '';
+  f.epg.style.display = xtream ? 'none' : '';
+  f.base.style.display = xtream ? '' : 'none';
+  f.user.style.display = xtream ? '' : 'none';
+  f.pass.style.display = xtream ? '' : 'none';
+  f.error.textContent = '';
+}
+
+function openProfileModal() {
+  if (!state.profileForm) return;
+  state.profileForm.layer.style.display = 'flex';
+  state.profileForm.name.focus();
+  if (engine) engine.setFocusables(visibleFocusables(state.profileForm.layer).filter(function (node) {
+    return node !== state.profileForm.source;
+  }));
+  if (engine && !profileModalBack) {
+    profileModalBack = closeProfileModal;
+    engine.pushBackHandler(profileModalBack);
+  }
+}
+
+function closeProfileModal() {
+  if (!state.profileForm) return;
+  state.profileForm.layer.style.display = 'none';
+  state.profileForm.error.textContent = '';
+  if (engine && profileModalBack) { engine.removeBackHandler(profileModalBack); profileModalBack = null; }
+  if (state.tab === 'playlists' && engine) engine.setFocusables(visibleFocusables(state.views.playlists, 'button'));
 }
 
 function input(ph, type) { const i = el('input'); i.tabIndex = 0; i.placeholder = ph; i.type = type || 'text'; return i; }
@@ -146,8 +410,27 @@ function button(label, onClick) {
   b.addEventListener('click', onClick); return b;
 }
 
+function visibleFocusables(container, selector) {
+  const nodes = Array.prototype.slice.call(container.querySelectorAll(selector || 'button, input, select'));
+  return nodes.filter(function (node) {
+    let cur = node;
+    while (cur && cur !== document.body) {
+      if (cur.style && cur.style.display === 'none') return false;
+      cur = cur.parentNode;
+    }
+    return node.tabIndex !== -1;
+  });
+}
+
 function buildListView(kind) {
-  const view = el('div', 'view view-list');
+  const view = el('div', 'view view-catalog view-' + kind);
+  const catalogHead = el('div', 'catalog-head');
+  const heading = el('div', 'catalog-heading');
+  const title = el('h1'); title.textContent = kind === 'live' ? 'En direct' : (kind === 'vod' ? 'Films' : 'Séries');
+  const sub = el('p'); sub.textContent = kind === 'live' ? 'Vos chaînes et programmes en temps réel.' : 'Un catalogue prêt pour vos soirées.';
+  heading.appendChild(title); heading.appendChild(sub); catalogHead.appendChild(heading);
+  const hint = el('span', 'remote-hint'); hint.textContent = '↑ ↓ naviguer  ·  OK ouvrir'; catalogHead.appendChild(hint);
+  view.appendChild(catalogHead);
   const left = el('div', 'list-pane');
   const tools = el('div', 'tools');
   // V11 : catégories telles que définies par le serveur (ordre serveur conservé).
@@ -196,27 +479,42 @@ async function refreshPlaylists() {
     state.activePlaylistId = state.playlists[0].id;
   }
   const host = state.plListEl;
+  if (!host) return;
+  if (state.profileEmptyEl) state.profileEmptyEl.style.display = state.playlists.length ? 'none' : 'flex';
   host.innerHTML = '';
   state.playlists.forEach(function (pl) {
-    const row = el('div', 'pl-row'); row.tabIndex = -1;
-    row.textContent = pl.name + '  [' + (pl.source === 'xtream' ? 'Xtream' : 'M3U') + ']' +
-      (pl.activeImportId ? '  ✓ importée' : '');
-    const mk = function (label, fn) {
-      const b = el('button', 'mini'); b.textContent = label; b.tabIndex = 0;
-      b.addEventListener('click', function (ev) { ev.stopPropagation(); fn(); });
-      row.appendChild(b);
-    };
-    const sel = function () { state.activePlaylistId = pl.id; osd && osd.setStatus('Playlist active : ' + pl.name); loadActiveData(); };
-    mk('Activer', sel);
-    mk('Importer', function () { runImport(pl.id, false); });
-    mk('EPG', function () { runImport(pl.id, true); });
-    mk('Annuler', function () { ctx.manager.abort(pl.id, 'epg'); ctx.manager.abort(pl.id, 'playlist'); });
-    mk('Supprimer', async function () {
+    const card = el('article', 'profile-card');
+    const main = el('button', 'profile-card-main'); main.tabIndex = 0;
+    const avatar = el('span', 'profile-avatar');
+    const profileName = String(pl.name || 'Profil');
+    avatar.textContent = profileName.slice(0, 1).toUpperCase();
+    const cardText = el('span', 'profile-card-text');
+    const title = el('strong'); title.textContent = profileName;
+    const meta = el('small'); meta.textContent = (pl.source === 'xtream' ? 'Compte Xtream' : 'Lien M3U') +
+      (pl.activeImportId ? ' · catalogue prêt' : ' · à configurer');
+    cardText.appendChild(title); cardText.appendChild(meta);
+    main.appendChild(avatar); main.appendChild(cardText); main.appendChild(svgIcon('play', 22));
+    main.addEventListener('click', function () {
+      state.activePlaylistId = pl.id; state.tab = 'home';
+      osd && osd.setStatus('Profil actif : ' + profileName); renderTab();
+    });
+    card.appendChild(main);
+
+    const actions = el('div', 'profile-card-actions');
+    const importB = button('Importer', function () { runImport(pl.id, false); });
+    importB.classList.add('mini'); actions.appendChild(importB);
+    const epgB = button('EPG', function () { runImport(pl.id, true); });
+    epgB.classList.add('mini'); actions.appendChild(epgB);
+    const cancelB = button('Annuler', function () { ctx.manager.abort(pl.id, 'epg'); ctx.manager.abort(pl.id, 'playlist'); });
+    cancelB.classList.add('mini'); actions.appendChild(cancelB);
+    const deleteB = button('', async function () {
       await ctx.manager.remove(pl.id);
       if (state.activePlaylistId === pl.id) state.activePlaylistId = null;
       await refreshPlaylists(); renderTab();
     });
-    host.appendChild(row);
+    deleteB.classList.add('mini', 'danger-button'); deleteB.setAttribute('aria-label', 'Supprimer ' + profileName);
+    deleteB.appendChild(svgIcon('trash', 18)); actions.appendChild(deleteB);
+    card.appendChild(actions); host.appendChild(card);
   });
 }
 
@@ -262,15 +560,19 @@ function clearCatalogMemory() {
   state.selIndex = -1;
 }
 
+function catalogViewIs(kind) {
+  return state.tab === kind || (state.tab === 'home' && kind === 'live');
+}
+
 async function loadCatalog(kind, token, playlistId) {
   if (CATALOG_KINDS.indexOf(kind) === -1 || playlistId == null) return;
   let rows;
   try {
     rows = await ctx.manager[KIND_TO_MANAGER[kind]](playlistId);
-    if (token !== catalogLoadToken || state.activePlaylistId !== playlistId || state.tab !== kind) return;
+    if (token !== catalogLoadToken || state.activePlaylistId !== playlistId || !catalogViewIs(kind)) return;
     state.items[kind] = rows || [];
     await refreshCategorySelectors(kind, playlistId, token);
-    if (token !== catalogLoadToken || state.activePlaylistId !== playlistId || state.tab !== kind) return;
+    if (token !== catalogLoadToken || state.activePlaylistId !== playlistId || !catalogViewIs(kind)) return;
     applySearch(kind, '');
   } catch (err) {
     if (token === catalogLoadToken && state.activePlaylistId === playlistId && osd) {
@@ -282,8 +584,10 @@ async function loadCatalog(kind, token, playlistId) {
 function loadActiveData() {
   const token = ++catalogLoadToken;
   clearCatalogMemory();
-  if (state.activePlaylistId == null || CATALOG_KINDS.indexOf(state.tab) === -1) return;
-  loadCatalog(state.tab, token, state.activePlaylistId);
+  if (state.activePlaylistId == null) return;
+  const kind = state.tab === 'home' ? 'live' : state.tab;
+  if (CATALOG_KINDS.indexOf(kind) === -1) return;
+  loadCatalog(kind, token, state.activePlaylistId);
 }
 
 const KIND_TO_CAT = { live: 'live', vod: 'vod', series: 'series' };
@@ -296,7 +600,7 @@ async function refreshCategorySelectors(kind, playlistId, token) {
     const rows = await ctx.manager.categories(playlistId, KIND_TO_CAT[kind]);
     catNames = rows.map(function (r) { return r.name; });
   } catch (err) { catNames = []; }
-  if (token !== catalogLoadToken || state.activePlaylistId !== playlistId || state.tab !== kind) return;
+  if (token !== catalogLoadToken || state.activePlaylistId !== playlistId || !catalogViewIs(kind)) return;
   const catSet = new Set(catNames);
   const extra = [];
   // Le serveur reste la source prioritaire ; si ses catégories sont absentes,
@@ -334,6 +638,10 @@ function applySearch(kind, rawQuery) {
     lists[kind].container.scrollTop = 0;
     lists[kind]._renderWindow();
     syncFocusables(kind);
+  }
+  if (state.tab === 'home') {
+    renderHomeView();
+    if (engine && state.views && state.views.home) engine.setFocusables(Array.prototype.slice.call(state.views.home.querySelectorAll('button')));
   }
 }
 
@@ -378,6 +686,9 @@ function handleRemoteKey(e) {
     editKind: (tag === 'INPUT' || tag === 'TEXTAREA') ? 'input' : null,
     tab: state.tab
   };
+  if (state.profileForm && state.profileForm.layer.style.display !== 'none' && (e.keyCode === 27 || e.keyCode === 461)) {
+    e.preventDefault(); e.stopImmediatePropagation(); closeProfileModal(); return;
+  }
   const action = classifyKey(e.keyCode, ctx);
   if (!action) return;
 
@@ -391,7 +702,8 @@ function handleRemoteKey(e) {
     e.preventDefault(); e.stopImmediatePropagation();
     if (seriesOverlay) closeSeriesDetail();
     if (state.playerOpen) closePlayer();
-    state.tab = 'playlists';
+    if (state.profileForm && state.profileForm.layer.style.display !== 'none') closeProfileModal();
+    state.tab = 'home';
     renderTab();
     return;
   }
@@ -514,6 +826,9 @@ async function activateChannel(kind, item, idx) {
 let playerOverlay = null;
 let playerStage = null;
 let playerOpen = false;
+let playerProgress = null;
+let playerPlayButton = null;
+let playerVolumeButton = null;
 
 function ensurePlayer() {
   if (adapter) return;
@@ -521,17 +836,94 @@ function ensurePlayer() {
   videoEl = el('video', 'player');
   videoEl.setAttribute('playsinline', 'playsinline');
   playerStage.appendChild(videoEl);
-  const closeB = el('button', 'mini close-player');
-  closeB.textContent = 'Fermer';
-  closeB.tabIndex = 0;
+  const closeB = el('button', 'mini close-player player-action');
+  closeB.textContent = 'Retour'; closeB.tabIndex = 0;
+  closeB.insertBefore(svgIcon('close', 20), closeB.firstChild);
   closeB.addEventListener('click', closePlayer);
   playerStage.appendChild(closeB);
+
+  const controls = el('div', 'player-controls');
+  playerProgress = el('input', 'player-progress'); playerProgress.type = 'range';
+  playerProgress.min = '0'; playerProgress.max = '1000'; playerProgress.value = '0'; playerProgress.tabIndex = 0;
+  playerProgress.setAttribute('aria-label', 'Position dans la vidéo');
+  playerProgress.addEventListener('change', function () {
+    if (!videoEl || !isFinite(videoEl.duration) || videoEl.duration <= 0) return;
+    videoEl.currentTime = (Number(playerProgress.value) / 1000) * videoEl.duration;
+  });
+  const progressLine = el('div', 'player-progress-line');
+  const elapsed = el('span', 'player-time'); elapsed.textContent = '00:00';
+  const total = el('span', 'player-time'); total.textContent = '00:00';
+  progressLine.appendChild(elapsed); progressLine.appendChild(playerProgress); progressLine.appendChild(total);
+  controls.appendChild(progressLine);
+  const actionLine = el('div', 'player-action-line');
+  playerPlayButton = el('button', 'player-control'); playerPlayButton.tabIndex = 0; playerPlayButton.setAttribute('aria-label', 'Lecture pause');
+  playerPlayButton.addEventListener('click', function () { togglePlayPause(); updatePlayerControls(); });
+  actionLine.appendChild(playerPlayButton);
+  playerVolumeButton = el('button', 'player-control'); playerVolumeButton.tabIndex = 0; playerVolumeButton.setAttribute('aria-label', 'Volume');
+  playerVolumeButton.addEventListener('click', function () { togglePlayerMute(); }); actionLine.appendChild(playerVolumeButton);
+  const backB = el('button', 'player-control'); backB.tabIndex = 0; backB.textContent = '−10 s';
+  backB.addEventListener('click', function () { nudgeSeconds(-10); }); actionLine.appendChild(backB);
+  const forwardB = el('button', 'player-control'); forwardB.tabIndex = 0; forwardB.textContent = '+10 s';
+  forwardB.addEventListener('click', function () { nudgeSeconds(10); }); actionLine.appendChild(forwardB);
+  const fullB = el('button', 'player-control'); fullB.tabIndex = 0; fullB.setAttribute('aria-label', 'Plein écran');
+  fullB.appendChild(svgIcon('info', 19)); fullB.appendChild(document.createTextNode(' Plein écran'));
+  fullB.addEventListener('click', function () { togglePlayerFullscreen(); }); actionLine.appendChild(fullB);
+  controls.appendChild(actionLine); playerStage.appendChild(controls);
+
   osd = new PlayerOSD(playerStage);
   state.osdEl = playerStage;
   adapter = new MediaAdapter(videoEl);
   adapter.init();
   lifecycle = new LifecycleAdapter(adapter);
   lifecycle.init();
+  videoEl.addEventListener('timeupdate', updatePlayerProgress);
+  videoEl.addEventListener('durationchange', updatePlayerProgress);
+  videoEl.addEventListener('play', updatePlayerControls);
+  videoEl.addEventListener('pause', updatePlayerControls);
+  updatePlayerControls();
+}
+
+function formatPlayerTime(value) {
+  const n = isFinite(value) && value >= 0 ? Math.floor(value) : 0;
+  return String(Math.floor(n / 60)).padStart(2, '0') + ':' + String(n % 60).padStart(2, '0');
+}
+
+function updatePlayerProgress() {
+  if (!videoEl || !playerProgress) return;
+  const duration = Number(videoEl.duration);
+  const current = Number(videoEl.currentTime) || 0;
+  playerProgress.value = isFinite(duration) && duration > 0 ? String(Math.round((current / duration) * 1000)) : '0';
+  const line = playerProgress.parentNode;
+  if (line) {
+    const times = line.querySelectorAll('.player-time');
+    if (times.length > 1) { times[0].textContent = formatPlayerTime(current); times[1].textContent = formatPlayerTime(duration); }
+  }
+}
+
+function updatePlayerControls() {
+  if (!playerPlayButton) return;
+  playerPlayButton.innerHTML = '';
+  playerPlayButton.appendChild(svgIcon(videoEl && !videoEl.paused ? 'pause' : 'play', 20));
+  playerPlayButton.appendChild(document.createTextNode(videoEl && !videoEl.paused ? ' Pause' : ' Lecture'));
+  if (playerVolumeButton) {
+    playerVolumeButton.innerHTML = '';
+    playerVolumeButton.appendChild(document.createTextNode(videoEl && videoEl.muted ? 'Son coupé' : 'Volume'));
+  }
+}
+
+function togglePlayerMute() {
+  if (!videoEl) return;
+  videoEl.muted = !videoEl.muted; updatePlayerControls();
+}
+
+function togglePlayerFullscreen() {
+  const target = playerOverlay || playerStage;
+  if (!target) return;
+  try {
+    if (document.fullscreenElement && document.exitFullscreen) document.exitFullscreen();
+    else if (target.requestFullscreen) target.requestFullscreen();
+    else if (osd) osd.setStatus('Plein écran géré par le téléviseur');
+  } catch (err) { if (osd) osd.setStatus('Plein écran indisponible'); }
 }
 
 function openPlayer() {
@@ -542,7 +934,7 @@ function openPlayer() {
   playerOverlay = el('div', 'player-overlay');
   playerOverlay.appendChild(playerStage);
   document.body.appendChild(playerOverlay);
-  engine.setFocusables([playerStage.querySelector('.close-player')]);
+  engine.setFocusables(Array.prototype.slice.call(playerStage.querySelectorAll('button, input')));
   engine.pushBackHandler(closePlayer);
 }
 
@@ -772,18 +1164,29 @@ function wireGlobalEvents() {
 }
 
 function renderTab() {
-  state.views.playlists.style.display = state.tab === 'playlists' ? '' : 'none';
-  state.views.live.style.display = state.tab === 'live' ? '' : 'none';
-  state.views.vod.style.display = state.tab === 'vod' ? '' : 'none';
-  state.views.series.style.display = state.tab === 'series' ? '' : 'none';
-  if (state.tab !== 'playlists') {
-    // Le changement d'onglet invalide le catalogue précédent et déclenche un
-    // seul chargement ciblé (live, vod ou series), jamais les trois en parallèle.
+  if (state.profileForm && state.profileForm.layer.style.display !== 'none' && state.tab !== 'playlists') closeProfileModal();
+  const tabs = ['home', 'playlists', 'favorites', 'settings', 'live', 'vod', 'series'];
+  for (let i = 0; i < tabs.length; i++) {
+    const key = tabs[i];
+    if (state.views[key]) state.views[key].style.display = state.tab === key ? '' : 'none';
+  }
+  root.classList.toggle('profile-mode', state.tab === 'playlists');
+  const navs = root.querySelectorAll('[data-tab]');
+  for (let n = 0; n < navs.length; n++) navs[n].classList.toggle('active', navs[n].getAttribute('data-tab') === state.tab);
+
+  if (state.tab === 'home' || CATALOG_KINDS.indexOf(state.tab) !== -1) {
+    // Un seul catalogue est demandé : home utilise uniquement le live pour ses
+    // premières cartes, puis les onglets chargent leur famille dédiée.
     loadActiveData();
   } else {
-    loadActiveData();
-    engine.setFocusables(Array.prototype.slice.call(
-      state.views.playlists.querySelectorAll('button, input, select')));
+    catalogLoadToken++;
+    clearCatalogMemory();
+    const focusView = state.views[state.tab] || state.views.playlists;
+    engine.setFocusables(visibleFocusables(focusView, 'button'));
+  }
+  if (state.tab === 'home') {
+    renderHomeView();
+    engine.setFocusables(Array.prototype.slice.call(state.views.home.querySelectorAll('button')));
   }
 }
 
