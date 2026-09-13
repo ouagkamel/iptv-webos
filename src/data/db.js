@@ -40,3 +40,10 @@ db.version(4).stores({
   vod:      'id, importId',
   series:   'id, importId'
 });
+
+// v5 (V23 UI) : favoris persistants par playlist et source. Le snapshot permet
+// d'afficher les favoris sans recharger plusieurs familles de catalogue ; la
+// clé sourceKey reste stable quand une nouvelle importation remplace l'id interne.
+db.version(5).stores({
+  favorites: '++id, playlistId, kind, sourceKey, [playlistId+kind+sourceKey], createdAt, updatedAt'
+});

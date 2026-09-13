@@ -65,7 +65,7 @@ export class PlaylistManager {
       .where('playlistId').equals(playlistId).primaryKeys();
     if (importIds.length > 0) {
       await db.transaction('rw', [db.channels, db.epg, db.vod, db.series, db.series_info,
-                                  db.categories, db.imports], async () => {
+                                  db.categories, db.imports, db.favorites], async () => {
         await db.channels.where('importId').anyOf(importIds).delete();
         await db.vod.where('importId').anyOf(importIds).delete();
         await db.series.where('importId').anyOf(importIds).delete();
@@ -75,6 +75,7 @@ export class PlaylistManager {
         await db.imports.bulkDelete(importIds);
       });
     }
+    await db.favorites.where('playlistId').equals(playlistId).delete();
     await db.playlists.delete(playlistId);
   }
 
@@ -196,7 +197,7 @@ export class PlaylistManager {
   async bootMaintenance() {
     const now = Date.now();
     await db.transaction('rw', [db.playlists, db.imports, db.channels, db.epg, db.vod,
-                                db.series, db.series_info, db.categories], async () => {
+                                db.series, db.series_info, db.categories, db.favorites], async () => {
       const running = await db.imports.where('status').equals('running').toArray();
       const freshRunning = {};
       const stale = [];
@@ -213,6 +214,12 @@ export class PlaylistManager {
       }
 
       const playlists = await db.playlists.toArray();
+      const knownPlaylistIds = new Set(playlists.map(function (row) { return row.id; }));
+      const favoritePlaylistIds = await db.favorites.orderBy('playlistId').uniqueKeys();
+      const orphanFavoriteIds = favoritePlaylistIds.filter(function (id) { return !knownPlaylistIds.has(id); });
+      if (orphanFavoriteIds.length > 0) {
+        await db.favorites.where('playlistId').anyOf(orphanFavoriteIds).delete();
+      }
       const activePlaylistIds = new Set(); // protège channels + vod
       const activeEpgIds = new Set();
       for (let p = 0; p < playlists.length; p++) {

@@ -162,12 +162,17 @@ button.section-action:hover, button.section-action:focus { border-color: var(--c
 .universe-copy strong { color: var(--ink); font-size: 13px; }
 .universe-copy small { margin-top: 5px; color: var(--quiet); font-size: 11px; }
 .home-card-row { display: flex; width: 100%; min-height: 0; overflow: hidden; padding: 6px 0 3px; }
-.content-card { flex: 0 0 155px; min-height: 155px; margin: 0 10px 0 0; padding: 0 0 7px; overflow: hidden; border: 1px solid var(--line); border-radius: 11px; color: var(--ink); background: #0d293f; text-align: left; }
-.content-card:hover, .content-card:focus { border-color: var(--cyan); background: #153a53; outline-offset: 2px; }
+.content-card { position: relative; flex: 0 0 155px; min-height: 155px; margin: 0 10px 0 0; padding: 0 0 7px; overflow: hidden; border: 1px solid var(--line); border-radius: 11px; color: var(--ink); background: #0d293f; text-align: left; }
+.content-card:focus-within, .content-card:hover { z-index: 2; border-color: var(--cyan); background: #153a53; outline: none; }
+.content-card-main { display: block; width: 100%; min-height: 153px; padding: 0 0 7px; border: 0; border-radius: 10px; color: var(--ink); background: transparent; text-align: left; }
+.content-card-main:hover, .content-card-main:focus { outline: none; }
 .content-thumb { display: flex; align-items: center; justify-content: center; width: 100%; height: 95px; overflow: hidden; color: var(--cyan-soft); background: linear-gradient(145deg, #174b65, #10233e); font-size: 30px; font-weight: 800; }
 .content-thumb img { display: block; width: 100%; height: 100%; object-fit: cover; }
 .content-title { display: block; overflow: hidden; margin: 9px 10px 0; font-size: 12px; font-weight: 800; text-overflow: ellipsis; white-space: nowrap; }
 .content-card small { display: block; overflow: hidden; margin: 4px 10px; color: var(--muted); font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
+.content-fav { position: absolute; z-index: 2; top: 7px; right: 7px; display: inline-flex; align-items: center; justify-content: center; width: 29px; height: 29px; padding: 0; border: 1px solid rgba(166,214,235,.28); border-radius: 50%; color: var(--muted); background: rgba(5,20,36,.88); }
+.content-fav:hover, .content-fav:focus, .content-fav.active { color: var(--cyan-soft); border-color: var(--cyan); background: #123952; outline-offset: 1px; }
+.content-fav .svg-icon { margin: 0; }
 .home-empty-card { display: flex; align-items: center; justify-content: center; min-width: 330px; height: 105px; margin-top: 5px; border: 1px dashed rgba(45,230,255,.33); border-radius: 10px; color: var(--muted); background: rgba(23,51,75,.25); font-size: 12px; }
 .home-empty-card .svg-icon { margin-right: 10px; color: var(--cyan); }
 
@@ -181,6 +186,11 @@ button.section-action:hover, button.section-action:focus { border-color: var(--c
 .simple-empty h2 { margin-top: 18px; color: var(--ink); font-size: 22px; }
 .simple-empty p { max-width: 390px; margin-top: 9px; line-height: 1.5; }
 .simple-empty .act-btn { margin-top: 23px; }
+.favorite-grid { display: flex; flex-wrap: wrap; align-items: flex-start; margin: 38px -6px 0; }
+.favorite-grid .favorite-card { margin: 6px; }
+.favorite-card { flex-basis: 180px; min-height: 180px; }
+.favorite-card .content-card-main { min-height: 178px; }
+.favorite-card .content-thumb { height: 106px; }
 
 /* Paramètres : composition à deux niveaux inspirée du panneau webOS */
 .view-settings { flex-direction: column; overflow: auto; padding: 38px var(--safe-x) 55px; background: linear-gradient(145deg, #061a2c, #051424 70%, #0b2540); }
@@ -235,7 +245,10 @@ button.section-action:hover, button.section-action:focus { border-color: var(--c
 .list-row { display: flex; align-items: center; padding: 0 20px; border-bottom: 1px solid rgba(166,214,235,.1); color: var(--ink); background: #0b2439; font-size: 14px; }
 .list-row:before { display: inline-flex; align-items: center; justify-content: center; width: 34px; height: 34px; margin-right: 14px; border: 1px solid rgba(45,230,255,.24); border-radius: 8px; color: var(--cyan); background: #123952; content: 'V'; font-size: 12px; font-weight: 900; }
 .list-row:hover, .list-row:focus { z-index: 2; border-left: 4px solid var(--cyan); color: #fff; background: #17405a; outline: none; box-shadow: 0 5px 15px rgba(0,0,0,.16); }
-.channel-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.channel-title { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.row-favorite { display: inline-flex; align-items: center; justify-content: center; width: 31px; height: 31px; flex: 0 0 31px; margin-left: 12px; padding: 0; border: 1px solid transparent; border-radius: 50%; color: var(--quiet); background: transparent; }
+.row-favorite:hover, .row-favorite:focus, .row-favorite.active { color: var(--cyan-soft); border-color: var(--cyan); background: rgba(45,230,255,.1); outline: none; }
+.row-favorite .svg-icon { margin: 0; }
 
 /* Guide TV : catégories / chaînes / programme */
 .view-guide { flex-direction: column; overflow: hidden; padding: 29px var(--safe-x) 28px; background: linear-gradient(145deg, #061a2c, #051424 70%, #0b2540); }

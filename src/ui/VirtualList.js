@@ -1,4 +1,4 @@
-// src/ui/VirtualList.js — spec §8.2 (verbatim).
+// src/ui/VirtualList.js — spec §8.2 : fenêtre et pool bornés ; renderer applicatif optionnel.
 // Windowing réel : pool recyclé, invariant §1.2-6 (nœuds ≤ clientHeight/itemHeight
 // + 2*overscan + 1), rendu XSS-safe strict (textContent, jamais innerHTML).
 import { BaseComponent } from '../core/BaseComponent.js';
@@ -11,6 +11,7 @@ export class VirtualList extends BaseComponent {
     this.itemHeight = options.itemHeight || 60;
     this.overscan = options.overscan != null ? options.overscan : 4;
     this.items = [];
+    this.onRender = typeof options.onRender === 'function' ? options.onRender : null;
     this.pool = [];              // nœuds DOM recyclés — jamais > _maxNodes()
     this.rafPending = false;
 
@@ -89,6 +90,7 @@ export class VirtualList extends BaseComponent {
         const item = this.items[i];
         // Rendu XSS-safe strict : textContent, jamais innerHTML (Invariant §1.2-3)
         rowEl.firstChild.textContent = String((item && item.name) || 'Chaîne ' + (i + 1));
+        if (this.onRender) this.onRender(rowEl, item, i);
       } else {
         rowEl.style.display = 'none';
         // V20 : vider aussi le texte et l'index du nœud recyclé. Les références
@@ -97,6 +99,10 @@ export class VirtualList extends BaseComponent {
         if (typeof rowEl.removeAttribute === 'function') rowEl.removeAttribute('data-index');
         else rowEl.setAttribute('data-index', '');
         rowEl.firstChild.textContent = '';
+        // Un renderer optionnel peut attacher un snapshot applicatif au nœud.
+        // Le vider ici conserve l’invariant de libération lors d’un swap lazy.
+        rowEl._favoriteItem = null;
+        rowEl._favoriteKind = null;
       }
     }
   }

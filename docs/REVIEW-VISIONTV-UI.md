@@ -2,12 +2,12 @@
 
 **Date :** 2026-09-13
 **Base fonctionnelle :** V21 publiée, commit `3b53fab`, tag `v21`
-**Révision :** V22 UI incrémentale, implémentée localement, non encore publiée
+**Révision :** V23 incrémentale sur V22, favoris persistants implémentés localement, non encore publiée
 **Référence visuelle :** `/home/user/uploads/DESIGN.md` et les six prototypes HTML joints
 
 ## Verdict
 
-**WARNING — révision UI validée par analyse statique, tests, gate Chromium 68, build et ressources servies par Vite ; validation CDP/webOS réel encore indisponible.**
+**WARNING — révision V23 validée par analyse statique, tests, gate Chromium 68, build et ressources servies par Vite ; validation CDP/webOS réel encore indisponible.**
 
 La V22 ne réécrit pas le moteur métier. Elle réutilise Dexie, les imports M3U/Xtream/XMLTV, la persistance des playlists, le chargement lazy, `VirtualList`, `SeriesBrowser`, `MediaAdapter`, `LifecycleAdapter`, le GC lazy et le routeur D-Pad existants. Les changements applicatifs se concentrent sur la composition de `src/app.js`, le thème natif de `src/styles/main.css` et la classification de l’onglet Guide dans `src/ui/RemoteKeys.js`.
 
@@ -25,6 +25,7 @@ La V22 ne réécrit pas le moteur métier. Elle réutilise Dexie, les imports M3
 | Prototype paramètres | Menu de sections, lecteur natif/HLS secours, buffer indicatif, synchronisation, EPG, diagnostic et matériel. | `buildSettingsView()` |
 | Correction de cohérence EPG | Le détail Guide et l’OSD lisent désormais l’import `activeEpgImportId`, sans modifier le pipeline d’import. | `renderGuideDetail()`, `showEpgFor()` |
 | Routeur télécommande | `guide` rejoint les onglets classés par `RemoteKeys`, sans voler OK/flèches dans les champs. | `src/ui/RemoteKeys.js` |
+| V23 — favoris persistants | Ajout d’un store Dexie V5 par playlist/type/sourceKey, nettoyage à la suppression du profil et purge des snapshots orphelins. Les lignes virtuelles réutilisent un bouton étoile sans dépasser le pool DOM. | `src/data/db.js`, `src/services/PlaylistManager.js`, `src/ui/VirtualList.js`, `src/app.js` |
 
 ## Correspondance avec la demande
 
@@ -38,7 +39,7 @@ La V22 ne réécrit pas le moteur métier. Elle réutilise Dexie, les imports M3
 | Ajout Xtream / M3U | OK | Modal native, onglets sans `<select>` visible, champs conditionnels, création via `ctx.manager.create()`, erreurs visibles. |
 | Catalogue films et séries | OK | Familles chargées séparément, filtres de catégories, recherche préfixe, séries ouvertes via `SeriesBrowser`, lecture épisode conservée. |
 | Live TV / EPG en trois zones | OK | Bouquets, liste de chaînes et détail EPG ; l’EPG exploite le véritable `activeEpgImportId` et reste optionnel si aucune synchronisation n’est disponible. |
-| Favoris et profil actif | PARTIEL / WARNING | Le profil actif est relié aux données persistées ; la vue Favoris est un point d’entrée visuel. Le modèle métier de favoris n’existait pas en V20/V21, donc aucune fausse persistance n’a été introduite. |
+| Favoris et profil actif | OK V23 | Nouveau store Dexie V5 `favorites`, snapshots bornés à 100 éléments affichés, ajout/retrait depuis Accueil, lignes catalogues et Guide, séparation par playlist et purge des orphelins. |
 | Paramètres webOS, lecteur, synchronisation | OK | Vue paramètres détaillée, actions de synchronisation/EPG, statut catalogue et rappel du lecteur natif/HLS secours. |
 | Données IPTV réelles et logos | OK | Les cartes et lignes utilisent les données des catalogues actifs ; logo fourni utilisé quand présent, fallback SVG/CSS local sinon. Aucun jeu de données fictif ajouté. |
 | Pas de dépendances UI externes | OK | Pas de Tailwind CDN, Google Fonts, Material Symbols CDN, images CDN, React ou autre librairie UI ; CSS natif et SVG inline uniquement. |
@@ -64,6 +65,14 @@ La V22 ne réécrit pas le moteur métier. Elle réutilise Dexie, les imports M3
 - `activeEpgImportId` est utilisé pour afficher le programme courant/suivant ; en absence d’EPG, l’interface reste navigable.
 - Le parcours séries reste lazy et l’import n’est pas touché par un échec de détail.
 
+### Favoris persistants — PASS
+
+- Le store Dexie V5 est additif : les stores existants, les migrations V1→V4 et les lectures EPG/catalogues ne sont pas modifiés.
+- Chaque snapshot est lié à une playlist et à une `sourceKey` déterministe ; deux profils ne partagent pas leurs favoris.
+- Les boutons étoile sont disponibles depuis les cartes Accueil, les lignes `VirtualList` des catalogues et le Guide EPG. Le nœud virtuel vide son snapshot quand il est recyclé ou déchargé.
+- La vue Favoris affiche les 100 éléments les plus récents, avec fallback de logo local et actions lecture/retrait.
+- La suppression d’une playlist et la maintenance de boot suppriment les snapshots associés/orphelins ; l’import actif n’est pas touché.
+
 ### Compatibilité, sécurité et dépendances — PASS statique
 
 - Les noms, groupes, programmes et erreurs IPTV sont écrits par `textContent` ; aucun rendu IPTV par `innerHTML` n’a été introduit.
@@ -76,15 +85,15 @@ La V22 ne réécrit pas le moteur métier. Elle réutilise Dexie, les imports M3
 
 1. `tools/browser-run.mjs` n’a pas pu certifier le boot, le focus, la modal, le Guide et le lecteur : `chrome-headless-shell`/Chromium n’est pas installé dans l’environnement et l’installation système sans root échoue.
 2. La preview Vite sert correctement le shell, `main.css` et `app.js`, mais elle ne remplace pas une validation sur téléviseur webOS et télécommande réelle.
-3. Le bundle principal reste supérieur à 500 kB après minification (environ 582,54 kB dans cette révision) ; l’avertissement Vite est connu, non bloquant et sans nouvelle dépendance UI.
-4. La vue Favoris n’a pas de stockage métier V22, conformément à la décision de ne pas inventer un modèle de données absent de V20/V21.
+3. Le bundle principal reste supérieur à 500 kB après minification (environ 588,28 kB dans cette révision) ; l’avertissement Vite est connu, non bloquant et sans nouvelle dépendance UI.
+4. La vue Favoris est maintenant persistante en V23 ; la limitation volontaire porte sur les 100 éléments affichés afin de conserver une UI TV bornée.
 
 ## Validation exécutée
 
 ```text
-npm test                         PASS — 90/90
+npm test                         PASS — 93/93
 npm run gate:syntax              PASS — 25 fichiers compatibles Chromium 68
-npm run build                    PASS — Vite ; bundle principal ~582,55 kB minifié
+npm run build                    PASS — Vite ; bundle principal ~588,28 kB minifié
 curl shell / CSS / app           PASS — ressources servies par la preview Vite
 npm install --ignore-scripts     PASS — environnement de test restauré (fake-indexeddb)
 ```
@@ -96,4 +105,8 @@ La preview est disponible sous le processus **VisionTV preview** lancé sur le p
 - `src/app.js` — shell topbar/footer, rail, Accueil, univers, Guide EPG, paramètres, profils et thème de composition ; moteur métier conservé.
 - `src/styles/main.css` — nouveau système Lumina sombre, safe-area, rail 96 px extensible, hero, cartes, Guide, paramètres, lecteur et focus TV.
 - `src/ui/RemoteKeys.js` — prise en charge de l’onglet `guide` dans le classement des touches de liste.
-- `docs/REVIEW-VISIONTV-UI.md` — traçabilité et protocole de revue V22.
+- `src/data/db.js` — store Dexie V5 additif pour les favoris.
+- `src/services/PlaylistManager.js` — suppression/purge des favoris associés aux profils.
+- `src/ui/VirtualList.js` — renderer applicatif optionnel, sans changer le pool borné ni le rendu texte.
+- `tests/favorites.test.mjs` — tests du schéma, de l’isolation entre profils et de la purge.
+- `docs/REVIEW-VISIONTV-UI.md` — traçabilité et protocole de revue V22/V23.

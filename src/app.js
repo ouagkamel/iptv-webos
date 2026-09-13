@@ -18,6 +18,7 @@ import { CONFIG, DEFAULT_PLAYLIST } from './config.js';
 const state = {
   tab: 'playlists', // profiles screen; selecting a profile opens the home dashboard
   playlists: [],
+  favorites: [],
   activePlaylistId: null,
   items: { live: [], vod: [], series: [] },
   // V11 : filtre à catégories serveur par vue ('' = Toutes)
@@ -243,7 +244,7 @@ function buildHomeView() {
   const heroActions = el('div', 'hero-actions');
   const heroPlay = button('Regarder en direct', function () {}); heroPlay.classList.add('vision-primary'); heroPlay.insertBefore(svgIcon('play', 20), heroPlay.firstChild);
   const heroGuide = button('Guide des chaînes', function () { state.tab = 'guide'; renderTab(); }); heroGuide.classList.add('vision-secondary'); heroGuide.insertBefore(svgIcon('guide', 19), heroGuide.firstChild);
-  const heroFav = button('', function () { if (osd) osd.setStatus('Favoris : fonctionnalité disponible depuis les catalogues'); }); heroFav.classList.add('icon-button', 'hero-favorite'); heroFav.setAttribute('aria-label', 'Ajouter aux favoris'); heroFav.appendChild(svgIcon('favorite', 21));
+  const heroFav = button('', function () {}); heroFav.classList.add('icon-button', 'hero-favorite'); heroFav.setAttribute('aria-label', 'Ajouter aux favoris'); heroFav.appendChild(svgIcon('favorite', 21));
   heroActions.appendChild(heroPlay); heroActions.appendChild(heroGuide); heroActions.appendChild(heroFav); heroCopy.appendChild(heroActions); hero.appendChild(heroCopy); view.appendChild(hero);
 
   const universHead = sectionHeader('Les univers VisionTV', '4 accès rapides', null); view.appendChild(universHead);
@@ -261,7 +262,7 @@ function buildHomeView() {
   const contentRow = el('div', 'home-card-row'); view.appendChild(contentRow);
   state.homeRefs = { view: view, hero: hero, backdropImage: backdropImage, heroTitle: heroTitle,
     heroMeta: heroMeta, heroPlot: heroPlot, heroKicker: heroKicker, heroPlay: heroPlay,
-    liveRow: liveRow, contentRow: contentRow };
+    liveRow: liveRow, contentRow: contentRow, heroFavorite: heroFav };
   return view;
 }
 
@@ -305,8 +306,43 @@ function renderHomeView() {
     else if (state.activePlaylistId != null) runImport(state.activePlaylistId, false);
     else { state.tab = 'playlists'; renderTab(); }
   };
+  const leadKind = live.length ? 'live' : 'vod';
+  refs.heroFavorite.disabled = !lead;
+  setFavoriteControl(refs.heroFavorite, false);
+  refs.heroFavorite.onclick = function () {};
+  if (lead) {
+    refs.heroFavorite.onclick = function () { toggleFavorite(leadKind, lead, refs.heroFavorite); };
+    syncFavoriteControl(refs.heroFavorite, leadKind, lead);
+  }
   renderHomeCards(refs.liveRow, live, 'live', 'Aucune chaîne importée');
   renderHomeCards(refs.contentRow, vod, 'vod', 'Ouvrez Films pour charger le catalogue VOD');
+}
+
+function appendMediaCardContents(host, item, kind) {
+  const thumb = el('span', 'content-thumb');
+  if (item.logo) { const img = document.createElement('img'); img.src = String(item.logo); img.alt = ''; thumb.appendChild(img); }
+  else { const letter = el('span'); letter.textContent = String(item.name || 'V').slice(0, 1).toUpperCase(); thumb.appendChild(letter); }
+  const cardTitle = el('span', 'content-title'); cardTitle.textContent = String(item.name || 'Sans titre');
+  const cardMeta = el('small'); cardMeta.textContent = kind === 'live' ? 'En direct' : (item.groupName || 'Catalogue');
+  host.appendChild(thumb); host.appendChild(cardTitle); host.appendChild(cardMeta);
+}
+
+function renderCatalogRow(kind, row, item) {
+  let fav = row.querySelector('.row-favorite');
+  if (!fav) {
+    fav = document.createElement('button');
+    fav.className = 'row-favorite';
+    fav.tabIndex = -1;
+    fav.addEventListener('click', function (ev) {
+      ev.preventDefault(); ev.stopPropagation();
+      if (row._favoriteItem) toggleFavorite(row._favoriteKind, row._favoriteItem, fav);
+    });
+    row.appendChild(fav);
+  }
+  row._favoriteKind = kind;
+  row._favoriteItem = item;
+  setFavoriteControl(fav, false);
+  syncFavoriteControl(fav, kind, item);
 }
 
 function renderHomeCards(host, rows, kind, emptyText) {
@@ -316,28 +352,143 @@ function renderHomeCards(host, rows, kind, emptyText) {
     const copy = el('span'); copy.textContent = emptyText; empty.appendChild(copy); host.appendChild(empty); return;
   }
   rows.forEach(function (item, index) {
-    const card = el('button', 'content-card'); card.tabIndex = 0;
-    const thumb = el('span', 'content-thumb');
-    if (item.logo) { const img = document.createElement('img'); img.src = String(item.logo); img.alt = ''; thumb.appendChild(img); }
-    else { const letter = el('span'); letter.textContent = String(item.name || 'V').slice(0, 1).toUpperCase(); thumb.appendChild(letter); }
-    const cardTitle = el('span', 'content-title'); cardTitle.textContent = String(item.name || 'Sans titre');
-    const cardMeta = el('small'); cardMeta.textContent = kind === 'live' ? 'En direct' : (item.groupName || 'Catalogue');
-    card.appendChild(thumb); card.appendChild(cardTitle); card.appendChild(cardMeta);
-    card.addEventListener('click', function () { activateChannel(kind, item, index); }); host.appendChild(card);
+    const card = el('article', 'content-card');
+    const main = button('', function () { activateChannel(kind, item, index); }); main.classList.add('content-card-main');
+    appendMediaCardContents(main, item, kind);
+    const fav = button('', function () { toggleFavorite(kind, item, fav); }); fav.classList.add('content-fav');
+    setFavoriteControl(fav, false);
+    card.appendChild(main); card.appendChild(fav); host.appendChild(card);
+    syncFavoriteControl(fav, kind, item);
   });
 }
 
 function buildFavoritesView() {
-  const view = el('div', 'view view-simple');
+  const view = el('div', 'view view-simple view-favorites');
   const head = el('div', 'simple-head');
   const kicker = el('span', 'eyebrow'); kicker.textContent = 'VOS SÉLECTIONS'; head.appendChild(kicker);
   const title = el('h1'); title.textContent = 'Favoris'; head.appendChild(title);
   const sub = el('p'); sub.textContent = 'Retrouvez vos chaînes et programmes préférés au même endroit.'; head.appendChild(sub); view.appendChild(head);
+  const grid = el('div', 'favorite-grid'); view.appendChild(grid);
   const empty = el('div', 'simple-empty'); empty.appendChild(svgIcon('favorite', 42));
   const emptyTitle = el('h2'); emptyTitle.textContent = 'Aucun favori pour le moment'; empty.appendChild(emptyTitle);
-  const emptyText = el('p'); emptyText.textContent = 'Ouvrez un catalogue pour sélectionner un contenu avec la télécommande.'; empty.appendChild(emptyText);
+  const emptyText = el('p'); emptyText.textContent = 'Ouvrez un catalogue ou l’Accueil pour sélectionner un contenu avec la télécommande.'; empty.appendChild(emptyText);
   const browse = button('Parcourir les chaînes', function () { state.tab = 'live'; renderTab(); }); browse.classList.add('vision-primary'); empty.appendChild(browse);
-  view.appendChild(empty); return view;
+  view.appendChild(empty);
+  state.favoriteRefs = { view: view, grid: grid, empty: empty };
+  return view;
+}
+
+function favoriteSourceKey(kind, item) {
+  item = item || {};
+  if (kind === 'live' && item.channelId) return 'channel:' + String(item.channelId);
+  if (kind === 'series' && item.seriesId) return 'series:' + String(item.seriesId);
+  if (kind === 'vod' && item.id) {
+    const id = String(item.id); const cut = id.lastIndexOf(':');
+    return 'vod:' + (cut >= 0 ? id.substring(cut + 1) : id);
+  }
+  if (item.streamUrl) return kind + ':url:' + String(item.streamUrl);
+  return kind + ':name:' + String(item.name || '');
+}
+
+async function loadFavoritesForActive() {
+  if (!ctx || state.activePlaylistId == null || !ctx.db.favorites) { state.favorites = []; return; }
+  try {
+    state.favorites = await ctx.db.favorites.where('playlistId').equals(state.activePlaylistId).sortBy('createdAt');
+    if (state.favorites.length > 100) state.favorites = state.favorites.slice(-100);
+  } catch (err) {
+    state.favorites = [];
+    if (osd) osd.setStatus('Favoris : stockage indisponible');
+  }
+}
+
+async function findFavorite(kind, item) {
+  if (!ctx || state.activePlaylistId == null || !ctx.db.favorites) return null;
+  return ctx.db.favorites.where('[playlistId+kind+sourceKey]')
+    .equals([state.activePlaylistId, kind, favoriteSourceKey(kind, item)]).first();
+}
+
+function setFavoriteControl(control, active) {
+  if (!control) return;
+  control.innerHTML = '';
+  control.appendChild(svgIcon('favorite', 18));
+  control.classList.toggle('active', !!active);
+  control.setAttribute('aria-pressed', active ? 'true' : 'false');
+  control.setAttribute('aria-label', active ? 'Retirer des favoris' : 'Ajouter aux favoris');
+}
+
+async function syncFavoriteControl(control, kind, item) {
+  const key = kind + '|' + favoriteSourceKey(kind, item);
+  if (control) control._favoriteKey = key;
+  try {
+    const active = !!(await findFavorite(kind, item));
+    if (!control || control._favoriteKey !== key) return;
+    setFavoriteControl(control, active);
+  } catch (err) {
+    if (control && control._favoriteKey === key) setFavoriteControl(control, false);
+  }
+}
+
+async function toggleFavorite(kind, item, control) {
+  if (!item || state.activePlaylistId == null || !ctx || !ctx.db.favorites) return;
+  try {
+    const existing = await findFavorite(kind, item);
+    if (existing) {
+      await ctx.db.favorites.delete(existing.id);
+      setFavoriteControl(control, false);
+      if (osd) osd.setStatus('Retiré des favoris');
+    } else {
+      await ctx.db.favorites.add({
+        playlistId: state.activePlaylistId,
+        kind: kind,
+        sourceKey: favoriteSourceKey(kind, item),
+        itemId: item.id || null,
+        importId: item.importId || null,
+        channelId: item.channelId || null,
+        seriesId: item.seriesId || null,
+        name: String(item.name || 'Sans titre'),
+        groupName: String(item.groupName || ''),
+        logo: String(item.logo || ''),
+        plot: String(item.plot || ''),
+        rating: String(item.rating || ''),
+        releaseDate: String(item.releaseDate || ''),
+        streamUrl: String(item.streamUrl || ''),
+        createdAt: Date.now(), updatedAt: Date.now()
+      });
+      setFavoriteControl(control, true);
+      if (osd) osd.setStatus('Ajouté aux favoris');
+    }
+    await loadFavoritesForActive();
+    if (state.tab === 'favorites') renderFavoritesView();
+  } catch (err) {
+    if (osd) osd.setStatus('Favoris : ' + ((err && err.message) || err));
+  }
+}
+
+function favoriteToItem(row) {
+  return {
+    id: row.itemId, importId: row.importId, channelId: row.channelId, seriesId: row.seriesId,
+    name: row.name, groupName: row.groupName, logo: row.logo, plot: row.plot,
+    rating: row.rating, releaseDate: row.releaseDate, streamUrl: row.streamUrl
+  };
+}
+
+function renderFavoritesView() {
+  const refs = state.favoriteRefs;
+  if (!refs) return;
+  refs.grid.innerHTML = '';
+  const rows = state.favorites || [];
+  refs.empty.style.display = rows.length ? 'none' : 'flex';
+  rows.slice().reverse().slice(0, 100).forEach(function (row, index) {
+    const item = favoriteToItem(row);
+    const card = el('article', 'content-card favorite-card');
+    const main = button('', function () { activateChannel(row.kind, item, index); }); main.classList.add('content-card-main');
+    appendMediaCardContents(main, item, row.kind);
+    const remove = button('', function () { toggleFavorite(row.kind, item, remove); }); remove.classList.add('content-fav', 'active');
+    setFavoriteControl(remove, true);
+    card.appendChild(main); card.appendChild(remove); refs.grid.appendChild(card);
+    syncFavoriteControl(remove, row.kind, item);
+  });
+  if (state.tab === 'favorites' && engine) engine.setFocusables(visibleFocusables(state.views.favorites, 'button'));
 }
 
 function buildSettingsView() {
@@ -383,7 +534,7 @@ function buildGuideView() {
   const sub = el('p'); sub.textContent = 'Naviguez entre vos chaînes et le programme en cours.'; head.appendChild(sub); view.appendChild(head);
   const layout = el('div', 'guide-layout');
   const categories = el('aside', 'guide-categories'); const catTitle = el('h2'); catTitle.textContent = 'Bouquets TV'; categories.appendChild(catTitle); const catHost = el('div', 'guide-category-list'); categories.appendChild(catHost); layout.appendChild(categories);
-  const center = el('section', 'guide-channels'); const tools = el('div', 'guide-tools'); const search = input('Rechercher une chaîne…', 'text'); tools.appendChild(search); const reload = button('Actualiser', function () { applySearch('guide', search.value); }); reload.classList.add('vision-secondary'); reload.insertBefore(svgIcon('refresh', 18), reload.firstChild); tools.appendChild(reload); center.appendChild(tools); const scroller = el('div', 'guide-scroller'); center.appendChild(scroller); guideList = new VirtualList(scroller, { itemHeight: 82, overscan: 4 }); guideList.mount(); lists.guide = guideList; search.addEventListener('change', function () { applySearch('guide', search.value); }); scroller.addEventListener('click', function (ev) { let target = ev.target; while (target && target !== scroller && !(target.getAttribute && target.getAttribute('data-index') !== null)) target = target.parentNode; if (!target || target === scroller) return; const idx = parseInt(target.getAttribute('data-index'), 10); if (isNaN(idx)) return; state.selIndex = idx; const item = lists.guide.items[idx]; if (item) { renderGuideDetail(item); syncFocusables('guide'); } }); layout.appendChild(center);
+  const center = el('section', 'guide-channels'); const tools = el('div', 'guide-tools'); const search = input('Rechercher une chaîne…', 'text'); tools.appendChild(search); const reload = button('Actualiser', function () { applySearch('guide', search.value); }); reload.classList.add('vision-secondary'); reload.insertBefore(svgIcon('refresh', 18), reload.firstChild); tools.appendChild(reload); center.appendChild(tools); const scroller = el('div', 'guide-scroller'); center.appendChild(scroller); guideList = new VirtualList(scroller, { itemHeight: 82, overscan: 4, onRender: function (row, item) { renderCatalogRow('live', row, item); } }); guideList.mount(); lists.guide = guideList; search.addEventListener('change', function () { applySearch('guide', search.value); }); scroller.addEventListener('click', function (ev) { let target = ev.target; while (target && target !== scroller && !(target.getAttribute && target.getAttribute('data-index') !== null)) target = target.parentNode; if (!target || target === scroller) return; const idx = parseInt(target.getAttribute('data-index'), 10); if (isNaN(idx)) return; state.selIndex = idx; const item = lists.guide.items[idx]; if (item) { renderGuideDetail(item); syncFocusables('guide'); } }); layout.appendChild(center);
   const detail = el('section', 'guide-detail'); const detailBadge = el('span', 'hero-kicker'); detailBadge.textContent = 'SÉLECTIONNEZ UNE CHAÎNE'; detail.appendChild(detailBadge); const detailTitle = el('h2'); detailTitle.textContent = 'Programme en cours'; detail.appendChild(detailTitle); const detailMeta = el('div', 'guide-detail-meta'); detailMeta.textContent = 'EPG disponible après synchronisation'; detail.appendChild(detailMeta); const detailPlot = el('p'); detailPlot.textContent = 'Le programme en cours et le suivant apparaîtront ici.'; detail.appendChild(detailPlot); const detailActions = el('div', 'hero-actions'); const play = button('Regarder', function () { if (state.guideDetailItem) activateChannel('live', state.guideDetailItem, state.selIndex); }); play.classList.add('vision-primary'); play.insertBefore(svgIcon('play', 19), play.firstChild); detailActions.appendChild(play); const info = button('Actualiser EPG', function () { if (state.activePlaylistId != null) runImport(state.activePlaylistId, true); }); info.classList.add('vision-secondary'); detailActions.appendChild(info); detail.appendChild(detailActions); const schedule = el('div', 'guide-schedule'); detail.appendChild(schedule); layout.appendChild(detail);
   state.guideRefs = { view: view, categories: catHost, search: search, detailTitle: detailTitle, detailMeta: detailMeta, detailPlot: detailPlot, schedule: schedule }; return view;
 }
@@ -579,7 +730,7 @@ function buildListView(kind) {
   // (Le lecteur n'est plus enfoncé dans la vue live : voir ensurePlayer/openPlayer —
   //  vue-agnostic, overlay plein écran partagé live + VOD.)
 
-  lists[kind] = new VirtualList(scroller, { itemHeight: 60, overscan: 4 });
+  lists[kind] = new VirtualList(scroller, { itemHeight: 60, overscan: 4, onRender: function (row, item) { renderCatalogRow(kind, row, item); } });
   lists[kind].mount();
   return view;
 }
@@ -592,6 +743,7 @@ async function refreshPlaylists() {
     state.activePlaylistId = state.playlists[0].id;
   }
   updateActiveProfileBadge();
+  await loadFavoritesForActive();
   const host = state.plListEl;
   if (!host) return;
   if (state.profileEmptyEl) state.profileEmptyEl.style.display = state.playlists.length ? 'none' : 'flex';
@@ -1326,6 +1478,9 @@ function renderTab() {
   if (state.tab === 'home') {
     renderHomeView();
     engine.setFocusables(visibleFocusables(state.views.home, 'button'));
+  } else if (state.tab === 'favorites') {
+    loadFavoritesForActive().then(function () { if (state.tab === 'favorites') renderFavoritesView(); });
+    renderFavoritesView();
   } else if (state.tab === 'settings') {
     renderSettingsView();
   } else if (state.tab === 'guide') {
