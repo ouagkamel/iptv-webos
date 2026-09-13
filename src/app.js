@@ -1097,7 +1097,7 @@ function scrollToShow(kind, idx) {
 
 async function activateChannel(kind, item, idx) {
   if (kind === 'series') { openSeriesDetail(item); return; } // §6.6 : la série se joue par épisode
-  state.playing = { kind: kind, index: idx != null ? idx : state.selIndex };
+  state.playing = { kind: kind, index: idx != null ? idx : state.selIndex, item: item };
   openPlayer();
   adapter.play(item.streamUrl);
   if (kind === 'live') {
@@ -1121,6 +1121,7 @@ let playerOpen = false;
 let playerProgress = null;
 let playerPlayButton = null;
 let playerVolumeButton = null;
+let playerFavoriteButton = null;
 
 function ensurePlayer() {
   if (adapter) return;
@@ -1153,6 +1154,13 @@ function ensurePlayer() {
   actionLine.appendChild(playerPlayButton);
   playerVolumeButton = el('button', 'player-control'); playerVolumeButton.tabIndex = 0; playerVolumeButton.setAttribute('aria-label', 'Volume');
   playerVolumeButton.addEventListener('click', function () { togglePlayerMute(); }); actionLine.appendChild(playerVolumeButton);
+  playerFavoriteButton = el('button', 'player-control player-favorite-control'); playerFavoriteButton.tabIndex = 0; playerFavoriteButton.setAttribute('aria-label', 'Favori');
+  playerFavoriteButton.addEventListener('click', function () {
+    const current = state.playing;
+    if (!current || !current.item) return;
+    const kind = current.kind === 'episode' ? 'series' : current.kind;
+    toggleFavorite(kind, current.item, playerFavoriteButton).then(updatePlayerFavoriteControl);
+  }); actionLine.appendChild(playerFavoriteButton);
   const backB = el('button', 'player-control'); backB.tabIndex = 0; backB.textContent = '−10 s';
   backB.addEventListener('click', function () { nudgeSeconds(-10); }); actionLine.appendChild(backB);
   const forwardB = el('button', 'player-control'); forwardB.tabIndex = 0; forwardB.textContent = '+10 s';
@@ -1203,6 +1211,33 @@ function updatePlayerControls() {
   }
 }
 
+async function updatePlayerFavoriteControl() {
+  const control = playerFavoriteButton;
+  if (!control) return;
+  const current = state.playing;
+  if (!current || !current.item) {
+    control.disabled = true;
+    setFavoriteControl(control, false);
+    control.appendChild(document.createTextNode(' Favori'));
+    return;
+  }
+  const kind = current.kind === 'episode' ? 'series' : current.kind;
+  const key = kind + '|' + favoriteSourceKey(kind, current.item);
+  control._playerFavoriteKey = key;
+  control.disabled = false;
+  try {
+    const active = !!(await findFavorite(kind, current.item));
+    if (control._playerFavoriteKey !== key) return;
+    setFavoriteControl(control, active);
+    control.appendChild(document.createTextNode(' Favori'));
+  } catch (err) {
+    if (control._playerFavoriteKey === key) {
+      setFavoriteControl(control, false);
+      control.appendChild(document.createTextNode(' Favori'));
+    }
+  }
+}
+
 function togglePlayerMute() {
   if (!videoEl) return;
   videoEl.muted = !videoEl.muted; updatePlayerControls();
@@ -1227,6 +1262,7 @@ function openPlayer() {
   playerOverlay.appendChild(playerStage);
   document.body.appendChild(playerOverlay);
   engine.setFocusables(Array.prototype.slice.call(playerStage.querySelectorAll('button, input')));
+  updatePlayerFavoriteControl();
   engine.pushBackHandler(closePlayer);
 }
 
@@ -1235,6 +1271,7 @@ function closePlayer() {
   playerOpen = false;
   state.playerOpen = false;
   state.playing = null;
+  updatePlayerFavoriteControl();
   if (adapter) adapter.stop();
   if (playerOverlay && playerOverlay.parentNode) playerOverlay.parentNode.removeChild(playerOverlay);
   engine.removeBackHandler(closePlayer);
@@ -1378,10 +1415,10 @@ function closeSeriesDetail() {
 
 function playEpisode(pl, series, season, ep, epIndex) {
   closeSeriesDetail();
+  state.playing = { kind: 'episode', pl: pl, series: series, item: series, season: season,
+                    episodes: season.episodes, epIndex: epIndex != null ? epIndex : 0 };
   openPlayer();
   adapter.play(SeriesBrowser.episodeUrl(pl, ep));
-  state.playing = { kind: 'episode', pl: pl, series: series, season: season,
-                    episodes: season.episodes, epIndex: epIndex != null ? epIndex : 0 };
   osd.setChannel(series.name);
   osd.setStatus('S' + pad2(season.number) + 'E' + pad2(ep.episodeId) + ' — ' + ep.title);
 }

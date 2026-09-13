@@ -2,12 +2,12 @@
 
 **Date :** 2026-09-13
 **Base fonctionnelle :** V21 publiée, commit `3b53fab`, tag `v21`
-**Révision :** V23 incrémentale sur V22, favoris persistants implémentés localement, non encore publiée
+**Révision :** V24 incrémentale sur V23, favori accessible dans le lecteur par D-Pad, non encore publiée
 **Référence visuelle :** `/home/user/uploads/DESIGN.md` et les six prototypes HTML joints
 
 ## Verdict
 
-**WARNING — révision V23 validée par analyse statique, tests, gate Chromium 68, build et ressources servies par Vite ; validation CDP/webOS réel encore indisponible.**
+**WARNING — révision V24 validée par analyse statique, tests, gate Chromium 68, build et ressources servies par Vite ; validation CDP/webOS réel encore indisponible.**
 
 La V22 ne réécrit pas le moteur métier. Elle réutilise Dexie, les imports M3U/Xtream/XMLTV, la persistance des playlists, le chargement lazy, `VirtualList`, `SeriesBrowser`, `MediaAdapter`, `LifecycleAdapter`, le GC lazy et le routeur D-Pad existants. Les changements applicatifs se concentrent sur la composition de `src/app.js`, le thème natif de `src/styles/main.css` et la classification de l’onglet Guide dans `src/ui/RemoteKeys.js`.
 
@@ -26,6 +26,7 @@ La V22 ne réécrit pas le moteur métier. Elle réutilise Dexie, les imports M3
 | Correction de cohérence EPG | Le détail Guide et l’OSD lisent désormais l’import `activeEpgImportId`, sans modifier le pipeline d’import. | `renderGuideDetail()`, `showEpgFor()` |
 | Routeur télécommande | `guide` rejoint les onglets classés par `RemoteKeys`, sans voler OK/flèches dans les champs. | `src/ui/RemoteKeys.js` |
 | V23 — favoris persistants | Ajout d’un store Dexie V5 par playlist/type/sourceKey, nettoyage à la suppression du profil et purge des snapshots orphelins. Les lignes virtuelles réutilisent un bouton étoile sans dépasser le pool DOM. | `src/data/db.js`, `src/services/PlaylistManager.js`, `src/ui/VirtualList.js`, `src/app.js` |
+| V24 — action Favori D-Pad | Le lecteur partagé expose une action Favori focalisable dans ses contrôles. Live, VOD et épisode de série réutilisent le même snapshot et restent synchronisés avec la vue Favoris. | `src/app.js`, `src/styles/main.css` |
 
 ## Correspondance avec la demande
 
@@ -69,7 +70,7 @@ La V22 ne réécrit pas le moteur métier. Elle réutilise Dexie, les imports M3
 
 - Le store Dexie V5 est additif : les stores existants, les migrations V1→V4 et les lectures EPG/catalogues ne sont pas modifiés.
 - Chaque snapshot est lié à une playlist et à une `sourceKey` déterministe ; deux profils ne partagent pas leurs favoris.
-- Les boutons étoile sont disponibles depuis les cartes Accueil, les lignes `VirtualList` des catalogues et le Guide EPG. Le nœud virtuel vide son snapshot quand il est recyclé ou déchargé.
+- Les boutons étoile sont disponibles depuis les cartes Accueil, les lignes `VirtualList` des catalogues, le Guide EPG et les contrôles focalisables du lecteur. Le nœud virtuel vide son snapshot quand il est recyclé ou déchargé.
 - La vue Favoris affiche les 100 éléments les plus récents, avec fallback de logo local et actions lecture/retrait.
 - La suppression d’une playlist et la maintenance de boot suppriment les snapshots associés/orphelins ; l’import actif n’est pas touché.
 
@@ -85,7 +86,7 @@ La V22 ne réécrit pas le moteur métier. Elle réutilise Dexie, les imports M3
 
 1. `tools/browser-run.mjs` n’a pas pu certifier le boot, le focus, la modal, le Guide et le lecteur : `chrome-headless-shell`/Chromium n’est pas installé dans l’environnement et l’installation système sans root échoue.
 2. La preview Vite sert correctement le shell, `main.css` et `app.js`, mais elle ne remplace pas une validation sur téléviseur webOS et télécommande réelle.
-3. Le bundle principal reste supérieur à 500 kB après minification (environ 588,28 kB dans cette révision) ; l’avertissement Vite est connu, non bloquant et sans nouvelle dépendance UI.
+3. Le bundle principal reste supérieur à 500 kB après minification (environ 589,17 kB dans cette révision) ; l’avertissement Vite est connu, non bloquant et sans nouvelle dépendance UI.
 4. La vue Favoris est maintenant persistante en V23 ; la limitation volontaire porte sur les 100 éléments affichés afin de conserver une UI TV bornée.
 
 ## Validation exécutée
@@ -93,7 +94,7 @@ La V22 ne réécrit pas le moteur métier. Elle réutilise Dexie, les imports M3
 ```text
 npm test                         PASS — 93/93
 npm run gate:syntax              PASS — 25 fichiers compatibles Chromium 68
-npm run build                    PASS — Vite ; bundle principal ~588,28 kB minifié
+npm run build                    PASS — Vite ; bundle principal ~589,17 kB minifié
 curl shell / CSS / app           PASS — ressources servies par la preview Vite
 npm install --ignore-scripts     PASS — environnement de test restauré (fake-indexeddb)
 ```
@@ -109,4 +110,4 @@ La preview est disponible sous le processus **VisionTV preview** lancé sur le p
 - `src/services/PlaylistManager.js` — suppression/purge des favoris associés aux profils.
 - `src/ui/VirtualList.js` — renderer applicatif optionnel, sans changer le pool borné ni le rendu texte.
 - `tests/favorites.test.mjs` — tests du schéma, de l’isolation entre profils et de la purge.
-- `docs/REVIEW-VISIONTV-UI.md` — traçabilité et protocole de revue V22/V23.
+- `docs/REVIEW-VISIONTV-UI.md` — traçabilité et protocole de revue V22/V23/V24.
