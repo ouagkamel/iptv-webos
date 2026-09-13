@@ -13,6 +13,7 @@ let inFlightChunkIds = new Set();
 let nextChunkId = 0;
 let currentImportId = null;
 let currentPlaylistId = null;
+let nextProgramOrdinal = 0;
 let isStreamEnded = false;
 
 self.onmessage = function (e) {
@@ -25,6 +26,7 @@ self.onmessage = function (e) {
     pendingItems = [];
     inFlightChunkIds = new Set();
     nextChunkId = 0;
+    nextProgramOrdinal = 0;
     isStreamEnded = false;
     return;
   }
@@ -66,6 +68,7 @@ self.onmessage = function (e) {
     pendingItems = [];
     carryOver = '';
     inFlightChunkIds.clear();
+    nextProgramOrdinal = 0;
     isStreamEnded = false;
   }
 };
@@ -96,8 +99,16 @@ function parseChunk(chunk) {
     const stopTime = parseXMLTVDateToUTC(getAttribute(attrString, 'stop'));
 
     if (channel && startTime !== null && stopTime !== null) {
+      // Certains fournisseurs XMLTV publient plusieurs entrées avec le même
+      // couple chaîne/heure (doublon de grille, langue ou source fusionnée).
+      // Ce couple reste l’index EPG fonctionnel, mais l’id primaire reçoit un
+      // ordinal monotone : bulkAdd ne rejette ainsi ni les doublons XMLTV, ni
+      // une collision apparue au passage d’une frontière de chunk. L’ordinal
+      // évite aussi de conserver une table seenIds de la taille de l’import.
+      const baseId = currentImportId + ':' + channel + ':' + startTime;
+      const ordinal = nextProgramOrdinal++;
       pendingItems.push({
-        id: currentImportId + ':' + channel + ':' + startTime,
+        id: baseId + ':' + ordinal,
         importId: currentImportId,
         channelId: channel,
         startTime: startTime,

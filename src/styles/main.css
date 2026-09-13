@@ -352,3 +352,91 @@ button.section-action:hover, button.section-action:focus { border-color: var(--c
   .hero-copy { padding-top: 25px; }
   .section-header { margin-top: 18px; }
 }
+
+/* Écrans VOD / séries / Live TV inspirés des prototypes fournis.
+   Tout est natif : pas de CDN, pas de police distante, DOM VirtualList conservé. */
+.catalog-spotlight { display: flex; flex: 0 0 188px; min-height: 0; margin-bottom: 18px; overflow: hidden; border: 1px solid rgba(45,230,255,.2); border-radius: 15px; background: linear-gradient(100deg, #102e47 0%, #0d263e 54%, #11204c 100%); box-shadow: 0 16px 30px rgba(0,0,0,.16); }
+.catalog-spotlight-art { position: relative; width: 32%; min-width: 220px; overflow: hidden; background: radial-gradient(circle at 45% 42%, rgba(45,230,255,.28), transparent 42%), linear-gradient(140deg, #163f5b, #101b43); }
+.catalog-spotlight-art:before { position: absolute; z-index: 1; left: -12%; top: -58%; width: 125%; height: 230%; border: 1px solid rgba(146,245,255,.22); border-radius: 50%; transform: rotate(21deg); content: ''; }
+.catalog-spotlight-art img { position: absolute; z-index: 2; left: 12%; top: 12%; width: 76%; height: 76%; object-fit: contain; filter: drop-shadow(0 12px 18px rgba(0,0,0,.38)); }
+.catalog-art-glow { position: absolute; right: -25px; bottom: -80px; width: 190px; height: 190px; border-radius: 50%; background: rgba(45,230,255,.17); filter: blur(3px); }
+.catalog-spotlight-copy { position: relative; z-index: 2; display: flex; flex: 1; min-width: 0; flex-direction: column; justify-content: center; padding: 18px 27px; }
+.hero-kicker { display: block; color: var(--cyan); font-size: 10px; font-weight: 800; letter-spacing: 1.9px; text-transform: uppercase; }
+.catalog-spotlight-copy h2 { max-width: 760px; margin-top: 7px; overflow: hidden; color: var(--ink); font-size: 26px; font-weight: 800; text-overflow: ellipsis; white-space: nowrap; }
+.catalog-spotlight-meta { margin-top: 7px; color: var(--cyan-soft); font-size: 11px; font-weight: 700; }
+.catalog-spotlight-copy p { max-width: 720px; max-height: 39px; margin-top: 8px; overflow: hidden; color: var(--muted); font-size: 12px; line-height: 1.45; }
+.hero-actions { display: flex; align-items: center; margin-top: 12px; }
+.hero-actions .act-btn { min-height: 35px; padding: 0 13px; font-size: 11px; }
+.hero-actions .svg-icon { margin-right: 7px; vertical-align: middle; }
+.catalog-spotlight-fav { margin-left: 8px; }
+.catalog-pills { display: flex; align-items: center; min-height: 24px; margin-top: 9px; overflow: hidden; }
+.catalog-pill { min-height: 23px; margin-right: 6px; padding: 0 9px; border: 1px solid rgba(166,214,235,.18); border-radius: 14px; color: var(--muted); background: rgba(5,20,36,.34); font-size: 10px; font-weight: 700; white-space: nowrap; }
+.catalog-pill:hover, .catalog-pill:focus, .catalog-pill.selected { border-color: var(--cyan); color: #021522; background: var(--cyan); outline-offset: 0; }
+.view-vod .list-pane, .view-series .list-pane { flex: 1; }
+.catalog-row-vod, .catalog-row-series { min-height: 74px; }
+.catalog-row-vod:before, .catalog-row-series:before { display: none; }
+.row-art { display: inline-flex; align-items: center; justify-content: center; width: 45px; height: 53px; flex: 0 0 45px; order: -1; margin-right: 13px; overflow: hidden; border: 1px solid rgba(45,230,255,.23); border-radius: 7px; color: var(--cyan); background: linear-gradient(145deg, #1b4966, #112b45); font-size: 15px; font-weight: 800; }
+.row-art img { width: 100%; height: 100%; object-fit: cover; }
+.row-art span { display: block; }
+.row-meta { max-width: 31%; margin-left: 16px; overflow: hidden; color: var(--quiet); font-size: 10px; text-align: right; text-overflow: ellipsis; white-space: nowrap; }
+.catalog-row-vod .channel-title, .catalog-row-series .channel-title { min-width: 0; }
+
+/* Live TV : bouquets / chaînes / prévisualisation et EPG dans le même écran. */
+.live-screen-layout { display: flex; flex: 1; min-height: 0; overflow: hidden; }
+.live-category-pane { display: flex; width: 190px; flex: 0 0 190px; flex-direction: column; min-height: 0; padding: 15px 10px 11px; border: 1px solid var(--line); border-right: 0; border-radius: 12px 0 0 12px; background: #0b2237; }
+.live-category-head { display: flex; align-items: center; min-height: 32px; margin: 0 7px 10px; }
+.live-category-head .svg-icon { margin-right: 7px; color: var(--cyan); }
+.live-category-head h2 { color: var(--ink); font-size: 13px; }
+.live-category-list { flex: 1; overflow-y: auto; scrollbar-width: none; }
+.live-category-list::-webkit-scrollbar { width: 0; }
+.live-category { display: flex; align-items: center; width: 100%; min-height: 39px; padding: 0 7px; border: 1px solid transparent; border-radius: 7px; color: var(--muted); background: transparent; font-size: 10px; text-align: left; }
+.live-category .svg-icon { flex: 0 0 auto; margin-right: 7px; color: var(--cyan); }
+.live-category:hover, .live-category:focus, .live-category.selected { border-color: var(--line-strong); color: var(--ink); background: rgba(45,230,255,.1); outline-offset: 0; }
+.live-network-card { display: flex; align-items: center; min-height: 32px; margin-top: 10px; padding: 0 7px; border-top: 1px solid var(--line); color: var(--quiet); font-size: 9px; }
+.live-network-card .svg-icon { margin-right: 6px; color: #6ee7a4; }
+.view-live .list-pane { flex: 1 1 42%; width: auto; border-radius: 0; }
+.view-live .list-row { min-height: 76px; }
+.live-preview { display: flex; flex: 1 1 39%; flex-direction: column; min-width: 260px; min-height: 0; overflow: auto; padding: 15px 19px 20px; border: 1px solid var(--line); border-left: 0; border-radius: 0 12px 12px 0; background: linear-gradient(145deg, #102b42, #0b2035); }
+.live-preview-media { position: relative; display: flex; align-items: center; justify-content: center; height: 138px; flex: 0 0 138px; overflow: hidden; border: 1px solid rgba(45,230,255,.2); border-radius: 10px; background: radial-gradient(circle, #1b4966, #0a1f35 68%); }
+.live-preview-media:after { position: absolute; left: 0; right: 0; bottom: 0; height: 48%; background: linear-gradient(transparent, rgba(3,12,24,.8)); content: ''; }
+.live-preview-media img { position: relative; z-index: 1; max-width: 66%; max-height: 74%; object-fit: contain; }
+.live-preview-fallback { display: flex; align-items: center; justify-content: center; color: rgba(146,245,255,.52); }
+.live-preview-fallback .svg-icon { width: 54px; height: 54px; }
+.live-preview-badges { position: absolute; z-index: 2; left: 11px; right: 11px; bottom: 9px; display: flex; justify-content: space-between; }
+.live-badge { padding: 4px 7px; border-radius: 4px; color: #fff; background: #df3f64; font-size: 9px; font-weight: 900; letter-spacing: .8px; }
+.live-preview-copy { display: flex; min-height: 0; flex-direction: column; padding-top: 15px; }
+.live-preview-copy h2 { margin-top: 6px; overflow: hidden; color: var(--ink); font-size: 22px; text-overflow: ellipsis; white-space: nowrap; }
+.live-preview-meta { margin-top: 7px; color: var(--cyan-soft); font-size: 11px; font-weight: 700; }
+.live-preview-copy p { min-height: 34px; margin-top: 9px; overflow: hidden; color: var(--muted); font-size: 11px; line-height: 1.45; }
+.live-preview-copy .hero-actions { margin-top: 10px; }
+.live-schedule-label { margin-top: 16px; padding-bottom: 7px; border-bottom: 1px solid var(--line); color: var(--cyan); font-size: 10px; font-weight: 800; letter-spacing: 1px; text-transform: uppercase; }
+.live-schedule { overflow: hidden; }
+.live-program { display: flex; align-items: center; min-height: 39px; border-bottom: 1px solid rgba(166,214,235,.1); }
+.live-program strong { width: 50px; flex: 0 0 50px; color: var(--cyan); font-size: 10px; font-variant-numeric: tabular-nums; }
+.live-program span { overflow: hidden; color: var(--muted); font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
+
+.catalog-shelves { display: flex; flex: 0 0 111px; min-height: 0; gap: 10px; margin-bottom: 17px; overflow: hidden; }
+.catalog-shelf { flex: 1 1 0; min-width: 0; overflow: hidden; padding: 8px 9px 7px; border: 1px solid rgba(166,214,235,.13); border-radius: 10px; background: rgba(11,34,55,.82); }
+.catalog-shelf-head { display: flex; align-items: center; min-height: 21px; margin-bottom: 6px; color: var(--cyan); }
+.catalog-shelf-head .svg-icon { margin-right: 6px; }
+.catalog-shelf-head h3 { overflow: hidden; color: var(--ink); font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+.catalog-shelf-rail { display: flex; height: 67px; overflow-x: auto; scrollbar-width: none; }
+.catalog-shelf-rail::-webkit-scrollbar { width: 0; height: 0; }
+.catalog-shelf-card { display: flex; align-items: center; width: 145px; min-width: 145px; height: 58px; margin-right: 7px; padding: 4px; border: 1px solid rgba(166,214,235,.12); border-radius: 7px; color: var(--ink); background: #102d44; text-align: left; }
+.catalog-shelf-card:hover, .catalog-shelf-card:focus { border-color: var(--cyan); background: #17405a; outline-offset: 0; }
+.shelf-art { display: inline-flex; align-items: center; justify-content: center; width: 38px; height: 48px; flex: 0 0 38px; overflow: hidden; border-radius: 5px; color: var(--cyan); background: #193f5c; font-size: 13px; font-weight: 800; }
+.shelf-art img { width: 100%; height: 100%; object-fit: cover; }
+.shelf-title { max-height: 31px; margin-left: 7px; overflow: hidden; color: var(--muted); font-size: 9px; line-height: 1.35; }
+.shelf-more { display: inline-flex; align-items: center; height: 58px; padding: 0 9px; border: 1px dashed rgba(45,230,255,.35); border-radius: 7px; color: var(--cyan-soft); background: transparent; font-size: 9px; font-weight: 700; white-space: nowrap; }
+.shelf-more .svg-icon { margin-left: 5px; }
+@media (max-height: 650px) {
+  .catalog-spotlight { flex-basis: 145px; }
+  .catalog-spotlight-art { min-width: 165px; }
+  .catalog-spotlight-copy { padding-top: 10px; padding-bottom: 10px; }
+  .catalog-spotlight-copy p, .catalog-pills { display: none; }
+  .catalog-shelves { flex-basis: 88px; margin-bottom: 10px; }
+  .catalog-shelf { padding-top: 5px; }
+  .catalog-shelf-rail { height: 53px; }
+  .catalog-shelf-card, .shelf-more { height: 47px; }
+  .shelf-art { width: 30px; height: 38px; flex-basis: 30px; }
+}

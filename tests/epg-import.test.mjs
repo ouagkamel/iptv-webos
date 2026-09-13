@@ -35,6 +35,32 @@ test('xmltv-2000-exact : bord de modulo CHUNK_ITEMS (V10), terminaison sans rés
   r.pair.controller.destroy(); r.pair.dataManager.destroy();
 });
 
+test('xmltv-doublons : même chaîne et début → ids primaires ordonnés, import complet', async () => {
+  const body =
+    program('cDup', '20260101180000 +0000', '20260101190000 +0000', 'Programme A') +
+    program('cDup', '20260101180000 +0000', '20260101193000 +0000', 'Programme doublon');
+  const r = await importEpg(xmltvHeader() + body + xmltvFooter());
+  const rows = await db.epg.where('importId').equals(r.importId).toArray();
+  assert.equal(rows.length, 2);
+  assert.equal(new Set(rows.map(function (row) { return row.id; })).size, 2, 'clés primaires distinctes');
+  assert.equal((await db.imports.get(r.importId)).status, 'completed');
+  r.pair.controller.destroy(); r.pair.dataManager.destroy();
+});
+
+test('xmltv-doublons-frontiere : collision après le lot 2000 → bulkAdd sans rejet', async () => {
+  const body = [];
+  for (let i = 0; i < 2000; i++) {
+    body.push(program(i === 0 ? 'cBoundary' : 'c' + i, '20260101180000 +0000', '20260101190000 +0000', 'Programme ' + i));
+  }
+  body.push(program('cBoundary', '20260101180000 +0000', '20260101200000 +0000', 'Doublon après frontière'));
+  const r = await importEpg(xmltvHeader() + body.join('') + xmltvFooter());
+  const rows = await db.epg.where('importId').equals(r.importId).toArray();
+  assert.equal(rows.length, 2001);
+  assert.equal(new Set(rows.map(function (row) { return row.id; })).size, 2001);
+  assert.equal((await db.imports.get(r.importId)).status, 'completed');
+  r.pair.controller.destroy(); r.pair.dataManager.destroy();
+});
+
 test('xmltv-offsets : +0100 / -0500 / sans offset → écarts exacts en UTC', async () => {
   const body =
     program('cA', '20260101180000 +0100', '20260101190000 +0100', 'A') +

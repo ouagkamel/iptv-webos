@@ -328,6 +328,15 @@ function appendMediaCardContents(host, item, kind) {
 }
 
 function renderCatalogRow(kind, row, item) {
+  row.classList.add('catalog-row-' + kind);
+  let art = row.querySelector('.row-art');
+  if (!art) { art = el('span', 'row-art'); row.appendChild(art); }
+  art.innerHTML = '';
+  if (item.logo) { const img = document.createElement('img'); img.src = String(item.logo); img.alt = ''; art.appendChild(img); }
+  else { const initial = el('span'); initial.textContent = String(item.name || 'V').slice(0, 1).toUpperCase(); art.appendChild(initial); }
+  let meta = row.querySelector('.row-meta');
+  if (!meta) { meta = el('span', 'row-meta'); row.appendChild(meta); }
+  meta.textContent = [item.groupName, item.rating ? '★ ' + item.rating : '', kind === 'live' ? 'DIRECT' : (kind === 'series' ? 'SÉRIE' : 'FILM')].filter(Boolean).join('  ·  ');
   let fav = row.querySelector('.row-favorite');
   if (!fav) {
     fav = document.createElement('button');
@@ -690,32 +699,30 @@ function buildListView(kind) {
   const view = el('div', 'view view-catalog view-' + kind);
   const catalogHead = el('div', 'catalog-head');
   const heading = el('div', 'catalog-heading');
-  const title = el('h1'); title.textContent = kind === 'live' ? 'En direct' : (kind === 'vod' ? 'Films' : 'Séries');
-  const sub = el('p'); sub.textContent = kind === 'live' ? 'Vos chaînes et programmes en temps réel.' : 'Un catalogue prêt pour vos soirées.';
+  const title = el('h1'); title.textContent = kind === 'live' ? 'Chaînes Live TV' : (kind === 'vod' ? 'Films VOD' : 'Séries TV');
+  const sub = el('p'); sub.textContent = kind === 'live' ? 'Le direct, les programmes en cours et votre EPG.' : (kind === 'vod' ? 'Films, nouveautés et cinéma disponibles chez votre fournisseur.' : 'Saisons, épisodes et intégrales de votre catalogue.');
   heading.appendChild(title); heading.appendChild(sub); catalogHead.appendChild(heading);
-  const hint = el('span', 'remote-hint'); hint.textContent = '↑ ↓ naviguer  ·  OK ouvrir'; catalogHead.appendChild(hint);
+  const hint = el('span', 'remote-hint'); hint.textContent = '↑ ↓ naviguer  ·  OK ouvrir  ·  ★ favoris'; catalogHead.appendChild(hint);
   view.appendChild(catalogHead);
+
   const left = el('div', 'list-pane');
   const tools = el('div', 'tools');
-  // V11 : catégories telles que définies par le serveur (ordre serveur conservé).
   const catS = el('select'); catS.tabIndex = 0;
   catS.addEventListener('change', function () {
     state.catFilter[kind] = catS.value || '';
     applySearch(kind, searchI.value);
   });
-  catSelects[kind] = catS;
-  tools.appendChild(catS);
-  const searchI = input('Recherche (début de nom)…', 'text'); tools.appendChild(searchI);
+  catSelects[kind] = catS; tools.appendChild(catS);
+  const searchI = input(kind === 'live' ? 'Rechercher une chaîne…' : 'Rechercher un titre…', 'text'); tools.appendChild(searchI);
   tools.appendChild(button('Chercher', function () { applySearch(kind, searchI.value); }));
-  tools.appendChild(button('Tout', function () { searchI.value = ''; applySearch(kind, ''); }));
+  tools.appendChild(button('Tout', function () { searchI.value = ''; state.catFilter[kind] = ''; catS.value = ''; applySearch(kind, ''); }));
   left.appendChild(tools);
+  const scroller = el('div', 'scroller'); left.appendChild(scroller);
 
-  const scroller = el('div', 'scroller');
-  left.appendChild(scroller);
-  view.appendChild(left);
-  // V12 §8.4 : le curseur de la Magic Remote active désormais les lignes (pas
-  // seulement les boutons) — délégation au niveau du scroller, les nœuds sont
-  // recyclés par le VirtualList, jamais de listener par ligne.
+  const refs = { kind: kind, view: view, select: catS, search: searchI, listPane: left, scroller: scroller, selected: null };
+  state.catalogRefs = state.catalogRefs || {};
+  state.catalogRefs[kind] = refs;
+
   scroller.addEventListener('click', function (ev) {
     let t = ev.target;
     while (t && t !== scroller && !(t.getAttribute && t.getAttribute('data-index') !== null)) t = t.parentNode;
@@ -724,15 +731,119 @@ function buildListView(kind) {
     if (isNaN(idx)) return;
     state.selIndex = idx;
     const item = lists[kind].items[idx];
-    if (item) { syncFocusables(kind); activateChannel(kind, item, idx); }
+    if (item) {
+      if (kind === 'live') renderLivePreview(item);
+      else renderCatalogSpotlight(kind, item);
+      syncFocusables(kind); activateChannel(kind, item, idx);
+    }
   });
 
-  // (Le lecteur n'est plus enfoncé dans la vue live : voir ensurePlayer/openPlayer —
-  //  vue-agnostic, overlay plein écran partagé live + VOD.)
-
-  lists[kind] = new VirtualList(scroller, { itemHeight: 60, overscan: 4, onRender: function (row, item) { renderCatalogRow(kind, row, item); } });
+  lists[kind] = new VirtualList(scroller, { itemHeight: kind === 'live' ? 76 : 74, overscan: 4, onRender: function (row, item) { renderCatalogRow(kind, row, item); } });
   lists[kind].mount();
+
+  if (kind === 'live') {
+    const layout = el('div', 'live-screen-layout');
+    const categoryPane = el('aside', 'live-category-pane');
+    const catHead = el('div', 'live-category-head'); const catIcon = svgIcon('guide', 21); catHead.appendChild(catIcon); const catTitle = el('h2'); catTitle.textContent = 'Bouquets TV'; catHead.appendChild(catTitle); categoryPane.appendChild(catHead);
+    const categoryHost = el('div', 'live-category-list'); categoryPane.appendChild(categoryHost);
+    const network = el('div', 'live-network-card'); network.appendChild(svgIcon('wifi', 18)); const networkText = el('span'); networkText.textContent = 'Réseau fournisseur prêt'; network.appendChild(networkText); categoryPane.appendChild(network);
+    refs.categoryHost = categoryHost; layout.appendChild(categoryPane); layout.appendChild(left);
+    const preview = buildLivePreview(); refs.preview = preview; layout.appendChild(preview.view); view.appendChild(layout);
+  } else {
+    const spotlight = buildCatalogSpotlight(kind); refs.spotlight = spotlight; view.appendChild(spotlight.view);
+    const shelves = buildCatalogShelves(kind); refs.shelves = shelves; view.appendChild(shelves.view);
+    view.appendChild(left);
+  }
   return view;
+}
+
+function buildCatalogShelves(kind) {
+  const host = el('section', 'catalog-shelves');
+  const defs = kind === 'vod'
+    ? [{ label: 'Films à l’affiche', icon: 'film' }, { label: 'Ajouts récents', icon: 'star' }, { label: 'Séries à découvrir', icon: 'clapper', cta: true }]
+    : [{ label: 'Séries à la une', icon: 'clapper' }, { label: 'Ajouts récents', icon: 'star' }, { label: 'Intégrales disponibles', icon: 'guide' }];
+  const rows = defs.map(function (def) { const section = el('section', 'catalog-shelf'); const head = el('div', 'catalog-shelf-head'); head.appendChild(svgIcon(def.icon, 16)); const label = el('h3'); label.textContent = def.label; head.appendChild(label); section.appendChild(head); const rail = el('div', 'catalog-shelf-rail'); section.appendChild(rail); host.appendChild(section); return { def: def, rail: rail }; });
+  return { view: host, rows: rows };
+}
+
+function renderCatalogShelves(kind) {
+  const refs = state.catalogRefs && state.catalogRefs[kind];
+  if (!refs || !refs.shelves) return;
+  const all = (state.items[kind] || []).slice();
+  const defs = refs.shelves.rows;
+  defs.forEach(function (shelf, shelfIndex) {
+    const rail = shelf.rail; rail.innerHTML = '';
+    let rows = all;
+    if (shelfIndex === 1) rows = all.slice().reverse();
+    if (shelf.def.cta) rows = [];
+    rows.slice(0, 5).forEach(function (item, index) {
+      const card = button('', function () { refs.selected = item; renderCatalogSpotlight(kind, item); activateChannel(kind, item, index); }); card.classList.add('catalog-shelf-card');
+      const art = el('span', 'shelf-art'); if (item.logo) { const img = document.createElement('img'); img.src = String(item.logo); img.alt = ''; art.appendChild(img); } else { const initial = el('span'); initial.textContent = String(item.name || 'V').slice(0, 1).toUpperCase(); art.appendChild(initial); } card.appendChild(art);
+      const name = el('span', 'shelf-title'); name.textContent = String(item.name || 'Sans titre'); card.appendChild(name); rail.appendChild(card);
+    });
+    if (shelf.def.cta || !rows.length) {
+      const more = button(shelf.def.cta ? 'Explorer les séries' : 'Ouvrir le catalogue', function () { state.tab = shelf.def.cta ? 'series' : kind; renderTab(); }); more.classList.add('shelf-more'); more.appendChild(svgIcon('play', 14)); rail.appendChild(more);
+    }
+  });
+}
+
+function buildCatalogSpotlight(kind) {
+  const spotlight = el('section', 'catalog-spotlight');
+  const art = el('div', 'catalog-spotlight-art'); const image = document.createElement('img'); image.alt = ''; image.style.display = 'none'; art.appendChild(image); const artGlow = el('div', 'catalog-art-glow'); art.appendChild(artGlow); spotlight.appendChild(art);
+  const copy = el('div', 'catalog-spotlight-copy');
+  const kicker = el('span', 'hero-kicker'); kicker.textContent = kind === 'vod' ? 'FILMS VOD · À LA UNE' : 'SÉRIES TV · VOTRE CATALOGUE'; copy.appendChild(kicker);
+  const title = el('h2'); title.textContent = kind === 'vod' ? 'Votre cinéma commence ici' : 'Les histoires continuent'; copy.appendChild(title);
+  const meta = el('div', 'catalog-spotlight-meta'); meta.textContent = 'Sélectionnez un titre après synchronisation'; copy.appendChild(meta);
+  const plot = el('p'); plot.textContent = kind === 'vod' ? 'Les films de votre accès IPTV s’affichent avec leurs logos, catégories et métadonnées réelles.' : 'Parcourez les saisons et épisodes disponibles chez votre fournisseur IPTV.'; copy.appendChild(plot);
+  const actions = el('div', 'hero-actions'); const play = button(kind === 'vod' ? 'Lecture directe' : 'Voir les saisons', function () { const r = state.catalogRefs[kind]; if (!r || !r.selected) return; activateChannel(kind, r.selected, 0); }); play.classList.add('vision-primary'); play.insertBefore(svgIcon(kind === 'vod' ? 'play' : 'clapper', 19), play.firstChild); actions.appendChild(play);
+  const fav = button('', function () { const r = state.catalogRefs[kind]; if (r && r.selected) toggleFavorite(kind, r.selected, fav); }); fav.classList.add('icon-button', 'catalog-spotlight-fav'); fav.setAttribute('aria-label', 'Ajouter aux favoris'); setFavoriteControl(fav, false); actions.appendChild(fav); copy.appendChild(actions);
+  const pills = el('div', 'catalog-pills'); copy.appendChild(pills);
+  spotlight.appendChild(copy);
+  return { view: spotlight, image: image, kicker: kicker, title: title, meta: meta, plot: plot, play: play, favorite: fav, pills: pills };
+}
+
+function buildLivePreview() {
+  const view = el('section', 'live-preview');
+  const media = el('div', 'live-preview-media'); const image = document.createElement('img'); image.alt = ''; image.style.display = 'none'; media.appendChild(image); const fallback = el('div', 'live-preview-fallback'); fallback.appendChild(svgIcon('tv', 54)); media.appendChild(fallback); const badges = el('div', 'live-preview-badges'); const liveBadge = el('span', 'live-badge'); liveBadge.textContent = 'DIRECT'; const tech = el('span', 'tech-badge'); tech.textContent = 'LIVE TV'; badges.appendChild(liveBadge); badges.appendChild(tech); media.appendChild(badges); view.appendChild(media);
+  const copy = el('div', 'live-preview-copy'); const kicker = el('span', 'hero-kicker'); kicker.textContent = 'SÉLECTIONNEZ UNE CHAÎNE'; copy.appendChild(kicker); const title = el('h2'); title.textContent = 'Prévisualisation Live TV'; copy.appendChild(title); const meta = el('div', 'live-preview-meta'); meta.textContent = 'EPG disponible après synchronisation'; copy.appendChild(meta); const plot = el('p'); plot.textContent = 'La chaîne et son programme en cours apparaîtront ici.'; copy.appendChild(plot); const actions = el('div', 'hero-actions'); const play = button('Plein écran', function () { const r = state.catalogRefs.live; if (r && r.selected) activateChannel('live', r.selected, state.selIndex); }); play.classList.add('vision-primary'); play.insertBefore(svgIcon('play', 19), play.firstChild); actions.appendChild(play); const fav = button('', function () { const r = state.catalogRefs.live; if (r && r.selected) toggleFavorite('live', r.selected, fav); }); fav.classList.add('icon-button'); fav.setAttribute('aria-label', 'Ajouter aux favoris'); setFavoriteControl(fav, false); actions.appendChild(fav); copy.appendChild(actions); const scheduleLabel = el('div', 'live-schedule-label'); scheduleLabel.textContent = 'À suivre'; copy.appendChild(scheduleLabel); const schedule = el('div', 'live-schedule'); copy.appendChild(schedule); view.appendChild(copy);
+  return { view: view, image: image, fallback: fallback, title: title, meta: meta, plot: plot, play: play, favorite: fav, schedule: schedule };
+}
+
+function renderCatalogSpotlight(kind, item) {
+  const refs = state.catalogRefs && state.catalogRefs[kind];
+  if (!refs || !refs.spotlight) return;
+  const hero = refs.spotlight; refs.selected = item;
+  hero.kicker.textContent = kind === 'vod' ? 'FILMS VOD · SÉLECTION' : 'SÉRIES TV · SÉLECTION';
+  hero.title.textContent = String(item.name || (kind === 'vod' ? 'Film' : 'Série'));
+  hero.meta.textContent = [item.groupName, item.rating ? '★ ' + item.rating : '', item.releaseDate].filter(Boolean).join('  ·  ') || (kind === 'vod' ? 'Film VOD' : 'Série TV');
+  hero.plot.textContent = item.plot ? String(item.plot) : (kind === 'vod' ? 'Lancez ce film avec le lecteur natif VisionTV.' : 'Ouvrez le panneau pour choisir une saison et un épisode.');
+  hero.image.style.display = item.logo ? '' : 'none'; if (item.logo) hero.image.src = String(item.logo);
+  hero.play.disabled = false; hero.favorite.disabled = false; setFavoriteControl(hero.favorite, false); syncFavoriteControl(hero.favorite, kind, item);
+}
+
+function renderLiveCategories() {
+  const refs = state.catalogRefs && state.catalogRefs.live; if (!refs || !refs.categoryHost) return;
+  const host = refs.categoryHost; host.innerHTML = '';
+  const names = []; const rows = state.items.live || [];
+  for (let i = 0; i < rows.length; i++) { const name = String(rows[i].groupName || 'Autres'); if (names.indexOf(name) === -1) names.push(name); }
+  [''].concat(names).forEach(function (name) { const b = button(name || 'Tous les bouquets', function () { state.catFilter.live = name; if (catSelects.live) catSelects.live.value = name; applySearch('live', refs.search.value); }); b.classList.add('live-category'); if ((state.catFilter.live || '') === name) b.classList.add('selected'); b.appendChild(svgIcon(name ? 'film' : 'tv', 18)); host.appendChild(b); });
+}
+
+async function renderLivePreview(item) {
+  const refs = state.catalogRefs && state.catalogRefs.live; if (!refs || !refs.preview) return;
+  const preview = refs.preview; refs.selected = item;
+  preview.title.textContent = String(item.name || 'Chaîne live');
+  preview.meta.textContent = [item.groupName, item.channelId ? 'ID ' + item.channelId : ''].filter(Boolean).join('  ·  ') || 'En direct';
+  preview.plot.textContent = item.plot ? String(item.plot) : 'Programme en direct sélectionné. Appuyez sur OK pour ouvrir le lecteur.';
+  preview.image.style.display = item.logo ? '' : 'none'; preview.fallback.style.display = item.logo ? 'none' : 'flex'; if (item.logo) preview.image.src = String(item.logo);
+  setFavoriteControl(preview.favorite, false); syncFavoriteControl(preview.favorite, 'live', item); preview.schedule.innerHTML = '';
+  if (!ctx || state.activePlaylistId == null || !item.channelId) return;
+  const pl = await ctx.manager.get(state.activePlaylistId); if (!pl || !pl.activeEpgImportId) return;
+  const now = Date.now(); const epgImportId = pl.activeEpgImportId;
+  try {
+    const rows = await ctx.db.epg.where('[importId+channelId+startTime]').between([epgImportId, item.channelId, now - 12 * 3600 * 1000], [epgImportId, item.channelId, now + CONFIG.EPG_WINDOW_MS], true, true).sortBy('startTime');
+    rows.filter(function (ep) { return Number(ep.stopTime || 0) >= now; }).slice(0, 3).forEach(function (ep) { const box = el('div', 'live-program'); const time = el('strong'); time.textContent = new Date(ep.startTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }); const name = el('span'); name.textContent = String(ep.title || 'Programme'); box.appendChild(time); box.appendChild(name); preview.schedule.appendChild(box); });
+  } catch (err) { /* EPG optionnel */ }
 }
 
 /* ——————————————————— playlists ——————————————————— */
@@ -890,6 +1001,31 @@ async function refreshCategorySelectors(kind, playlistId, token) {
   sel.value = opts.indexOf(cur) !== -1 ? cur : '';
   state.catFilter[kind] = sel.value;
   if (opts.indexOf(cur) === -1) state.catFilter[kind] = '';
+  if (kind === 'live') renderLiveCategories();
+  else renderCatalogPills(kind);
+}
+
+function renderCatalogPills(kind) {
+  const refs = state.catalogRefs && state.catalogRefs[kind];
+  if (!refs || !refs.spotlight || !refs.spotlight.pills) return;
+  const host = refs.spotlight.pills; host.innerHTML = '';
+  const values = [''];
+  const seen = { '': true };
+  const options = refs.select ? refs.select.options : [];
+  for (let i = 0; i < options.length; i++) {
+    const value = String(options[i].value || '');
+    if (!seen[value]) { seen[value] = true; values.push(value); }
+  }
+  values.slice(0, 7).forEach(function (value) {
+    const pill = button(value || 'Tous', function () {
+      state.catFilter[kind] = value;
+      if (refs.select) refs.select.value = value;
+      applySearch(kind, refs.search.value);
+    });
+    pill.classList.add('catalog-pill');
+    if ((state.catFilter[kind] || '') === value) pill.classList.add('selected');
+    host.appendChild(pill);
+  });
 }
 
 function applySearch(kind, rawQuery) {
@@ -907,6 +1043,18 @@ function applySearch(kind, rawQuery) {
     state.selIndex = rows.length ? 0 : -1;
     lists[kind].container.scrollTop = 0;
     lists[kind]._renderWindow();
+  }
+  if (kind === 'live') {
+    renderLiveCategories();
+    if (state.tab === 'live') {
+      if (rows.length) renderLivePreview(rows[0]);
+      else if (state.catalogRefs && state.catalogRefs.live) state.catalogRefs.live.selected = null;
+    }
+  } else if (state.tab === kind) {
+    if (rows.length) renderCatalogSpotlight(kind, rows[0]);
+    else if (state.catalogRefs && state.catalogRefs[kind]) state.catalogRefs[kind].selected = null;
+    renderCatalogPills(kind);
+    renderCatalogShelves(kind);
   }
   // Le guide et l'accueil exploitent le même chargement live sans conserver
   // une deuxième copie du catalogue : seul le pool DOM change de vue.
@@ -941,15 +1089,28 @@ function visibleSlice(kind) {
   return { rows: out, start: start };
 }
 
+function catalogFixedFocusables(kind) {
+  const refs = state.catalogRefs && state.catalogRefs[kind];
+  if (!refs || !refs.view) return [];
+  return visibleFocusables(refs.view, 'button, input, select').filter(function (node) {
+    // Les étoiles de lignes sont volontairement actionnées par le lecteur et
+    // ne doivent pas devenir un deuxième niveau dans la liste virtuelle.
+    return !node.classList.contains('row-favorite') && !node.closest('.list-row');
+  });
+}
+
 function syncFocusables(kind) {
   const vis = visibleSlice(kind);
   if (kind === 'guide') {
     syncGuideFocusables(vis.rows);
     return;
   }
-  engine.setFocusables(vis.rows);
-  engine.currentIndex = vis.rows.length === 0 ? -1
-    : Math.max(0, Math.min(vis.rows.length - 1, state.selIndex - vis.start));
+  const fixed = catalogFixedFocusables(kind);
+  const all = fixed.concat(vis.rows || []);
+  engine.setFocusables(all);
+  engine.currentIndex = vis.rows.length === 0
+    ? (fixed.length ? 0 : -1)
+    : fixed.length + Math.max(0, Math.min(vis.rows.length - 1, state.selIndex - vis.start));
 }
 
 function syncGuideFocusables(rows) {
@@ -982,6 +1143,15 @@ function handleRemoteKey(e) {
     e.preventDefault(); e.stopImmediatePropagation(); closeProfileModal(); return;
   }
   const action = classifyKey(e.keyCode, ctx);
+  // Laisser les flèches/OK natifs aux champs : sinon le listener FocusEngine
+  // recevrait aussi l’événement et déplacerait le curseur hors de la recherche.
+  // Back/Home restent toutefois routables pour sortir d’un champ ou d’un menu.
+  const nativeEditKey = e.keyCode === 37 || e.keyCode === 38 || e.keyCode === 39 || e.keyCode === 40 || e.keyCode === 33 || e.keyCode === 34 || e.keyCode === 13;
+  if (!action && ctx.editing && nativeEditKey) { e.stopImmediatePropagation(); return; }
+  let focusedControl = t;
+  while (focusedControl && focusedControl !== document.body && focusedControl.tagName !== 'BUTTON') focusedControl = focusedControl.parentNode;
+  const isCatalogButton = focusedControl && focusedControl.tagName === 'BUTTON' && LIST_TABS[state.tab] && !focusedControl.closest('.list-row');
+  if (isCatalogButton && (action === 'activate' || action === 'row-next' || action === 'row-prev' || action === 'page-next' || action === 'page-prev')) return;
   if (!action) return;
 
   if (action === 'form-enter') {
