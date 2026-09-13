@@ -7,7 +7,8 @@
 // Le worker peut maintenant préparer deux lots pendant que DataManager écrit le
 // précédent. Les ACK portent un chunkId : un ACK tardif ou dupliqué ne libère
 // jamais le mauvais lot.
-const MAX_CHUNKS_IN_FLIGHT = 2;
+const DEFAULT_MAX_CHUNKS_IN_FLIGHT = 2;
+let maxChunksInFlight = DEFAULT_MAX_CHUNKS_IN_FLIGHT;
 let inFlightChunkIds = new Set();
 let nextChunkId = 0;
 let slotWaiters = [];
@@ -43,6 +44,11 @@ self.onmessage = function (e) {
     applyProfile(d.profile);
     cfg = { base: d.base, username: d.username, password: d.password };
     runImport();
+    return;
+  }
+  if (d.type === 'SET_IMPORT_BUDGET') {
+    maxChunksInFlight = d.active === true ? 1 : DEFAULT_MAX_CHUNKS_IN_FLIGHT;
+    releaseSlotWaiters();
     return;
   }
   if (d.type === 'CHUNK_COMMITTED') {
@@ -359,7 +365,7 @@ function sendChunk(items) {
 }
 
 function waitForSlot() {
-  if (aborted || inFlightChunkIds.size < MAX_CHUNKS_IN_FLIGHT) return Promise.resolve();
+  if (aborted || inFlightChunkIds.size < maxChunksInFlight) return Promise.resolve();
   return new Promise(function (resolve) { slotWaiters.push(resolve); });
 }
 
@@ -369,7 +375,7 @@ function waitForIdle() {
 }
 
 function releaseSlotWaiters() {
-  while (slotWaiters.length > 0 && inFlightChunkIds.size < MAX_CHUNKS_IN_FLIGHT) {
+  while (slotWaiters.length > 0 && inFlightChunkIds.size < maxChunksInFlight) {
     slotWaiters.shift()();
   }
 }

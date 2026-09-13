@@ -91,6 +91,12 @@ export class VirtualList extends BaseComponent {
         rowEl.firstChild.textContent = String((item && item.name) || 'Chaîne ' + (i + 1));
       } else {
         rowEl.style.display = 'none';
+        // V20 : vider aussi le texte et l'index du nœud recyclé. Les références
+        // aux objets sont déjà libérées par setItems([]), mais un ancien libellé
+        // ne doit pas rester visible/inspectable dans un catalogue déchargé.
+        if (typeof rowEl.removeAttribute === 'function') rowEl.removeAttribute('data-index');
+        else rowEl.setAttribute('data-index', '');
+        rowEl.firstChild.textContent = '';
       }
     }
   }

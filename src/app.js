@@ -39,6 +39,8 @@ let seriesRefs = null;  // nœuds stables de l'overlay (body, closeB)
 let seriesBack = null;  // handler courant de la pile LIFO du panneau
 const lists = {};
 const catSelects = {};
+const CATALOG_KINDS = ['live', 'vod', 'series'];
+let catalogLoadToken = 0;
 
 async function main() {
   root = document.getElementById('root');
@@ -230,40 +232,79 @@ async function runImport(playlistId, isEpg) {
   }
 }
 
-async function loadActiveData() {
-  if (state.activePlaylistId == null) return;
-  const [live, vod, series] = await Promise.all([
-    ctx.manager.channels(state.activePlaylistId),
-    ctx.manager.vod(state.activePlaylistId),
-    ctx.manager.series(state.activePlaylistId)
-  ]);
-  state.items.live = live;
-  state.items.vod = vod;
-  state.items.series = series;
-  await Promise.all([refreshCategorySelectors('live'), refreshCategorySelectors('vod'),
-                     refreshCategorySelectors('series')]);
-  applySearch('live', '');
-  applySearch('vod', '');
-  applySearch('series', '');
+function resetCategorySelector(kind) {
+  const sel = catSelects[kind];
+  if (!sel) return;
+  sel.innerHTML = '';
+  const option = el('option');
+  option.value = '';
+  option.textContent = 'Toutes les catégories';
+  sel.appendChild(option);
+  sel.value = '';
+}
+
+/**
+ * V20 : une seule famille de catalogue reste en mémoire côté UI.
+ * VirtualList bornait déjà le DOM, mais l'ancien loadActiveData() conservait
+ * simultanément live + vod + series sous forme de trois grands tableaux JS.
+ */
+function clearCatalogMemory() {
+  for (let i = 0; i < CATALOG_KINDS.length; i++) {
+    const kind = CATALOG_KINDS[i];
+    state.items[kind] = [];
+    state.catFilter[kind] = '';
+    resetCategorySelector(kind);
+    if (lists[kind]) {
+      lists[kind].setItems([]);
+      lists[kind].container.scrollTop = 0;
+    }
+  }
+  state.selIndex = -1;
+}
+
+async function loadCatalog(kind, token, playlistId) {
+  if (CATALOG_KINDS.indexOf(kind) === -1 || playlistId == null) return;
+  let rows;
+  try {
+    rows = await ctx.manager[KIND_TO_MANAGER[kind]](playlistId);
+    if (token !== catalogLoadToken || state.activePlaylistId !== playlistId || state.tab !== kind) return;
+    state.items[kind] = rows || [];
+    await refreshCategorySelectors(kind, playlistId, token);
+    if (token !== catalogLoadToken || state.activePlaylistId !== playlistId || state.tab !== kind) return;
+    applySearch(kind, '');
+  } catch (err) {
+    if (token === catalogLoadToken && state.activePlaylistId === playlistId && osd) {
+      osd.setStatus('Catalogue : ' + ((err && err.message) || err));
+    }
+  }
+}
+
+function loadActiveData() {
+  const token = ++catalogLoadToken;
+  clearCatalogMemory();
+  if (state.activePlaylistId == null || CATALOG_KINDS.indexOf(state.tab) === -1) return;
+  loadCatalog(state.tab, token, state.activePlaylistId);
 }
 
 const KIND_TO_CAT = { live: 'live', vod: 'vod', series: 'series' };
-async function refreshCategorySelectors(kind) {
+const KIND_TO_MANAGER = { live: 'channels', vod: 'vod', series: 'series' };
+async function refreshCategorySelectors(kind, playlistId, token) {
   const sel = catSelects[kind];
   if (!sel) return;
   let catNames = [];
   try {
-    const rows = await ctx.manager.categories(state.activePlaylistId, KIND_TO_CAT[kind]);
+    const rows = await ctx.manager.categories(playlistId, KIND_TO_CAT[kind]);
     catNames = rows.map(function (r) { return r.name; });
   } catch (err) { catNames = []; }
+  if (token !== catalogLoadToken || state.activePlaylistId !== playlistId || state.tab !== kind) return;
   const catSet = new Set(catNames);
   const extra = [];
-  if (catNames.length > 0) {
-    const rows = state.items[kind] || [];
-    for (let i = 0; i < rows.length; i++) {
-      const g = String(rows[i].groupName || 'Autres');
-      if (!catSet.has(g)) { catSet.add(g); extra.push(g); }
-    }
+  // Le serveur reste la source prioritaire ; si ses catégories sont absentes,
+  // les groupName déjà présents permettent malgré tout de conserver un filtre utile.
+  const rows = state.items[kind] || [];
+  for (let i = 0; i < rows.length; i++) {
+    const g = String(rows[i].groupName || 'Autres');
+    if (!catSet.has(g)) { catSet.add(g); extra.push(g); }
   }
   const opts = [''].concat(catNames).concat(extra);
   const cur = state.catFilter[kind] || '';
@@ -700,9 +741,14 @@ function wireGlobalEvents() {
     if (el2 && typeof el2.click === 'function') el2.click();
   });
 
-  window.addEventListener('import-complete', function () {
+  window.addEventListener('import-complete', function (event) {
+    const detail = event && event.detail ? event.detail : {};
     osd && osd.setStatus('Import terminé');
-    refreshPlaylists().then(loadActiveData);
+    refreshPlaylists().then(function () {
+      // Un import EPG ne modifie aucun catalogue. Un import playlist invalide
+      // seulement la vue actuellement affichée ; les deux autres restent vides.
+      if (detail.kind === 'playlist') loadActiveData();
+    });
   });
   window.addEventListener('import-error', function (e) {
     osd && osd.setStatus('Erreur import : ' + ((e.detail && e.detail.message) || 'inconnue'));
@@ -731,8 +777,11 @@ function renderTab() {
   state.views.vod.style.display = state.tab === 'vod' ? '' : 'none';
   state.views.series.style.display = state.tab === 'series' ? '' : 'none';
   if (state.tab !== 'playlists') {
-    applySearch(state.tab, '');
+    // Le changement d'onglet invalide le catalogue précédent et déclenche un
+    // seul chargement ciblé (live, vod ou series), jamais les trois en parallèle.
+    loadActiveData();
   } else {
+    loadActiveData();
     engine.setFocusables(Array.prototype.slice.call(
       state.views.playlists.querySelectorAll('button, input, select')));
   }

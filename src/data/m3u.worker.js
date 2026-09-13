@@ -5,7 +5,8 @@
 // pendant que DataManager écrit le lot précédent ; le watermark réseau reste
 // indépendant et est piloté par ImportController.
 const CHUNK_ITEMS = 2000;
-const MAX_CHUNKS_IN_FLIGHT = 2;
+const DEFAULT_MAX_CHUNKS_IN_FLIGHT = 2;
+let maxChunksInFlight = DEFAULT_MAX_CHUNKS_IN_FLIGHT;
 
 // V11 (§6.4) : catégories M3U = group-title du fichier, dans l'ordre de première
 // apparition (« définies par le serveur » = par la playlist elle-même).
@@ -42,6 +43,12 @@ self.onmessage = function (e) {
     inFlightChunkIds = new Set();
     nextChunkId = 0;
     isStreamEnded = false;
+    return;
+  }
+
+  if (type === 'SET_IMPORT_BUDGET') {
+    maxChunksInFlight = data.active === true ? 1 : DEFAULT_MAX_CHUNKS_IN_FLIGHT;
+    flushPendingItems(isStreamEnded);
     return;
   }
 
@@ -148,7 +155,7 @@ function normalizeSearchName(name) {
 }
 
 function flushPendingItems(force) {
-  while (inFlightChunkIds.size < MAX_CHUNKS_IN_FLIGHT &&
+  while (inFlightChunkIds.size < maxChunksInFlight &&
          (pendingItems.length >= CHUNK_ITEMS || (force && pendingItems.length > 0))) {
     const chunkId = nextChunkId++;
     const items = pendingItems.splice(0, CHUNK_ITEMS);

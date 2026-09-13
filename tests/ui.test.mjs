@@ -53,6 +53,19 @@ test('VirtualList : rendu textContent strict (XSS-safe, jamais innerHTML)', () =
   });
 });
 
+test('VirtualList : setItems([]) efface le nœud recyclé du catalogue précédent', () => {
+  withDom((dom) => {
+    const container = dom.createElement('div');
+    const list = new VirtualList(container, { itemHeight: 60, overscan: 2 });
+    list.mount();
+    list.setItems([{ name: 'Ancien catalogue' }]);
+    assert.equal(list.pool[0].firstChild.textContent, 'Ancien catalogue');
+    list.setItems([]);
+    assert.equal(list.pool[0].firstChild.textContent, '');
+    assert.ok(!list.pool[0].getAttribute('data-index'), 'index du nœud déchargé retiré');
+  });
+});
+
 test('FocusEngine : navigation circulaire + activation data-index + OK=case 13', () => {
   const dom = makeDom();
   const prev = globalThis.document;

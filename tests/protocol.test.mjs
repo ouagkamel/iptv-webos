@@ -4,7 +4,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { freshDb, db, makePair, addImportRow, addPlaylist } from './helpers/dbx.mjs';
-import { buildM3U, routeText } from './helpers/fixtures.mjs';
+import { buildM3U, buildXmltv, routeText } from './helpers/fixtures.mjs';
 
 test('PROT-6 : second startImport rejeté immédiatement, premier intact', async () => {
   await freshDb();
@@ -202,5 +202,89 @@ test('nouvel import : purge aussi les anciens lots failed laissés par une versi
   const detail = await manager.importPlaylist(plId);
   assert.equal(await db.imports.get(failedId), undefined);
   assert.equal(await db.channels.where('importId').equals(detail.importId).count(), 10);
+  pair.controller.destroy(); pair.dataManager.destroy();
+});
+
+test('budget lecture : le worker M3U passe à un CHUNK puis restaure le régime normal', async () => {
+  await freshDb();
+  const plId = await addPlaylist(db, 'PlaybackBudget');
+  const importId = await addImportRow(db, plId, 'playlist');
+  const url = 'http://fixtures.test/playback-budget.m3u';
+  routeText(url, buildM3U(5000, 5, {}));
+
+  // Paire créée après le début de la lecture : le snapshot global doit déjà
+  // imposer le budget réduit, même avant le prochain événement.
+  window.__iptvPlaybackActive = true;
+  const pair = makePair('m3u', 'channels');
+  let inFlight = 0;
+  let maxInFlight = 0;
+  const selfPost = pair.worker._self.postMessage;
+  pair.worker._self.postMessage = function (message) {
+    if (message && message.type === 'CHUNK') {
+      inFlight += 1;
+      maxInFlight = Math.max(maxInFlight, inFlight);
+    }
+    return selfPost(message);
+  };
+  const workerPost = pair.worker.postMessage.bind(pair.worker);
+  pair.worker.postMessage = function (message) {
+    if (message && message.type === 'CHUNK_COMMITTED') inFlight -= 1;
+    return workerPost(message);
+  };
+
+  await pair.controller.startImport({ importId, playlistId: plId, kind: 'playlist', url });
+  assert.equal(maxInFlight, 1, 'lecture vidéo : plafond strict à un CHUNK');
+
+  window.dispatchEvent(new CustomEvent('media-playback-state', { detail: { active: false } }));
+  const importId2 = await addImportRow(db, plId, 'playlist');
+  const url2 = 'http://fixtures.test/playback-budget-normal.m3u';
+  routeText(url2, buildM3U(5000, 5, {}));
+  inFlight = 0;
+  maxInFlight = 0;
+  await pair.controller.startImport({ importId: importId2, playlistId: plId, kind: 'playlist', url: url2 });
+  assert.ok(maxInFlight >= 2, 'hors lecture : deux CHUNK restent autorisés');
+  pair.controller.destroy(); pair.dataManager.destroy();
+});
+
+test('budget lecture : le worker EPG respecte aussi le plafond d’un CHUNK', async () => {
+  await freshDb();
+  const plId = await addPlaylist(db, 'PlaybackBudgetEPG');
+  const importId = await addImportRow(db, plId, 'epg');
+  const url = 'http://fixtures.test/playback-budget.xml';
+  routeText(url, buildXmltv(5000));
+
+  const pair = makePair('epg', 'epg');
+  let inFlight = 0;
+  let maxInFlight = 0;
+  const selfPost = pair.worker._self.postMessage;
+  pair.worker._self.postMessage = function (message) {
+    if (message && message.type === 'CHUNK') {
+      inFlight += 1;
+      maxInFlight = Math.max(maxInFlight, inFlight);
+    }
+    return selfPost(message);
+  };
+  const workerPost = pair.worker.postMessage.bind(pair.worker);
+  pair.worker.postMessage = function (message) {
+    if (message && message.type === 'CHUNK_COMMITTED') inFlight -= 1;
+    return workerPost(message);
+  };
+
+  window.dispatchEvent(new CustomEvent('media-playback-state', { detail: { active: true } }));
+  await pair.controller.startImport({ importId, playlistId: plId, kind: 'epg', url });
+  assert.equal(maxInFlight, 1, 'lecture vidéo : plafond EPG strict à un CHUNK');
+  window.dispatchEvent(new CustomEvent('media-playback-state', { detail: { active: false } }));
+  pair.controller.destroy(); pair.dataManager.destroy();
+});
+
+test('budget lecture : la GC attend puis reprend dès l’arrêt vidéo', async () => {
+  await freshDb();
+  const pair = makePair('m3u', 'channels');
+  window.dispatchEvent(new CustomEvent('media-playback-state', { detail: { active: true } }));
+  const waiting = pair.dataManager._waitForPlaybackBudget();
+  await new Promise(function (resolve) { setTimeout(resolve, 10); });
+  window.dispatchEvent(new CustomEvent('media-playback-state', { detail: { active: false } }));
+  await waiting;
+  assert.equal(pair.dataManager.playbackActive, false);
   pair.controller.destroy(); pair.dataManager.destroy();
 });

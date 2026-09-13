@@ -15,6 +15,7 @@ import { db } from './db.js';
 const GC_BATCH_SIZE = 500;
 const DEFAULT_YIELD_EVERY_CHUNKS = 4;
 const MAX_YIELD_EVERY_CHUNKS = 16;
+const PLAYBACK_GC_PAUSE_MS = 500;
 
 function isQuotaError(err, message) {
   return !!(err && err.name === 'QuotaExceededError') || /quota(?:exceeded| de stockage)/i.test(message);
@@ -31,7 +32,16 @@ export class DataManager {
     this._chunksWritten = Object.create(null);
     this._gcTail = Promise.resolve();
     this._destroyed = false;
+    // La lecture vidéo garde la priorité : le worker passe temporairement à un
+    // seul CHUNK en vol et la GC lazy cède régulièrement la main.
+    this.playbackActive = typeof window !== 'undefined' && window.__iptvPlaybackActive === true;
+    this._playbackBudgetWaiters = [];
+    this.boundOnPlaybackState = this._onPlaybackState.bind(this);
+    window.addEventListener('media-playback-state', this.boundOnPlaybackState);
     this.worker.onmessage = this.handleWorkerMessage.bind(this);
+    try {
+      this.worker.postMessage({ type: 'SET_IMPORT_BUDGET', active: this.playbackActive });
+    } catch (eBudget) { /* worker déjà indisponible : le filet onerror prend le relais */ }
   }
 
   handleWorkerMessage(event) {
@@ -106,6 +116,43 @@ export class DataManager {
     if (i !== -1) this.auxListeners.splice(i, 1);
   }
 
+  _onPlaybackState(event) {
+    const detail = event && event.detail ? event.detail : {};
+    this.playbackActive = detail.active === true;
+    try {
+      this.worker.postMessage({ type: 'SET_IMPORT_BUDGET', active: this.playbackActive });
+    } catch (eBudget) { /* worker mort : le filet terminal reste propriétaire de l'erreur */ }
+    if (!this.playbackActive) this._releasePlaybackBudgetWaiters();
+  }
+
+  _releasePlaybackBudgetWaiters() {
+    const waiters = this._playbackBudgetWaiters.splice(0, this._playbackBudgetWaiters.length);
+    for (let i = 0; i < waiters.length; i++) waiters[i].finish();
+  }
+
+  /**
+   * La GC n'est jamais sur le chemin de import-complete. Pendant une lecture,
+   * elle attend une courte fenêtre ou la fin de la lecture, afin de laisser le
+   * CPU/IDB au pipeline vidéo sans bloquer définitivement un nettoyage.
+   */
+  _waitForPlaybackBudget() {
+    if (!this.playbackActive || this._destroyed) return Promise.resolve();
+    const self = this;
+    return new Promise(function (resolve) {
+      const waiter = { timer: null, done: false, finish: null };
+      waiter.finish = function () {
+        if (waiter.done) return;
+        waiter.done = true;
+        if (waiter.timer !== null) clearTimeout(waiter.timer);
+        const index = self._playbackBudgetWaiters.indexOf(waiter);
+        if (index !== -1) self._playbackBudgetWaiters.splice(index, 1);
+        resolve();
+      };
+      self._playbackBudgetWaiters.push(waiter);
+      waiter.timer = setTimeout(waiter.finish, PLAYBACK_GC_PAUSE_MS);
+    });
+  }
+
   async _routeAux(data) {
     if (data && data.type === 'CATEGORIES') {
       // Attendre l'écriture des catégories avant de traiter COMPLETE. Le swap
@@ -175,9 +222,12 @@ export class DataManager {
 
     this._chunksWritten[importId] = (this._chunksWritten[importId] || 0) + 1;
     const requestedEvery = parseInt(yieldEveryChunks, 10);
-    const every = requestedEvery > 0
+    const normalEvery = requestedEvery > 0
       ? Math.min(MAX_YIELD_EVERY_CHUNKS, requestedEvery)
       : DEFAULT_YIELD_EVERY_CHUNKS;
+    // En lecture, un yield par lot et le plafond worker à 1 réduisent la
+    // pression CPU/IDB sans changer la sécurité des ACK ni du swap.
+    const every = this.playbackActive ? 1 : normalEvery;
     if (this._chunksWritten[importId] % every === 0) await this._yieldToUi();
 
     this.worker.postMessage({ type: 'CHUNK_COMMITTED', importId: importId, chunkId: chunkId });
@@ -278,6 +328,7 @@ export class DataManager {
       const keys = await table.where('importId').equals(importId).primaryKeys();
       if (keys.length === 0) return;
       for (let i = 0; i < keys.length; i += GC_BATCH_SIZE) {
+        await this._waitForPlaybackBudget();
         await table.bulkDelete(keys.slice(i, i + GC_BATCH_SIZE));
         await this._yieldToUi();
       }
@@ -292,6 +343,8 @@ export class DataManager {
   destroy() {
     if (this._destroyed) return;
     this._destroyed = true;
+    window.removeEventListener('media-playback-state', this.boundOnPlaybackState);
+    this._releasePlaybackBudgetWaiters();
     this.worker.onmessage = null;
     this.auxListeners = [];
   }

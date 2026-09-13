@@ -4,7 +4,8 @@
 // V18 : deux CHUNK IndexedDB en vol. Le parsing XMLTV peut remplir le second
 // lot pendant que DataManager sérialise l'écriture du premier.
 const CHUNK_ITEMS = 2000;
-const MAX_CHUNKS_IN_FLIGHT = 2;
+const DEFAULT_MAX_CHUNKS_IN_FLIGHT = 2;
+let maxChunksInFlight = DEFAULT_MAX_CHUNKS_IN_FLIGHT;
 
 let carryOver = '';
 let pendingItems = [];
@@ -25,6 +26,12 @@ self.onmessage = function (e) {
     inFlightChunkIds = new Set();
     nextChunkId = 0;
     isStreamEnded = false;
+    return;
+  }
+
+  if (type === 'SET_IMPORT_BUDGET') {
+    maxChunksInFlight = e.data.active === true ? 1 : DEFAULT_MAX_CHUNKS_IN_FLIGHT;
+    flushPendingItems(isStreamEnded);
     return;
   }
 
@@ -148,7 +155,7 @@ function parseXMLTVDateToUTC(str) {
 }
 
 function flushPendingItems(force) {
-  while (inFlightChunkIds.size < MAX_CHUNKS_IN_FLIGHT &&
+  while (inFlightChunkIds.size < maxChunksInFlight &&
          (pendingItems.length >= CHUNK_ITEMS || (force && pendingItems.length > 0))) {
     const chunkId = nextChunkId++;
     const chunkToSend = pendingItems.splice(0, CHUNK_ITEMS);

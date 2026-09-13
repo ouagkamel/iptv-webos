@@ -264,3 +264,49 @@ test('bascule de table live→vod : jamais de CHUNK mixte (chaque lot porte UNE 
   assert.equal(await db.channels.where('importId').equals(importId).count(), 2003, '2001 (cat 10) + 2 (cat 20)');
   controller.destroy(); dm.destroy();
 });
+
+test('budget lecture : le worker Xtream respecte un seul CHUNK en vol', async () => {
+  await freshDb();
+  const plId = await addPlaylist(db, 'XtBudget', {
+    source: 'xtream', base: BASE, username: USER, password: PASS
+  });
+  const importId = await addImportRow(db, plId, 'playlist');
+  routeXtreamPanel(BASE, USER, PASS, { failGlobal: true });
+  const { setRoute } = await import('./helpers/fetchRouter.mjs');
+  const api = BASE + '/player_api.php?username=' + encodeURIComponent(USER) + '&password=' + encodeURIComponent(PASS);
+  const bigLive = [];
+  for (let i = 0; i < 2001; i++) {
+    bigLive.push({ stream_id: 'budget' + i, name: 'Budget ' + i,
+      epg_channel_id: null, stream_icon: '' });
+  }
+  setRoute(api + '&action=get_live_streams&category_id=10', bigLive);
+
+  const { FakeWorker, WORKERS } = await import('./helpers/workerHost.mjs');
+  const { DataManager } = await import('../src/data/DataManager.js');
+  const { ImportController } = await import('../src/data/ImportController.js');
+  const worker = new FakeWorker(WORKERS.xtream);
+  const dm = new DataManager(worker, 'channels');
+  const controller = new ImportController(worker, dm);
+  let inFlight = 0;
+  let maxInFlight = 0;
+  const selfPost = worker._self.postMessage;
+  worker._self.postMessage = function (message) {
+    if (message && message.type === 'CHUNK') {
+      inFlight += 1;
+      maxInFlight = Math.max(maxInFlight, inFlight);
+    }
+    return selfPost(message);
+  };
+  const workerPost = worker.postMessage.bind(worker);
+  worker.postMessage = function (message) {
+    if (message && message.type === 'CHUNK_COMMITTED') inFlight -= 1;
+    return workerPost(message);
+  };
+
+  window.dispatchEvent(new CustomEvent('media-playback-state', { detail: { active: true } }));
+  await controller.startImport({ source: 'xtream', importId, playlistId: plId, kind: 'playlist',
+    base: BASE, username: USER, password: PASS });
+  assert.equal(maxInFlight, 1, 'lecture vidéo : plafond Xtream strict à un CHUNK');
+  window.dispatchEvent(new CustomEvent('media-playback-state', { detail: { active: false } }));
+  controller.destroy(); dm.destroy();
+});

@@ -1,24 +1,24 @@
-# IPTV webOS Player — implémentation (V19 index minimal, base V18 publiée)
+# IPTV webOS Player — implémentation (V20 catalogue lazy + budget média, base V19 publiée)
 
 App webOS TV (cible : webOS 5.0 entrée de gamme, Chromium 68) : imports **M3U +
 XMLTV + Xtream Codes**, virtualisation TV, pipeline média NATIVE→MSE avec
 watchdog, persistance Dexie (migration logique V4 : vod, séries, cache de détail, catégories ; index catalogue minimaux ; règles DB-5/DB-6/DB-7).
 
-## Statut d'exécution (vérifié dans cet environnement, 2026-09-11)
+## Statut d'exécution (révision V20, vérifié dans cet environnement, 2026-09-13)
 
 | Gate | Résultat |
 |---|---|
 | `npm ci`-style install (deps figées §2.1 : dexie 3.2.4, hls.js 1.4.14, webostvjs 1.2.4) | ✔ |
-| `npm run build` (Vite 4.5.0, target chrome68, terser, workers IIFE, inlineDynamicImports) | ✔ 31 modules transformés, bundle principal 530,12 kB minifié |
-| `npm test` (harnais maison `node:test`, variantes de benchmark supprimées) | ✔ 83/83 |
+| `npm run build` (Vite 4.5.0, target chrome68, terser, workers IIFE, inlineDynamicImports) | ✔ 31 modules transformés, bundle principal 532,77 kB minifié |
+| `npm test` (harnais maison `node:test`, régressions lazy/budget incluses) | ✔ **90/90** |
 | `tools/syntax-gate.mjs src` (interdit `?.` `??` `.flat` `Object.fromEntries` `globalThis` nu…) | ✔ 25 fichiers |
 | `tools/syntax-gate.mjs dist` (deps minifiées, occurrences sous garde tolérées et documentées) | ✔ 2 occurrences gardées (interop `typeof globalThis`, `typeof self.clients &&` de hls.js) |
-| Build store `IPTV_PRODUCTION=true` (Q3) | ✔ 528,35 kB, bundle sans aucun `console.*` |
-| Boot du build de production dans un vrai navigateur (chrome-headless-shell 153, CDP via `tools/browser-run.mjs`) | ✔ `#root` monté, 0 erreur console |
-| **Smoke navigateur réel** (`dev/smoke.html` sur le serveur Vite : workers `?worker` réels, Dexie/IndexedDB réels, import 50 lignes + swap + filet §5.5) | ✔ **SMOKE PASS (8/8)** |
-| **Harnais §9 en navigateur réel** (`tests/harness.html`, H1–H8 + test lourd H9) | ✔ **HARNESS PASS (9/9)** ; H9 : 20 000 lignes en 2,7 s, pire intervalle rAF 47 ms (budget ≤ 50 ms) |
-| **E2E télécommande / séries** (`bench/m5.mjs`, panel mock RTT 80 ms) | ✔ import + zap + play/pause + saisons/épisodes + Magic Remote |
-| **UI import V19** | ✔ un seul bouton `Importer` playlist, import EPG séparé, index catalogue V4 vérifiés |
+| Build store `IPTV_PRODUCTION=true` (Q3) | ✔ 531,01 kB, bundle sans aucun `console.*` |
+| Boot build production + smoke/harness navigateur (chrome-headless-shell 153, CDP) | ✔ production `#root` monté sans console ; smoke **8/8** ; harness **9/9** |
+| **Smoke navigateur réel** (`dev/smoke.html`) | ✔ **SMOKE PASS (8/8)** |
+| **Harnais §9 en navigateur réel** (`tests/harness.html`, H1–H8 + H9) | ✔ **HARNESS PASS (9/9)** |
+| **E2E télécommande / séries** (baseline V19 ; `bench/m5.mjs` non présent dans ce snapshot) | ⏳ qualification device/benchmark dédiée à rejouer |
+| **UI/import V20** | ✔ un seul catalogue chargé à la fois ; probe navigateur **LAZY PASS** ; budget média publié ; import EPG séparé ; index catalogue V4 conservés |
 | Qualification §11 T1–T4 sur webOS 5.0 (émulateur/TV) | ⏳ **non exécutable ici** — spécificités webOS (ServiceBridge, décodeur matériel, D-pad RC) + pré-requis bloquant Q2 du plan |
 
 Couverture des fixtures §9 : `m3u-20000` (20 002 lignes exactes avec variantes),
@@ -28,7 +28,10 @@ dates-12, attrs (`>` quoté/quotes simples/ordre), CDATA+entités, coupe 7 Ko,
 watermark waiters, filet `worker.onerror`, `xtream-mock` (5 channels + 4 vod exacts,
 `ACCOUNT_INFO.maxConnections=2`), `xtream-auth-fail` (zéro écriture), XP-4
 (catégorie 503 ignorée), bascule de table sans CHUNK mixte, deux lots en vol,
-`bulkAdd` exclusif, objets Xtream compacts, import par défaut V18 et migration d’index V19.
+`bulkAdd` exclusif, objets Xtream compacts, import par défaut V18, migration d’index V19,
+chargement lazy d’un seul catalogue et budget prioritaire pendant la lecture V20.
+
+Le compte-rendu de revue détaillé (critères, sévérités, traçabilité et résultats) est dans [`docs/REVIEW-V20-LAZY-BUDGET.md`](docs/REVIEW-V20-LAZY-BUDGET.md).
 
 ## Télécharger
 
@@ -46,7 +49,7 @@ watermark waiters, filet `worker.onerror`, `xtream-mock` (5 channels + 4 vod exa
 - Miroir de démonstration : https://iptv-webos-demo-ef07f8.surge.sh (canal secondaire ;
   GitHub reste le canal recommandé pour l'archive TV).
 
-## Import par défaut V18, index V19
+## Import par défaut V18, index V19, optimisations V20
 
 Les variantes de benchmark `Test import 1` à `Test import 5` ont été supprimées
 de l’interface. Il n’existe plus qu’un bouton **Importer** par playlist ; il
@@ -56,8 +59,8 @@ utilise le profil de production défini dans `src/data/ImportProfiles.js` :
 |---|---:|---|
 | taille d’un lot | 2 000 lignes | zone de confort TV entre 1 000 et 2 500 |
 | écriture | `bulkAdd` exclusivement | aucune vérification de remplacement sur un nouvel `importId` |
-| lots en vol | 2 | chevauchement du mapping Worker et de l’écriture IndexedDB |
-| respiration | 1 frame tous les 4 lots | pas de `setTimeout` fixe à chaque lot |
+| lots en vol | 2 hors lecture / 1 pendant lecture | budget normal conservé ; plafond réduit par `SET_IMPORT_BUDGET` en lecture |
+| respiration | 1 frame tous les 4 lots hors lecture / chaque lot en lecture | priorité au pipeline vidéo |
 | catalogues Xtream | parallèle | live, VOD et séries sont demandés selon le chemin V10 |
 
 Le `DataManager` sérialise toujours les écritures, mais le Worker peut préparer
@@ -72,6 +75,28 @@ Le swap final ne supprime plus l’ancien catalogue dans la transaction de fin.
 GC différée supprime les anciennes lignes par lots de 500. Si l’application est
 arrêtée avant cette GC, `bootMaintenance()` retrouve les lignes orphelines au
 prochain démarrage.
+
+### Chargement lazy d’un seul catalogue (V20)
+
+Après chaque changement d’onglet ou de playlist, `src/app.js` vide les trois
+`state.items` et les trois `VirtualList.items`, puis ne lit que le type demandé
+(`channels`, `vod` ou `series`). Les catégories sont demandées pour ce type
+seulement. Un jeton monotone, l’identifiant de playlist et l’onglet courant sont
+vérifiés après chaque `await`, de sorte qu’une réponse obsolète ne puisse pas
+réinjecter de lignes. La fin d’un import playlist recharge uniquement l’onglet
+visible ; la fin d’un EPG ne relit aucun catalogue. La recherche, les filtres et
+le zap restent portés par la liste courante.
+
+### Budget CPU/mémoire prioritaire pendant la lecture (V20)
+
+`MediaAdapter` publie `media-playback-state` et conserve
+`window.__iptvPlaybackActive` pour les paires d’import créées à la volée. En
+lecture, les trois workers passent à un seul CHUNK de 2 000 en vol et le
+`DataManager` rend la main après chaque lot ; hors lecture, le régime V18/V19 de
+deux CHUNK et quatre lots reste inchangé. La GC/purge IndexedDB attend une
+courte fenêtre avant chaque tranche de 500, puis reprend immédiatement à
+l’arrêt, l’erreur ou la mise en arrière-plan ; le swap, `bulkAdd`, les ACK et la
+protection de l’import actif sont inchangés.
 
 ## Régime d’index V19
 
@@ -279,7 +304,7 @@ reconstitue ainsi :
 
 ```bash
 npm install          # une fois
-npm test             # 39 tests, ~14 s
+npm test             # 90 tests, ~18 s
 npm run build        # dist/ packager-ready (+ public/manifest.json copié)
 IPTV_PRODUCTION=true npm run build   # build store (drop_console)
 npm run dev          # développement navigateur (les workers ?worker sont gérés par Vite)
@@ -425,7 +450,7 @@ par renommage, contenu inchangé).
 
 ## Arborescence
 
-Conforme à l'arbre gelé du plan (`SPEC-IPTV-webOS-V6-FINAL.md` ↔ `IMPLEMENTATION-PLAN.md`, révision V19), dont :
+Conforme à l'arbre gelé du plan (`SPEC-IPTV-webOS-V6-FINAL.md` ↔ `IMPLEMENTATION-PLAN.md`, révision V20), dont :
 `src/data/{db,DataManager,ImportController,m3u,epg,xtream}` · `src/media/{MediaAdapter,Watchdog,DualPlayerPolicy}` ·
 `src/platform/{LifecycleAdapter,XtreamClient}` · `src/ui/{FocusEngine,VirtualList}` · `src/services/PlaylistManager` ·
 `src/{bootstrap,app}.js` · `tests/` (harnais node + harness.html/harness-run.js §9 navigateur + fixtures générées) · `dev/smoke.{html,js}` (smoke Sprint 0) · `tools/{syntax-gate,browser-run}.mjs`.

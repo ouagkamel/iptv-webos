@@ -364,3 +364,22 @@ test('V14 RECOVERING : la progression repousse l’inactivité, le plafond reste
   assert.equal(a.state, 'RECOVERING', 'pas de « recovery timeout » pendant la progression');
   a.destroy();
 });
+
+test('MediaAdapter publie le budget de lecture active, puis le restaure à l’arrêt/erreur', () => {
+  const { a, v } = freshAdapter();
+  const states = [];
+  const onBudget = function (e) { states.push(!!(e.detail && e.detail.active)); };
+  window.addEventListener('media-playback-state', onBudget);
+  a.play('http://x/budget.m3u8');
+  assert.equal(window.__iptvPlaybackActive, true);
+  a.stop();
+  assert.equal(window.__iptvPlaybackActive, false);
+  window.removeEventListener('media-playback-state', onBudget);
+  assert.deepEqual(states.slice(-2), [true, false]);
+  // Le chemin erreur doit aussi solder l'état global, sans laisser le worker en mode média.
+  a.play('http://x/budget-error.m3u8');
+  v.dispatch('error');
+  v.dispatch('error');
+  assert.equal(window.__iptvPlaybackActive, false);
+  a.destroy();
+});

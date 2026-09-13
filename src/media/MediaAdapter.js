@@ -59,6 +59,14 @@ export class MediaAdapter {
     this.boundOnStartupProgress = this._noteStartupProgress.bind(this);
   }
 
+  _publishPlaybackState(active) {
+    if (typeof window === 'undefined') return;
+    window.__iptvPlaybackActive = !!active;
+    window.dispatchEvent(new CustomEvent('media-playback-state', {
+      detail: { active: !!active, state: this.state }
+    }));
+  }
+
   init() {
     if (this._destroyed) return;
     this.videoEl.addEventListener('error', this.boundOnVideoError);
@@ -79,6 +87,7 @@ export class MediaAdapter {
     this._hlsNetworkActive = false;
     this.engine = 'NATIVE';
     this.state = 'LOADING';
+    this._publishPlaybackState(true);
     this._startupDeadlineAt = Date.now() + this.startupDeadlineMs;
     this._armStartupTimeout(requestId);
     this.videoEl.src = streamUrl;
@@ -95,6 +104,7 @@ export class MediaAdapter {
     this._teardownPlayback();
     this.currentUrl = null;
     this.state = 'IDLE';
+    this._publishPlaybackState(false);
   }
 
   _tryPlay(requestId) {
@@ -126,6 +136,7 @@ export class MediaAdapter {
     if (this._destroyed) return;
     this.state = 'ENDED';
     this.watchdog.stop();
+    this._publishPlaybackState(false);
   }
 
   _onVideoError() {
@@ -327,6 +338,7 @@ export class MediaAdapter {
 
   _setError(message) {
     this.state = 'ERROR';
+    this._publishPlaybackState(false);
     const detail = { requestId: this.currentRequestId, url: this.currentUrl, message: message };
     this._teardownPlayback();
     window.dispatchEvent(new CustomEvent('media-error', { detail: detail }));
@@ -356,6 +368,7 @@ export class MediaAdapter {
     this._teardownPlayback();
     this.state = 'IDLE';
     this.engine = null;
+    this._publishPlaybackState(false);
   }
 
   destroy() {

@@ -1,8 +1,10 @@
-# SPÉCIFICATION TECHNIQUE D'EXÉCUTION & ARCHITECTURE — V19 (index minimal, import TV optimisé)
+# SPÉCIFICATION TECHNIQUE D'EXÉCUTION & ARCHITECTURE — V20 (catalogue lazy, budget média prioritaire)
 
 **Application IPTV / VOD / Live sur LG webOS — Baseline : webOS 5.0 / Chromium 68**
 
 Cette version consolide les itérations V3 → V5 et intègre les corrections issues de la revue externe de la V6 (voir §13, matrice de traçabilité) : détection de version SDK, parsing XMLTV à frontières de chunks et balises robustes, backpressure de bout en bout **dont le composant réseau désormais fourni en code** (§5.8), purge bornée par playlist, fin de flux sans deadlock, stratégie de clés IndexedDB, fallback média complet avec reconnexion intra-moteur rétablie, reprise après veille, virtualisation réelle, activation Entrée/OK, et wiring d'événements conforme aux invariants.
+
+La V20 ajoute deux optimisations incrémentales sans modifier le protocole de sécurité V18/V19 : un seul catalogue (`live`, `vod` ou `series`) est chargé à la fois dans l'UI, et le budget CPU/mémoire des imports s'efface pendant la lecture vidéo puis revient au régime normal à l'arrêt, à l'erreur ou en arrière-plan.
 
 ---
 
@@ -270,7 +272,7 @@ db.version(4).stores({
 
 **Règle DB-4 — séparation des types d'import :** `imports.kind ∈ { 'playlist', 'epg' }`. Un import de playlist écrit dans `channels` et met à jour `playlists.activeImportId` ; un import EPG écrit dans `epg` et met à jour `playlists.activeEpgImportId`. La purge d'un type ne touche **jamais** la table de l'autre (cf. §5.4).
 
-### 5.2 Protocole d'Import Commun (workers M3U, EPG et Xtream) — V18
+### 5.2 Protocole d'Import Commun (workers M3U, EPG et Xtream) — V18/V20
 
 `CHUNK_ITEMS` vaut **2 000 éléments** dans le chemin normal. Le worker Xtream
 n'accepte une variation interne qu'entre 1 000 et 2 500 éléments ; le profil
@@ -325,6 +327,37 @@ parallélisme V18 concerne les lots d'un même import, pas deux imports concurre
 - **PROT-7** : l'écriture de contenu d'import utilise **toujours `bulkAdd`**.
 Chaque clé de staging inclut un nouvel `importId`, donc une collision indique
 une anomalie réelle et ne doit pas être masquée par une mise à jour silencieuse.
+
+### 5.2.1 Budget dynamique prioritaire pendant la lecture — V20
+
+Le régime normal reste strictement celui de V18/V19 : lots de 2 000 éléments,
+`bulkAdd`, deux `CHUNK` maximum en vol et yield DataManager tous les quatre
+lots (ou la valeur du profil). Pendant qu'une lecture vidéo est active,
+`MediaAdapter` publie l'événement global :
+
+```javascript
+window.__iptvPlaybackActive = true;
+window.dispatchEvent(new CustomEvent('media-playback-state', {
+  detail: { active: true, state: 'LOADING|PLAYING|RECOVERING' }
+}));
+```
+
+`DataManager` relaie immédiatement `{type:'SET_IMPORT_BUDGET', active:true}` à
+la paire worker concernée, y compris aux paires créées après le début de la
+lecture. Les trois workers (`m3u.worker.js`, `epg.worker.js`,
+`xtream.worker.js`) limitent alors à **un seul CHUNK en vol** ; les ACK,
+`CHUNK_COMMITTED`, `COMPLETE`, `bulkAdd`, la validation des lots et le swap
+atomique restent inchangés. `DataManager` rend la main après chaque lot en
+lecture, au lieu d'attendre quatre lots.
+
+La GC/purge IndexedDB lazy vérifie le même état avant chaque tranche de 500
+lignes : en lecture elle attend une courte fenêtre bornée (500 ms maximum) ou
+la transition `active:false`, puis reprend. Elle n'est jamais exécutée dans la
+transaction de swap et ne peut supprimer ni le nouvel import ni l'import actif.
+`MediaAdapter` publie `active:false` à `stop`, `ended`, erreur terminale,
+`releaseHardware`/`visibilitychange` et `destroy`. Une paire d'import créée
+pendant une lecture lit aussi `window.__iptvPlaybackActive` lors de son
+initialisation. La règle est donc additive et compatible webOS 5 / Chromium 68.
 
 ### 5.3 DataManager, bulkAdd, respiration et swap rapide — V18
 
@@ -1241,7 +1274,8 @@ répond avec le même identifiant. Le worker ne se bloque qu'après deux lots no
 acquittés ; il peut donc mapper le lot suivant pendant l'écriture du lot courant.
 Le `yieldMs` par lot est supprimé : le DataManager rend la main une frame tous
 les quatre lots, avec `setTimeout(0)` lorsque le document est caché ou que
-`requestAnimationFrame` ne répond pas.
+`requestAnimationFrame` ne répond pas. En régime V20 de lecture, ce rendement
+est forcé à chaque lot ; hors lecture, le régime V18/V19 reste inchangé.
 
 Les mappeurs `mapLiveItem`, `mapVodItem` et `mapSeriesItem` ne copient que les
 champs consommés par l'UI, la recherche, les catégories et le lecteur. Les
@@ -1314,6 +1348,25 @@ les clés DB-1, les lectures de l'UI, le protocole `bulkAdd`, la sécurité du s
 ou la compatibilité webOS 5 / Chromium 68. Un Blob/JSON pourra être évalué plus
 tard sur une branche dédiée avec tests de taille, mémoire, recherche, EPG,
 annulation et reprise avant toute adoption normative.
+
+### 6.11 Chargement lazy d'un seul catalogue — V20
+
+`src/app.js` ne fait plus de lecture globale `Promise.all()` de `channels`,
+`vod` et `series`. Après un changement d'onglet, il invalide un jeton de
+chargement, vide `state.items` et `VirtualList.items` pour les trois familles,
+réinitialise leurs sélecteurs de catégories, puis appelle uniquement
+`PlaylistManager.channels()`, `vod()` ou `series()` correspondant à l'onglet
+actif. Les tableaux des onglets inactifs restent donc vides ; le pool DOM
+`VirtualList` reste borné et est également vidé.
+
+La réponse est acceptée seulement si le jeton, la playlist active et l'onglet
+sont toujours courants. Une réponse de l'ancien onglet ou de l'ancienne
+playlist ne peut ni réinjecter des lignes ni réécrire les catégories. Les
+catégories sont demandées après le catalogue courant, pour ce seul type. Une
+fin d'import `playlist` invalide et recharge seulement l'onglet actuellement
+visible ; une fin d'import `epg` rafraîchit l'état des playlists sans relire un
+catalogue. Le filtrage, la recherche préfixe et le zap utilisent toujours le
+`VirtualList` du type courant et conservent les données métier V19.
 
 ---
 
@@ -1624,7 +1677,7 @@ ci-dessous remplace le cap dur de 10 s de l'extrait de référence §7.2.**
 
 La fixture `media-startup-fhd` (§9) vérifie : progression `FRAG_LOADING` avant
 `FRAG_LOADED`, `NETWORK_LOADING` natif, silence terminal, plafond absolu et
-événements `<video>`. La recette V19 a **83 tests** verts dans l'environnement
+événements `<video>`. La recette V20 a **90 tests** verts dans l'environnement
 de livraison.
 
 ---
@@ -1798,6 +1851,20 @@ Désactivé par défaut (`false`). Ne peut s'activer que si les trois portes (mo
 **Branchement Xtream (amendement V9) :** pour une source Xtream (§6.5), `provider.maxConcurrentStreams` est alimenté par `user_info.max_connections` reçu via le message `ACCOUNT_INFO` (routé `_routeAux` → listener enregistré par le module Dual Player). `max_connections` absent ou < 2 → la porte reste fermée (comportement sûr par défaut, XP-3/XP-4).
 
 ---
+
+
+### 7.6 Publication du budget média vers les imports — V20
+
+La transition `play(url)` publie `media-playback-state {active:true}` avant la
+première tentative native. `stop()`, `ended`, `_setError()`,
+`releaseHardware()` et `destroy()` publient `active:false`. Le lecteur ne
+modifie pas la machine NATIVE → HLS_MSE → ERROR, le watchdog, le `requestId`,
+les budgets de reconnexion ou le fallback HLS ; il ne fait que partager un
+signal de priorité avec `DataManager`.
+
+`LifecycleAdapter` appelle `releaseHardware()` lorsqu'une page devient cachée.
+Le budget normal est donc rétabli avant la suspension webOS, tandis que la
+session active est conservée pour la reprise prévue au retour au premier plan.
 
 ## 8. UI — FocusEngine (wiring complet) & VirtualList (virtualisation réelle)
 
@@ -2083,9 +2150,11 @@ Les défaillances historiques (fin de flux, purge croisée, fuseau horaire) sont
 | `default-playlist` (V16) | boot sur DB vide puis second boot | playlist Xtream par défaut créée une seule fois, sélectionnable, aucune saisie nécessaire pour atteindre Importer |
 | `db-schema-v4` (V19) | base V3 avec lignes historiques et index secondaires | migration conserve les données/propriétés, retire uniquement les index inutiles de `channels`/`vod`/`series`, index EPG/catégories inchangés |
 | `import-phases` (V16) | worker Xtream avec trois catalogues globaux | phases `auth`/`categories`/`catalogue`/`write-*` visibles avant et pendant `IMPORT_META`, total et écritures inchangés ; catalogues lancés en parallèle |
-| `import-default` (V18/V19) | profil unique Xtream/M3U/EPG et double buffer | `bulkAdd`, lots de 2 000, deux CHUNK en vol, aucune variante de benchmark UI ; index catalogue minimaux vérifiés |
+| `import-default` (V18/V19/V20) | profil unique Xtream/M3U/EPG, double buffer et budget média | `bulkAdd`, lots de 2 000, deux CHUNK hors lecture, un CHUNK en lecture, index catalogue minimaux vérifiés |
 | `quota-cleanup` (V17.1) | staging partiellement écrit puis erreur `QuotaExceededError`, avec un import actif distinct | les lignes de l'import échoué sont supprimées dans toutes les tables, l'actif reste intact ; un nouvel import nettoie aussi les reliquats `failed` historiques |
-| `m3u-20000.m3u` | 20 000 chaînes, 40 groupes | 20 000 lignes en base ; `activeImportId` permuté ; groupes paginables par `[importId+groupName]` |
+| `lazy-catalog` (V20) | changements rapides d'onglet/playlist + réponses différées | un seul manager `live`/`vod`/`series` appelé à la fois ; `state.items` et `VirtualList.items` inactifs vides ; réponse obsolète ignorée ; catégories et zap du type courant conservés |
+| `playback-budget` (V20) | lecture active puis arrêt/erreur/arrière-plan pendant import et GC | trois workers à un CHUNK en lecture, deux hors lecture ; yield DataManager par lot en lecture ; GC retardée puis reprise ; événement global restauré à `active:false` |
+| `m3u-20000.m3u` | 20 000 chaînes, 40 groupes | 20 000 lignes en base ; `activeImportId` permuté ; groupes filtrables en mémoire après lecture par `importId` |
 | `xmltv-644.xml` | 644 programmes | **exactement 644 lignes** `epg` ; `COMPLETE` reçu ; `status: 'completed'` |
 | `xmltv-500-exact.xml` | 500 programmes | terminaison correcte (bord de modulo) |
 | `xmltv-offsets.xml` | dates `+0100`, `-0500`, sans offset | écarts horaires exactement appliqués (±1 h / −5 h) |
@@ -2202,7 +2271,7 @@ Non implémentés dans cette roadmap et **à ne pas introduire spontanément** (
 | Temps silencieux avant le premier pourcentage et catalogues Xtream demandés séquentiellement ; import obligeant à ressaisir base/identifiants | Retour utilisateur webOS 26 + demande playlist par défaut (V16) | `IMPORT_PHASE` immédiat dans le badge ; appels globaux Live/VOD/Séries parallélisés, écriture conservée séquentielle ; `DEFAULT_PLAYLIST` + `ensureDefaultPlaylist` idempotent au boot, sans auto-import | §5.8, §6.5, §6.7, §9 |
 | Ralentissement surtout visible pendant « Écriture des films », « Écriture des séries » et à 99 % sur les derniers lots ; besoin de comparer sur TV réelle | Demande produit 2026-09-11 (V17) | cinq boutons `Test import 1…5` sur Xtream ; tailles 2 000/4 000/8 000, `bulkPut` ou `bulkAdd`, respiration 32/16/0/8 ms, catalogues parallèles ou séquentiels ; protocole/swap/protections inchangés ; `import-finished` expose durée + profil ; aucun mot de passe journalisé | §5.2, §5.3, §5.8, §6.8, §9 |
 | `QuotaExceededError` après plusieurs tests, avec risque de conserver les lots partiels des imports échoués | Retour utilisateur 2026-09-11 (V17.1) | purge immédiate du staging par `importId` dans `DataManager.failImport` ; nettoyage des anciens `failed` avant tout nouvel import ; import actif préservé ; message public `STORAGE_QUOTA` si la capacité physique reste insuffisante | §5.3, §6.9, §9 |
-**Statut : spécification gelée pour exécution V19** (V9 + V9.1 ; V10 perf ; V11 séries & catégories ; V12 télécommande & séries deux temps ; V13 ordre serveur des listes et du zap ; V14 démarrage FHD tolérant ; V15 normalisation Xtream réelle de `get_series_info` ; V16 phases d'import visibles, catalogues Xtream parallélisés et playlist par défaut idempotente ; V17/V17.1 profils puis récupération quota ; **V18 suppression des boutons de benchmark, `bulkAdd` exclusif, deux CHUNK en vol, objets compacts, respiration par frame et GC lazy après swap ; V19 régime d'index minimal Dexie sur les catalogues**). Toute divergence ultérieure = nouvelle révision incrémentale avec entrée de traçabilité.
+**Statut : spécification gelée pour exécution V20** (V9 + V9.1 ; V10 perf ; V11 séries & catégories ; V12 télécommande & séries deux temps ; V13 ordre serveur des listes et du zap ; V14 démarrage FHD tolérant ; V15 normalisation Xtream réelle de `get_series_info` ; V16 phases d'import visibles, catalogues Xtream parallélisés et playlist par défaut idempotente ; V17/V17.1 profils puis récupération quota ; **V18 suppression des boutons de benchmark, `bulkAdd` exclusif, deux CHUNK en vol, objets compacts, respiration par frame et GC lazy après swap ; V19 régime d'index minimal Dexie sur les catalogues ; V20 chargement lazy d'un seul catalogue et budget média prioritaire pendant la lecture**). Toute divergence ultérieure = nouvelle révision incrémentale avec entrée de traçabilité.
 
 ### Traçabilité V18 — demande d'optimisation TV du 2026-09-11
 
@@ -2234,3 +2303,20 @@ récentes pour le schéma Dexie.
 
 Validation V19 : **83/83 tests**, gate syntaxe Chromium 68, build Vite,
 smoke navigateur et harness navigateur verts.
+
+### Traçabilité V20 — mémoire UI et budget prioritaire pendant la lecture
+
+| Demande / constat | Décision | Fichiers / garanties |
+|---|---|---|
+| `Promise.all()` conservait live, VOD et séries simultanément en mémoire | Chargement ciblé de l'onglet actif ; purge de `state.items` et des `VirtualList.items` inactifs ; catégories ciblées | `src/app.js`, `VirtualList.setItems([])`, garde `catalogLoadToken` |
+| Réponse d'un ancien onglet/playlist susceptible de réinjecter des lignes | Jeton monotone + vérification playlist/onglet après chaque `await` ; fin playlist recharge seulement la vue active ; fin EPG ne recharge aucun catalogue | `src/app.js`, test `lazy-catalog` |
+| Import concurrent avec lecture vidéo | Signal global `media-playback-state`, relayé par chaque `DataManager` aux workers ; plafond 1 CHUNK en lecture, 2 hors lecture | `MediaAdapter.js`, `DataManager.js`, `m3u.worker.js`, `epg.worker.js`, `xtream.worker.js` |
+| GC IndexedDB concurrente avec le pipeline vidéo | attente bornée avant chaque tranche de 500, réveil immédiat à `active:false`, import actif toujours protégé | `DataManager._waitForPlaybackBudget()`, `_deleteImportRowsInBatches()` |
+| Sécurité/swap V18/V19 | aucune modification de `bulkAdd`, ACK, validation, `COMPLETE`, swap atomique ou purge de l'actif | tests protocole et import existants + `playback-budget` |
+
+Validation V20 : **90/90 tests**, gate syntaxe Chromium 68, build standard
+(532,77 kB) et build production (531,01 kB sans `console.*`) verts ; boot de
+production **APP PASS**, smoke navigateur **8/8**, harness **9/9** et probe
+manuel de changement live→vod→series **LAZY PASS**. La qualification sur TV
+webOS réelle reste à exécuter ; les warnings Vite de chunk > 500 kB et les
+warnings GPU/DBus du headless Chrome restent non bloquants.
