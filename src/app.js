@@ -22,6 +22,7 @@ const state = {
   items: { live: [], vod: [], series: [] },
   // V11 : filtre à catégories serveur par vue ('' = Toutes)
   catFilter: { live: '', vod: '', series: '' },
+  guideCategory: '',
   selIndex: -1,
   provider: { maxConcurrentStreams: 0 },
   // V12 §8.4 : contexte de lecture en cours (zap ↑/↓ dans le lecteur)
@@ -38,6 +39,8 @@ let seriesCtx = null;   // { pl, item, payload, level:'seasons'|'episodes', seas
 let seriesRefs = null;  // nœuds stables de l'overlay (body, closeB)
 let seriesBack = null;  // handler courant de la pile LIFO du panneau
 let profileModalBack = null;
+let guideList = null;
+let guideBack = null;
 const lists = {};
 const catSelects = {};
 const CATALOG_KINDS = ['live', 'vod', 'series'];
@@ -80,17 +83,19 @@ function buildLayout() {
 
   const nav = el('nav', 'vision-nav');
   nav.appendChild(navButton('home', 'Accueil', 'home'));
-  nav.appendChild(navButton('live', 'En Direct', 'tv'));
+  nav.appendChild(navButton('live', 'Chaînes Live TV', 'tv'));
   nav.appendChild(navButton('vod', 'Films', 'film'));
   nav.appendChild(navButton('series', 'Séries', 'clapper'));
+  nav.appendChild(navButton('guide', 'Guide TV (EPG)', 'guide'));
   nav.appendChild(navButton('favorites', 'Favoris', 'star'));
-  nav.appendChild(navButton('playlists', 'Profils', 'user'));
   sidebar.appendChild(nav);
-  const settings = navButton('settings', 'Paramètres', 'settings');
-  settings.classList.add('vision-settings');
-  sidebar.appendChild(settings);
+  const lowerNav = el('div', 'vision-nav-lower');
+  lowerNav.appendChild(navButton('settings', 'Paramètres', 'settings'));
+  lowerNav.appendChild(navButton('playlists', 'Changer de profil', 'manage'));
+  sidebar.appendChild(lowerNav);
 
   const main = el('main', 'vision-main');
+  main.appendChild(buildTopbar());
   const body = el('div', 'vision-views');
   state.views = {
     home: buildHomeView(),
@@ -99,7 +104,8 @@ function buildLayout() {
     playlists: buildPlaylistsView(),
     live: buildListView('live'),
     vod: buildListView('vod'),
-    series: buildListView('series')
+    series: buildListView('series'),
+    guide: buildGuideView()
   };
   body.appendChild(state.views.home);
   body.appendChild(state.views.favorites);
@@ -108,8 +114,58 @@ function buildLayout() {
   body.appendChild(state.views.live);
   body.appendChild(state.views.vod);
   body.appendChild(state.views.series);
+  body.appendChild(state.views.guide);
   main.appendChild(body);
+  main.appendChild(buildFooter());
   root.appendChild(sidebar); root.appendChild(main);
+}
+
+function buildTopbar() {
+  const header = el('header', 'vision-topbar');
+  const left = el('div', 'topbar-left');
+  const mark = el('span', 'topbar-mark'); mark.textContent = 'V'; left.appendChild(mark);
+  const name = el('span', 'topbar-name'); name.textContent = 'VisionTV'; left.appendChild(name);
+  const links = el('nav', 'topbar-links');
+  [['home', 'Explorer'], ['live', 'En direct'], ['vod', 'Cinéma'], ['series', 'Séries']].forEach(function (entry) {
+    const b = tabButton(entry[0], entry[1]); b.classList.add('top-link'); links.appendChild(b);
+  });
+  left.appendChild(links); header.appendChild(left);
+
+  const status = el('div', 'topbar-status');
+  const net = el('span', 'status-pill'); net.appendChild(svgIcon('wifi', 17));
+  const netText = el('span'); netText.textContent = 'TV prête'; net.appendChild(netText); status.appendChild(net);
+  const quality = el('span', 'status-pill'); quality.appendChild(svgIcon('hdr', 17));
+  const qualityText = el('span'); const webosMajor = ctx && ctx.capabilities && ctx.capabilities.webosVersion ? ctx.capabilities.webosVersion.major : 5; qualityText.textContent = 'webOS ' + webosMajor; quality.appendChild(qualityText); status.appendChild(quality);
+  const clock = el('time', 'status-clock'); clock.textContent = '--:--'; status.appendChild(clock);
+  const profile = el('button', 'topbar-profile'); profile.tabIndex = 0; profile.setAttribute('data-tab', 'playlists');
+  const avatar = el('span', 'topbar-avatar'); avatar.textContent = 'V';
+  const profileName = el('span'); profileName.textContent = 'Profil';
+  profile.appendChild(avatar); profile.appendChild(profileName);
+  profile.addEventListener('click', function () { state.tab = 'playlists'; renderTab(); }); status.appendChild(profile);
+  header.appendChild(status);
+  state.topbarRefs = { clock: clock, profile: profile, avatar: avatar, profileName: profileName };
+  updateTopClock();
+  if (!state.topClockTimer) state.topClockTimer = setInterval(updateTopClock, 30000);
+  return header;
+}
+
+function updateTopClock() {
+  if (!state.topbarRefs || !state.topbarRefs.clock) return;
+  const now = new Date();
+  state.topbarRefs.clock.textContent = String(now.getHours()).padStart(2, '0') + ':' + String(now.getMinutes()).padStart(2, '0');
+}
+
+function buildFooter() {
+  const footer = el('footer', 'vision-footer');
+  const left = el('div', 'footer-hints');
+  [['▲▼', 'Naviguer'], ['OK', 'Valider'], ['◀', 'Retour'], ['Y', 'Options']].forEach(function (entry) {
+    const hint = el('span', 'footer-hint');
+    const key = el('b'); key.textContent = entry[0]; hint.appendChild(key);
+    const label = el('span'); label.textContent = entry[1]; hint.appendChild(label); left.appendChild(hint);
+  });
+  footer.appendChild(left);
+  const right = el('span', 'footer-brand'); right.textContent = 'Magic Remote  ·  D-Pad Ready'; footer.appendChild(right);
+  return footer;
 }
 
 function el(tag, cls) {
@@ -130,6 +186,15 @@ function svgIcon(name, size) {
     clapper: 'M3 7h18v13H3z M3 7l3-4h4L7 7l4-4h4l-3 4 4-4h4l-3 4',
     user: 'M20 21a8 8 0 0 0-16 0 M12 13a4 4 0 1 0 0-8 4 4 0 0 0 0 8z',
     settings: 'M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8z M4.9 4.9l1.4 1.4 M17.7 17.7l1.4 1.4 M4 12H2 M22 12h-2 M4.9 19.1l1.4-1.4 M17.7 6.3l1.4-1.4 M12 4V2 M12 22v-2',
+    guide: 'M4 5h16v14H4z M4 9h16 M8 5v4 M12 5v4 M16 5v4 M8 13h.01 M12 13h.01 M16 13h.01 M8 16h.01 M12 16h.01 M16 16h.01',
+    manage: 'M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2 M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8z M19 8v6 M22 11h-6',
+    wifi: 'M2 8.5a16 16 0 0 1 20 0 M5 12a11 11 0 0 1 14 0 M8.5 15.5a6 6 0 0 1 7 0 M12 19h.01',
+    hdr: 'M4 5h16v14H4z M8 9h2v6H8z M14 9h2v6h-2z',
+    search: 'M11 19a8 8 0 1 1 0-16 8 8 0 0 1 0 16z M21 21l-4.3-4.3',
+    calendar: 'M4 5h16v15H4z M8 3v4 M16 3v4 M4 10h16 M8 14h.01 M12 14h.01 M16 14h.01 M8 17h.01 M12 17h.01',
+    refresh: 'M20 11a8 8 0 0 0-14.7-4L3 10 M3 5v5h5 M4 13a8 8 0 0 0 14.7 4L21 14 M21 19v-5h-5',
+    favorite: 'M12 20.5S4 15.8 4 9.5A4.5 4.5 0 0 1 12 6a4.5 4.5 0 0 1 8 3.5c0 6.3-8 11-8 11z',
+    star: 'M12 3.8l2.6 5.3 5.9.9-4.3 4.2 1 5.9-5.2-2.8-5.2 2.8 1-5.9-4.3-4.2 5.9-.9z',
     play: 'M8 5v14l11-7z',
     pause: 'M8 5v14 M16 5v14',
     plus: 'M12 5v14 M5 12h14',
@@ -160,100 +225,95 @@ function tabButton(tab, label) {
 
 function buildHomeView() {
   const view = el('div', 'view view-home');
-  const top = el('div', 'home-topbar');
-  const intro = el('div', 'home-intro');
-  const eyebrow = el('span', 'eyebrow'); eyebrow.textContent = 'VISIONTV'; intro.appendChild(eyebrow);
-  const title = el('h1'); title.textContent = 'Découverte'; intro.appendChild(title);
-  const subtitle = el('p'); subtitle.textContent = 'Votre divertissement, réinventé.'; intro.appendChild(subtitle);
-  top.appendChild(intro);
-  const profile = el('button', 'home-profile'); profile.tabIndex = 0;
-  const profileAvatar = el('span', 'home-profile-avatar'); profileAvatar.textContent = 'V';
-  const profileName = el('span'); profileName.textContent = 'Profil';
-  const clock = el('time', 'home-clock'); clock.textContent = '--:--';
-  profile.appendChild(profileAvatar); profile.appendChild(profileName); profile.appendChild(clock);
-  profile.addEventListener('click', function () { state.tab = 'playlists'; renderTab(); });
-  top.appendChild(profile); view.appendChild(top);
+  const header = el('div', 'page-heading');
+  const kicker = el('span', 'eyebrow'); kicker.textContent = 'PORTAIL UTILISATEUR'; header.appendChild(kicker);
+  const title = el('h1'); title.textContent = 'Accueil'; header.appendChild(title);
+  const subtitle = el('p'); subtitle.textContent = 'Un accès simple à vos chaînes, films et séries.'; header.appendChild(subtitle);
+  view.appendChild(header);
 
   const hero = el('section', 'home-hero');
-  const heroArt = el('div', 'hero-art');
-  const heroOrb = el('div', 'hero-orb'); heroArt.appendChild(heroOrb);
+  const backdrop = el('div', 'hero-backdrop');
+  const backdropImage = document.createElement('img'); backdropImage.alt = ''; backdropImage.style.display = 'none'; backdrop.appendChild(backdropImage);
+  const scrim = el('div', 'hero-scrim'); backdrop.appendChild(scrim); hero.appendChild(backdrop);
   const heroCopy = el('div', 'hero-copy');
-  const heroKicker = el('span', 'hero-kicker'); heroKicker.textContent = 'À LA UNE'; heroCopy.appendChild(heroKicker);
+  const heroKicker = el('span', 'hero-kicker'); heroKicker.textContent = 'VISIONTV'; heroCopy.appendChild(heroKicker);
   const heroTitle = el('h2'); heroTitle.textContent = 'Bienvenue sur VisionTV'; heroCopy.appendChild(heroTitle);
   const heroMeta = el('div', 'hero-meta'); heroMeta.textContent = 'TV en direct  ·  Films  ·  Séries'; heroCopy.appendChild(heroMeta);
-  const heroPlot = el('p'); heroPlot.textContent = 'Importez votre accès et retrouvez vos chaînes et contenus dans une interface pensée pour la télécommande.'; heroCopy.appendChild(heroPlot);
+  const heroPlot = el('p'); heroPlot.textContent = 'Sélectionnez un profil et importez votre accès pour découvrir votre catalogue.'; heroCopy.appendChild(heroPlot);
   const heroActions = el('div', 'hero-actions');
-  const heroPlay = button('Importer une playlist', function () {
-    if (state.activePlaylistId != null) runImport(state.activePlaylistId, false); else { state.tab = 'playlists'; renderTab(); }
-  }); heroPlay.classList.add('vision-primary'); heroPlay.insertBefore(svgIcon('play', 20), heroPlay.firstChild);
-  const heroInfo = button('En savoir plus', function () { if (osd) osd.setStatus('Sélectionnez un contenu pour commencer'); }); heroInfo.classList.add('vision-ghost'); heroActions.appendChild(heroPlay); heroActions.appendChild(heroInfo);
-  heroCopy.appendChild(heroActions); hero.appendChild(heroArt); hero.appendChild(heroCopy); view.appendChild(hero);
+  const heroPlay = button('Regarder en direct', function () {}); heroPlay.classList.add('vision-primary'); heroPlay.insertBefore(svgIcon('play', 20), heroPlay.firstChild);
+  const heroGuide = button('Guide des chaînes', function () { state.tab = 'guide'; renderTab(); }); heroGuide.classList.add('vision-secondary'); heroGuide.insertBefore(svgIcon('guide', 19), heroGuide.firstChild);
+  const heroFav = button('', function () { if (osd) osd.setStatus('Favoris : fonctionnalité disponible depuis les catalogues'); }); heroFav.classList.add('icon-button', 'hero-favorite'); heroFav.setAttribute('aria-label', 'Ajouter aux favoris'); heroFav.appendChild(svgIcon('favorite', 21));
+  heroActions.appendChild(heroPlay); heroActions.appendChild(heroGuide); heroActions.appendChild(heroFav); heroCopy.appendChild(heroActions); hero.appendChild(heroCopy); view.appendChild(hero);
 
-  const liveHeader = sectionHeader('En direct pour vous', 'Voir tout', function () { state.tab = 'live'; renderTab(); });
-  view.appendChild(liveHeader);
+  const universHead = sectionHeader('Les univers VisionTV', '4 accès rapides', null); view.appendChild(universHead);
+  const univers = el('div', 'universe-row');
+  [['live', 'tv', 'Direct TV', 'Flux temps réel'], ['vod', 'film', 'Films VOD', 'Catalogue cinéma'], ['series', 'clapper', 'Séries TV', 'Intégrales et épisodes'], ['guide', 'guide', 'Guide EPG', 'Programmes à suivre']].forEach(function (entry) {
+    const card = button('', function () { state.tab = entry[0]; renderTab(); }); card.classList.add('universe-card');
+    card.appendChild(svgIcon(entry[1], 29)); const copy = el('span', 'universe-copy');
+    const name = el('strong'); name.textContent = entry[2]; const desc = el('small'); desc.textContent = entry[3];
+    copy.appendChild(name); copy.appendChild(desc); card.appendChild(copy); univers.appendChild(card);
+  }); view.appendChild(univers);
+
+  const liveHead = sectionHeader('Mes chaînes favorites', 'Voir tout', function () { state.tab = 'live'; renderTab(); }); view.appendChild(liveHead);
   const liveRow = el('div', 'home-card-row'); view.appendChild(liveRow);
-  const contentHeader = sectionHeader('À découvrir', 'Films et séries', function () { state.tab = 'vod'; renderTab(); });
-  view.appendChild(contentHeader);
+  const continueHead = sectionHeader('Tendances du catalogue', 'Explorer les films', function () { state.tab = 'vod'; renderTab(); }); view.appendChild(continueHead);
   const contentRow = el('div', 'home-card-row'); view.appendChild(contentRow);
-  state.homeRefs = { view: view, profile: profile, profileAvatar: profileAvatar, profileName: profileName,
-    clock: clock, hero: hero, heroTitle: heroTitle, heroMeta: heroMeta, heroPlot: heroPlot,
-    heroKicker: heroKicker, heroPlay: heroPlay, liveRow: liveRow, contentRow: contentRow };
-  if (!state.homeClockTimer) {
-    state.homeClockTimer = setInterval(function () { updateHomeClock(); }, 30000);
-  }
+  state.homeRefs = { view: view, hero: hero, backdropImage: backdropImage, heroTitle: heroTitle,
+    heroMeta: heroMeta, heroPlot: heroPlot, heroKicker: heroKicker, heroPlay: heroPlay,
+    liveRow: liveRow, contentRow: contentRow };
   return view;
 }
 
 function sectionHeader(label, actionLabel, onClick) {
   const head = el('div', 'section-header');
   const h = el('h2'); h.textContent = label; head.appendChild(h);
-  const b = button(actionLabel, onClick); b.classList.add('section-action'); head.appendChild(b);
+  if (actionLabel) {
+    const action = onClick ? button(actionLabel, onClick) : el('span', 'section-action');
+    if (!onClick) action.textContent = actionLabel;
+    action.classList.add('section-action'); head.appendChild(action);
+  }
   return head;
 }
 
-function updateHomeClock() {
-  if (!state.homeRefs || !state.homeRefs.clock) return;
-  const now = new Date();
-  const hh = String(now.getHours()).padStart(2, '0');
-  const mm = String(now.getMinutes()).padStart(2, '0');
-  state.homeRefs.clock.textContent = hh + ':' + mm;
+function updateActiveProfileBadge() {
+  if (!state.topbarRefs) return;
+  const active = state.playlists.filter(function (p) { return p.id === state.activePlaylistId; })[0];
+  const profileName = active ? String(active.name || 'Profil') : 'Profil';
+  state.topbarRefs.profileName.textContent = profileName;
+  state.topbarRefs.avatar.textContent = profileName.slice(0, 1).toUpperCase();
 }
 
 function renderHomeView() {
   const refs = state.homeRefs;
   if (!refs) return;
-  updateHomeClock();
-  const active = state.playlists.filter(function (p) { return p.id === state.activePlaylistId; })[0];
-  const profileName = active ? String(active.name || 'Profil') : 'Profil';
-  refs.profileName.textContent = profileName;
-  refs.profileAvatar.textContent = profileName.slice(0, 1).toUpperCase();
-
-  const live = lists.live && lists.live.items ? lists.live.items.slice(0, 6) : [];
-  const vod = lists.vod && lists.vod.items ? lists.vod.items.slice(0, 5) : [];
+  updateActiveProfileBadge();
+  const live = lists.live && lists.live.items ? lists.live.items.slice(0, 8) : [];
+  const vod = lists.vod && lists.vod.items ? lists.vod.items.slice(0, 8) : [];
   const lead = live.length ? live[0] : (vod.length ? vod[0] : null);
   refs.heroKicker.textContent = lead ? (live.length ? 'EN DIRECT' : 'À LA UNE') : 'VISIONTV';
   refs.heroTitle.textContent = lead ? String(lead.name || 'Votre programme') : 'Bienvenue sur VisionTV';
   refs.heroMeta.textContent = lead ? [lead.groupName, lead.rating ? '★ ' + lead.rating : '', lead.releaseDate].filter(Boolean).join('  ·  ') : 'TV en direct  ·  Films  ·  Séries';
-  refs.heroPlot.textContent = lead && lead.plot ? String(lead.plot) : 'Importez votre accès et retrouvez vos chaînes et contenus dans une interface pensée pour la télécommande.';
+  refs.heroPlot.textContent = lead && lead.plot ? String(lead.plot) : 'Sélectionnez un profil et importez votre accès pour découvrir votre catalogue.';
+  refs.backdropImage.style.display = lead && lead.logo ? '' : 'none';
+  if (lead && lead.logo) refs.backdropImage.src = String(lead.logo);
   refs.heroPlay.textContent = '';
-  refs.heroPlay.appendChild(svgIcon(lead ? 'play' : 'plus', 20));
-  refs.heroPlay.appendChild(document.createTextNode(lead ? 'Regarder maintenant' : 'Importer une playlist'));
+  refs.heroPlay.appendChild(svgIcon(lead ? 'play' : 'refresh', 20));
+  refs.heroPlay.appendChild(document.createTextNode(lead ? 'Regarder en direct' : 'Importer une playlist'));
   refs.heroPlay.onclick = function () {
     if (lead) activateChannel(live.length ? 'live' : 'vod', lead, 0);
     else if (state.activePlaylistId != null) runImport(state.activePlaylistId, false);
     else { state.tab = 'playlists'; renderTab(); }
   };
   renderHomeCards(refs.liveRow, live, 'live', 'Aucune chaîne importée');
-  renderHomeCards(refs.contentRow, vod, 'vod', 'Les films apparaîtront après un import Xtream');
+  renderHomeCards(refs.contentRow, vod, 'vod', 'Ouvrez Films pour charger le catalogue VOD');
 }
 
 function renderHomeCards(host, rows, kind, emptyText) {
   host.innerHTML = '';
   if (!rows.length) {
-    const empty = el('div', 'home-empty-card');
-    empty.appendChild(svgIcon(kind === 'live' ? 'tv' : 'film', 28));
-    const copy = el('span'); copy.textContent = emptyText; empty.appendChild(copy);
-    host.appendChild(empty); return;
+    const empty = el('div', 'home-empty-card'); empty.appendChild(svgIcon(kind === 'live' ? 'tv' : 'film', 28));
+    const copy = el('span'); copy.textContent = emptyText; empty.appendChild(copy); host.appendChild(empty); return;
   }
   rows.forEach(function (item, index) {
     const card = el('button', 'content-card'); card.tabIndex = 0;
@@ -263,8 +323,7 @@ function renderHomeCards(host, rows, kind, emptyText) {
     const cardTitle = el('span', 'content-title'); cardTitle.textContent = String(item.name || 'Sans titre');
     const cardMeta = el('small'); cardMeta.textContent = kind === 'live' ? 'En direct' : (item.groupName || 'Catalogue');
     card.appendChild(thumb); card.appendChild(cardTitle); card.appendChild(cardMeta);
-    card.addEventListener('click', function () { activateChannel(kind, item, index); });
-    host.appendChild(card);
+    card.addEventListener('click', function () { activateChannel(kind, item, index); }); host.appendChild(card);
   });
 }
 
@@ -273,32 +332,86 @@ function buildFavoritesView() {
   const head = el('div', 'simple-head');
   const kicker = el('span', 'eyebrow'); kicker.textContent = 'VOS SÉLECTIONS'; head.appendChild(kicker);
   const title = el('h1'); title.textContent = 'Favoris'; head.appendChild(title);
-  const sub = el('p'); sub.textContent = 'Retrouvez vos chaînes et programmes préférés au même endroit.'; head.appendChild(sub);
-  view.appendChild(head);
-  const empty = el('div', 'simple-empty'); empty.appendChild(svgIcon('star', 42));
+  const sub = el('p'); sub.textContent = 'Retrouvez vos chaînes et programmes préférés au même endroit.'; head.appendChild(sub); view.appendChild(head);
+  const empty = el('div', 'simple-empty'); empty.appendChild(svgIcon('favorite', 42));
   const emptyTitle = el('h2'); emptyTitle.textContent = 'Aucun favori pour le moment'; empty.appendChild(emptyTitle);
-  const emptyText = el('p'); emptyText.textContent = 'Ouvrez un catalogue et ajoutez vos contenus favoris depuis votre téléviseur.'; empty.appendChild(emptyText);
+  const emptyText = el('p'); emptyText.textContent = 'Ouvrez un catalogue pour sélectionner un contenu avec la télécommande.'; empty.appendChild(emptyText);
   const browse = button('Parcourir les chaînes', function () { state.tab = 'live'; renderTab(); }); browse.classList.add('vision-primary'); empty.appendChild(browse);
   view.appendChild(empty); return view;
 }
 
 function buildSettingsView() {
-  const view = el('div', 'view view-simple');
-  const head = el('div', 'simple-head');
-  const kicker = el('span', 'eyebrow'); kicker.textContent = 'VISIONTV'; head.appendChild(kicker);
+  const view = el('div', 'view view-settings');
+  const head = el('div', 'page-heading');
+  const kicker = el('span', 'eyebrow'); kicker.textContent = 'CONFIGURATION SYSTÈME'; head.appendChild(kicker);
   const title = el('h1'); title.textContent = 'Paramètres'; head.appendChild(title);
-  const sub = el('p'); sub.textContent = 'Gérez votre accès et les préférences de lecture.'; head.appendChild(sub);
-  view.appendChild(head);
-  const cards = el('div', 'settings-grid');
-  const profileCard = el('div', 'settings-card');
-  const pTitle = el('h2'); pTitle.textContent = 'Profils et accès'; profileCard.appendChild(pTitle);
-  const pText = el('p'); pText.textContent = 'Ajoutez un compte Xtream ou un lien M3U, importez votre catalogue et gérez vos accès.'; profileCard.appendChild(pText);
-  const pButton = button('Gérer les profils', function () { state.tab = 'playlists'; renderTab(); }); pButton.classList.add('vision-primary'); profileCard.appendChild(pButton); cards.appendChild(profileCard);
-  const deviceCard = el('div', 'settings-card');
-  const dTitle = el('h2'); dTitle.textContent = 'Lecture TV'; deviceCard.appendChild(dTitle);
-  const dText = el('p'); dText.textContent = 'La lecture utilise le lecteur natif et le mode de secours compatible webOS.'; deviceCard.appendChild(dText);
-  const dBadge = el('span', 'settings-badge'); dBadge.textContent = 'Optimisé pour la télécommande'; deviceCard.appendChild(dBadge); cards.appendChild(deviceCard);
-  view.appendChild(cards); return view;
+  const sub = el('p'); sub.textContent = 'Lecture, synchronisation et informations de votre téléviseur webOS.'; head.appendChild(sub); view.appendChild(head);
+  const layout = el('div', 'settings-layout');
+  const menu = el('nav', 'settings-menu');
+  [['Général & Application', 'settings'], ['Playlists & Serveurs', 'manage'], ['Lecteur & Décodage', 'tv'], ['Guide EPG & Logos', 'guide'], ['Diagnostic Réseau', 'wifi']].forEach(function (entry, idx) {
+    const b = button(entry[0], function () { if (osd) osd.setStatus('Section « ' + entry[0] + ' »'); }); b.classList.add('settings-menu-item'); if (idx === 0) b.classList.add('selected'); b.insertBefore(svgIcon(entry[1], 23), b.firstChild); menu.appendChild(b);
+  });
+  const tip = el('div', 'settings-tip'); tip.appendChild(svgIcon('info', 22)); const tipText = el('span'); tipText.textContent = 'Maintenez OK pour modifier un réglage avec la Magic Remote.'; tip.appendChild(tipText); menu.appendChild(tip); layout.appendChild(menu);
+
+  const detail = el('div', 'settings-detail');
+  const playerCard = el('section', 'settings-panel');
+  const playerHead = el('div', 'settings-panel-head'); const ph = el('h2'); ph.textContent = 'Lecteur & Décodage'; playerHead.appendChild(ph); const phBadge = el('span', 'tech-badge'); phBadge.textContent = 'NATIF WEBOS'; playerHead.appendChild(phBadge); playerCard.appendChild(playerHead);
+  const engineRow = el('div', 'settings-row'); const engineLabel = el('div'); const eh = el('strong'); eh.textContent = 'Moteur de lecture principal'; const ep = el('small'); ep.textContent = 'Le lecteur natif reste prioritaire pour préserver le décodage matériel.'; engineLabel.appendChild(eh); engineLabel.appendChild(ep); engineRow.appendChild(engineLabel);
+  const engineChoices = el('div', 'segmented'); ['webOS Native', 'HLS secours'].forEach(function (label, idx) { const b = button(label, function () { if (osd) osd.setStatus('Mode lecture : ' + label); }); if (idx === 0) b.classList.add('selected'); engineChoices.appendChild(b); }); engineRow.appendChild(engineChoices); playerCard.appendChild(engineRow);
+  const bufferRow = el('div', 'settings-row'); const bl = el('div'); const bh = el('strong'); bh.textContent = 'Buffer vidéo'; const bp = el('small'); bp.textContent = 'Réglage indicatif pour les flux en direct.'; bl.appendChild(bh); bl.appendChild(bp); bufferRow.appendChild(bl); const range = document.createElement('input'); range.type = 'range'; range.min = '1'; range.max = '15'; range.value = '5'; range.tabIndex = 0; range.setAttribute('aria-label', 'Buffer vidéo'); bufferRow.appendChild(range); playerCard.appendChild(bufferRow); detail.appendChild(playerCard);
+
+  const syncCard = el('section', 'settings-panel'); const syncHead = el('div', 'settings-panel-head'); const sh = el('h2'); sh.textContent = 'Playlists & Synchronisation'; syncHead.appendChild(sh); const syncStatus = el('span', 'settings-muted'); syncStatus.textContent = 'Import borné webOS'; syncHead.appendChild(syncStatus); syncCard.appendChild(syncHead);
+  const syncGrid = el('div', 'settings-grid'); const syncInfo = el('div', 'settings-info-box'); const siTitle = el('strong'); siTitle.textContent = 'Catalogue actif'; const siValue = el('span'); siValue.textContent = 'Aucun profil sélectionné'; syncInfo.appendChild(siTitle); syncInfo.appendChild(siValue); syncGrid.appendChild(syncInfo);
+  const syncActions = el('div', 'settings-action-box'); const syncButton = button('Forcer la synchronisation', function () { if (state.activePlaylistId != null) runImport(state.activePlaylistId, false); }); syncButton.classList.add('vision-primary'); syncButton.insertBefore(svgIcon('refresh', 20), syncButton.firstChild); syncActions.appendChild(syncButton); const epgButton = button('Actualiser l’EPG', function () { if (state.activePlaylistId != null) runImport(state.activePlaylistId, true); }); epgButton.classList.add('vision-secondary'); syncActions.appendChild(epgButton); syncGrid.appendChild(syncActions); syncCard.appendChild(syncGrid); detail.appendChild(syncCard);
+
+  const hardware = el('section', 'settings-panel'); const hwHead = el('div', 'settings-panel-head'); const hwh = el('h2'); hwh.textContent = 'Réseau & Matériel webOS'; hwHead.appendChild(hwh); const online = el('span', 'online-state'); online.textContent = '● Prêt'; hwHead.appendChild(online); hardware.appendChild(hwHead); const hwGrid = el('div', 'hardware-grid');
+  [['Téléviseur', 'Détection webOS'], ['Capacités média', 'Lecteur natif + HLS secours'], ['Données locales', 'IndexedDB / import lazy'], ['Réseau', 'Requêtes directes du fournisseur']].forEach(function (entry) { const box = el('div', 'hardware-box'); const lab = el('small'); lab.textContent = entry[0]; const val = el('strong'); val.textContent = entry[1]; box.appendChild(lab); box.appendChild(val); hwGrid.appendChild(box); }); hardware.appendChild(hwGrid); detail.appendChild(hardware);
+  layout.appendChild(detail); view.appendChild(layout); state.settingsRefs = { syncValue: siValue }; return view;
+}
+
+function renderSettingsView() {
+  if (!state.settingsRefs) return;
+  const active = state.playlists.filter(function (p) { return p.id === state.activePlaylistId; })[0];
+  state.settingsRefs.syncValue.textContent = active ? String(active.name || 'Profil') + (active.activeImportId ? ' · catalogue prêt' : ' · à importer') : 'Aucun profil sélectionné';
+}
+
+function buildGuideView() {
+  const view = el('div', 'view view-guide');
+  const head = el('div', 'page-heading guide-heading');
+  const kicker = el('span', 'eyebrow'); kicker.textContent = 'PROGRAMMES EN DIRECT'; head.appendChild(kicker);
+  const title = el('h1'); title.textContent = 'Guide TV (EPG)'; head.appendChild(title);
+  const sub = el('p'); sub.textContent = 'Naviguez entre vos chaînes et le programme en cours.'; head.appendChild(sub); view.appendChild(head);
+  const layout = el('div', 'guide-layout');
+  const categories = el('aside', 'guide-categories'); const catTitle = el('h2'); catTitle.textContent = 'Bouquets TV'; categories.appendChild(catTitle); const catHost = el('div', 'guide-category-list'); categories.appendChild(catHost); layout.appendChild(categories);
+  const center = el('section', 'guide-channels'); const tools = el('div', 'guide-tools'); const search = input('Rechercher une chaîne…', 'text'); tools.appendChild(search); const reload = button('Actualiser', function () { applySearch('guide', search.value); }); reload.classList.add('vision-secondary'); reload.insertBefore(svgIcon('refresh', 18), reload.firstChild); tools.appendChild(reload); center.appendChild(tools); const scroller = el('div', 'guide-scroller'); center.appendChild(scroller); guideList = new VirtualList(scroller, { itemHeight: 82, overscan: 4 }); guideList.mount(); lists.guide = guideList; search.addEventListener('change', function () { applySearch('guide', search.value); }); scroller.addEventListener('click', function (ev) { let target = ev.target; while (target && target !== scroller && !(target.getAttribute && target.getAttribute('data-index') !== null)) target = target.parentNode; if (!target || target === scroller) return; const idx = parseInt(target.getAttribute('data-index'), 10); if (isNaN(idx)) return; state.selIndex = idx; const item = lists.guide.items[idx]; if (item) { renderGuideDetail(item); syncFocusables('guide'); } }); layout.appendChild(center);
+  const detail = el('section', 'guide-detail'); const detailBadge = el('span', 'hero-kicker'); detailBadge.textContent = 'SÉLECTIONNEZ UNE CHAÎNE'; detail.appendChild(detailBadge); const detailTitle = el('h2'); detailTitle.textContent = 'Programme en cours'; detail.appendChild(detailTitle); const detailMeta = el('div', 'guide-detail-meta'); detailMeta.textContent = 'EPG disponible après synchronisation'; detail.appendChild(detailMeta); const detailPlot = el('p'); detailPlot.textContent = 'Le programme en cours et le suivant apparaîtront ici.'; detail.appendChild(detailPlot); const detailActions = el('div', 'hero-actions'); const play = button('Regarder', function () { if (state.guideDetailItem) activateChannel('live', state.guideDetailItem, state.selIndex); }); play.classList.add('vision-primary'); play.insertBefore(svgIcon('play', 19), play.firstChild); detailActions.appendChild(play); const info = button('Actualiser EPG', function () { if (state.activePlaylistId != null) runImport(state.activePlaylistId, true); }); info.classList.add('vision-secondary'); detailActions.appendChild(info); detail.appendChild(detailActions); const schedule = el('div', 'guide-schedule'); detail.appendChild(schedule); layout.appendChild(detail);
+  state.guideRefs = { view: view, categories: catHost, search: search, detailTitle: detailTitle, detailMeta: detailMeta, detailPlot: detailPlot, schedule: schedule }; return view;
+}
+
+function renderGuideCategories() {
+  if (!state.guideRefs) return;
+  const host = state.guideRefs.categories; host.innerHTML = '';
+  const names = []; const rows = state.items.live || [];
+  for (let i = 0; i < rows.length; i++) { const name = String(rows[i].groupName || 'Autres'); if (names.indexOf(name) === -1) names.push(name); }
+  const all = [''].concat(names);
+  all.forEach(function (name) { const b = button(name || 'Tous les bouquets', function () { state.catFilter.live = name; state.guideCategory = name; applySearch('guide', state.guideRefs.search.value); }); b.classList.add('guide-category'); if ((state.guideCategory || '') === name) b.classList.add('selected'); b.appendChild(svgIcon(name ? 'film' : 'tv', 19)); host.appendChild(b); });
+}
+
+async function renderGuideDetail(item) {
+  state.guideDetailItem = item;
+  if (!state.guideRefs) return;
+  state.guideRefs.detailTitle.textContent = String(item.name || 'Chaîne');
+  state.guideRefs.detailMeta.textContent = [item.groupName, item.channelId ? 'ID ' + item.channelId : ''].filter(Boolean).join('  ·  ') || 'En direct';
+  state.guideRefs.detailPlot.textContent = item.plot ? String(item.plot) : 'Programme en direct sélectionné. Ouvrez la chaîne avec OK.';
+  state.guideRefs.schedule.innerHTML = '';
+  if (!ctx || !state.activePlaylistId || !item.channelId) return;
+  const pl = await ctx.manager.get(state.activePlaylistId); if (!pl || !pl.activeEpgImportId) return;
+  const now = Date.now();
+  try {
+    const epgImportId = pl.activeEpgImportId;
+    const rows = await ctx.db.epg.where('[importId+channelId+startTime]').between([epgImportId, item.channelId, now - 12 * 3600 * 1000], [epgImportId, item.channelId, now + CONFIG.EPG_WINDOW_MS], true, true).sortBy('startTime');
+    rows.filter(function (ep) { return Number(ep.stopTime || 0) >= now; }).slice(0, 3).forEach(function (ep) { const box = el('div', 'guide-program'); const t = el('strong'); t.textContent = new Date(ep.startTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }); const n = el('span'); n.textContent = String(ep.title || 'Programme'); box.appendChild(t); box.appendChild(n); state.guideRefs.schedule.appendChild(box); });
+  } catch (err) { /* EPG optionnel : l'interface reste navigable */ }
 }
 
 function buildPlaylistsView() {
@@ -478,6 +591,7 @@ async function refreshPlaylists() {
   if (state.activePlaylistId === null && state.playlists.length > 0) {
     state.activePlaylistId = state.playlists[0].id;
   }
+  updateActiveProfileBadge();
   const host = state.plListEl;
   if (!host) return;
   if (state.profileEmptyEl) state.profileEmptyEl.style.display = state.playlists.length ? 'none' : 'flex';
@@ -557,11 +671,13 @@ function clearCatalogMemory() {
       lists[kind].container.scrollTop = 0;
     }
   }
+  if (lists.guide) { lists.guide.setItems([]); lists.guide.container.scrollTop = 0; }
+  state.guideCategory = '';
   state.selIndex = -1;
 }
 
 function catalogViewIs(kind) {
-  return state.tab === kind || (state.tab === 'home' && kind === 'live');
+  return state.tab === kind || ((state.tab === 'home' || state.tab === 'guide') && kind === 'live');
 }
 
 async function loadCatalog(kind, token, playlistId) {
@@ -585,7 +701,7 @@ function loadActiveData() {
   const token = ++catalogLoadToken;
   clearCatalogMemory();
   if (state.activePlaylistId == null) return;
-  const kind = state.tab === 'home' ? 'live' : state.tab;
+  const kind = (state.tab === 'home' || state.tab === 'guide') ? 'live' : state.tab;
   if (CATALOG_KINDS.indexOf(kind) === -1) return;
   loadCatalog(kind, token, state.activePlaylistId);
 }
@@ -625,23 +741,36 @@ async function refreshCategorySelectors(kind, playlistId, token) {
 }
 
 function applySearch(kind, rawQuery) {
+  const sourceKind = kind === 'guide' ? 'live' : kind;
   const norm = String(rawQuery || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
-  let all = state.items[kind] || [];
-  const cat = state.catFilter[kind] || '';
+  let all = state.items[sourceKind] || [];
+  const cat = kind === 'guide' ? (state.catFilter.live || '') : (state.catFilter[kind] || '');
   if (cat) all = all.filter(function (r) { return String(r.groupName || 'Autres') === cat; });
   const rows = !norm ? all : all.filter(function (r) {
     return String(r.searchName || '').indexOf(norm) === 0;
   }).slice(0, CONFIG.SEARCH_LIMIT);
+
   if (lists && lists[kind]) {
     lists[kind].setItems(rows);
     state.selIndex = rows.length ? 0 : -1;
     lists[kind].container.scrollTop = 0;
     lists[kind]._renderWindow();
+  }
+  // Le guide et l'accueil exploitent le même chargement live sans conserver
+  // une deuxième copie du catalogue : seul le pool DOM change de vue.
+  if (kind === 'live' && state.tab === 'guide' && lists.guide) {
+    lists.guide.setItems(rows); lists.guide.container.scrollTop = 0; lists.guide._renderWindow();
+    renderGuideCategories(); syncGuideFocusables(visibleSlice('guide').rows);
+  } else if (lists && lists[kind] && state.tab === kind) {
     syncFocusables(kind);
   }
   if (state.tab === 'home') {
     renderHomeView();
-    if (engine && state.views && state.views.home) engine.setFocusables(Array.prototype.slice.call(state.views.home.querySelectorAll('button')));
+    if (engine && state.views && state.views.home) engine.setFocusables(visibleFocusables(state.views.home, 'button'));
+  }
+  if (state.tab === 'guide') {
+    renderGuideCategories();
+    if (engine && lists.guide) syncGuideFocusables(visibleSlice('guide').rows);
   }
 }
 
@@ -662,9 +791,20 @@ function visibleSlice(kind) {
 
 function syncFocusables(kind) {
   const vis = visibleSlice(kind);
+  if (kind === 'guide') {
+    syncGuideFocusables(vis.rows);
+    return;
+  }
   engine.setFocusables(vis.rows);
   engine.currentIndex = vis.rows.length === 0 ? -1
     : Math.max(0, Math.min(vis.rows.length - 1, state.selIndex - vis.start));
+}
+
+function syncGuideFocusables(rows) {
+  const fixed = state.views && state.views.guide ? visibleFocusables(state.views.guide, 'button, input') : [];
+  const all = fixed.concat(rows || []);
+  engine.setFocusables(all);
+  engine.currentIndex = all.length ? 0 : -1;
 }
 
 /* ————————————— V12 §8.4 : routeur télécommande unifié —————————————
@@ -673,7 +813,7 @@ function syncFocusables(kind) {
    le FocusEngine : les touches consommées stoppent la propagation, les autres
    (dont OK sur les boutons des overlays) passent au moteur. */
 const moveGate = createRepeatGate(null, 45, 130);
-const LIST_TABS = { live: true, vod: true, series: true };
+const LIST_TABS = { live: true, vod: true, series: true, guide: true };
 
 function handleRemoteKey(e) {
   const t = e.target;
@@ -742,7 +882,7 @@ function handleRemoteKey(e) {
   } else if (action === 'activate') {
     e.preventDefault(); e.stopImmediatePropagation();
     const item = list.items[state.selIndex];
-    if (item) activateChannel(kind, item, state.selIndex);
+    if (item) activateChannel(kind === 'guide' ? 'live' : kind, item, state.selIndex);
   }
 }
 
@@ -1102,9 +1242,9 @@ function pad2(x) {
 async function showEpgFor(item) {
   if (!state.activePlaylistId || !item.channelId) { osd.setEpg('', ''); return; }
   const pl = await ctx.manager.get(state.activePlaylistId);
-  if (!pl || !pl.activeEpgImportId || !pl.activeImportId) { osd.setEpg('', ''); return; }
+  if (!pl || !pl.activeEpgImportId) { osd.setEpg('', ''); return; }
   const now = Date.now();
-  const imp = pl.activeImportId, ch = item.channelId;
+  const imp = pl.activeEpgImportId, ch = item.channelId;
   const cur = await ctx.db.epg
     .where('[importId+channelId+startTime]').between([imp, ch, now - 12 * 3600 * 1000], [imp, ch, now], true, true)
     .sortBy('startTime').then(function (a) { return a.length ? a[a.length - 1] : null; });
@@ -1165,7 +1305,7 @@ function wireGlobalEvents() {
 
 function renderTab() {
   if (state.profileForm && state.profileForm.layer.style.display !== 'none' && state.tab !== 'playlists') closeProfileModal();
-  const tabs = ['home', 'playlists', 'favorites', 'settings', 'live', 'vod', 'series'];
+  const tabs = ['home', 'playlists', 'favorites', 'settings', 'live', 'vod', 'series', 'guide'];
   for (let i = 0; i < tabs.length; i++) {
     const key = tabs[i];
     if (state.views[key]) state.views[key].style.display = state.tab === key ? '' : 'none';
@@ -1174,19 +1314,23 @@ function renderTab() {
   const navs = root.querySelectorAll('[data-tab]');
   for (let n = 0; n < navs.length; n++) navs[n].classList.toggle('active', navs[n].getAttribute('data-tab') === state.tab);
 
-  if (state.tab === 'home' || CATALOG_KINDS.indexOf(state.tab) !== -1) {
-    // Un seul catalogue est demandé : home utilise uniquement le live pour ses
-    // premières cartes, puis les onglets chargent leur famille dédiée.
+  if (state.tab === 'home' || state.tab === 'guide' || CATALOG_KINDS.indexOf(state.tab) !== -1) {
+    // Un seul catalogue est demandé : le guide partage le chargement live.
     loadActiveData();
   } else {
     catalogLoadToken++;
     clearCatalogMemory();
     const focusView = state.views[state.tab] || state.views.playlists;
-    engine.setFocusables(visibleFocusables(focusView, 'button'));
+    engine.setFocusables(visibleFocusables(focusView, 'button, input, select'));
   }
   if (state.tab === 'home') {
     renderHomeView();
-    engine.setFocusables(Array.prototype.slice.call(state.views.home.querySelectorAll('button')));
+    engine.setFocusables(visibleFocusables(state.views.home, 'button'));
+  } else if (state.tab === 'settings') {
+    renderSettingsView();
+  } else if (state.tab === 'guide') {
+    renderGuideCategories();
+    syncGuideFocusables(lists.guide ? visibleSlice('guide').rows : []);
   }
 }
 

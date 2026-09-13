@@ -7,7 +7,7 @@
 //   ctx.inSeriesOverlay — overlay détail de série ouvert
 //   ctx.seriesLevel     — 'seasons' | 'episodes' | null
 //   ctx.editing         — cible INPUT/TEXTAREA/SELECT (les champs gardent leurs touches)
-//   ctx.tab             — 'live' | 'vod' | 'series' | 'playlists'
+//   ctx.tab             — 'live' | 'vod' | 'series' | 'guide' | 'playlists'
 
 export const KEY = {
   UP: 38, DOWN: 40, LEFT: 37, RIGHT: 39, OK: 13, BACK_ALT: 27,
@@ -51,7 +51,7 @@ export function classifyKey(keyCode, ctx) {
   }
   // Hors overlay/lecteur : navigation des listes (l'onglet playlists garde la
   // navigation native du moteur de focus).
-  if (ctx.tab === 'live' || ctx.tab === 'vod' || ctx.tab === 'series') {
+  if (ctx.tab === 'live' || ctx.tab === 'vod' || ctx.tab === 'series' || ctx.tab === 'guide') {
     switch (keyCode) {
       case KEY.DOWN: return 'row-next';
       case KEY.UP: return 'row-prev';
