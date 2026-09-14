@@ -1,15 +1,15 @@
 # Revue UI VisionTV — révision V25 « écrans catalogue + EPG fiable »
 
-**Date :** 2026-09-13
-**Base fonctionnelle :** V24 locale, commit `2009551` (V23 publiée, V24 non publiée)
-**Révision :** V25 incrémentale : écrans Films/VOD, Séries et Live TV rapprochés des prototypes ; collision de clé EPG corrigée
+**Date :** 2026-09-14
+**Base fonctionnelle :** V25 publiée, commit `3ee598f`, tag `v25`
+**Révision :** V26 incrémentale : palette des prototypes rapprochée, rail gauche corrigé et navigation D-pad recentrée sur la sélection de contenu
 **Référence visuelle :** `/home/user/uploads/catalogue_vod_films_s_ries.html` et `/home/user/uploads/live_tv_guide_des_programmes_epg.html`
 
 ## Verdict
 
-**WARNING — révision V25 validée par analyse statique, tests, gate Chromium 68 et build ; validation CDP/webOS réel encore indisponible.**
+**WARNING — révision V26 validée par analyse statique, tests, gate Chromium 68 et build ; validation CDP/webOS réel encore indisponible.**
 
-La V25 ne réécrit pas le moteur métier. Elle réutilise Dexie, les imports M3U/Xtream/XMLTV, la persistance des playlists, le chargement lazy, `VirtualList`, `SeriesBrowser`, `MediaAdapter`, `LifecycleAdapter`, le GC lazy et le routeur D-Pad existants. Les changements applicatifs se concentrent sur la composition de `src/app.js`, le thème natif de `src/styles/main.css`, le worker EPG et les tests de collision ; le moteur d’import, le lecteur natif et la classification D-Pad restent en place.
+La V26 ne réécrit pas le moteur métier. Elle réutilise Dexie, les imports M3U/Xtream/XMLTV, la persistance des playlists, le chargement lazy, `VirtualList`, `SeriesBrowser`, `MediaAdapter`, `LifecycleAdapter`, le GC lazy et le routeur D-Pad existants. Les changements applicatifs se concentrent sur la composition de `src/app.js`, le thème natif de `src/styles/main.css`, le worker EPG et les tests de collision ; le moteur d’import, le lecteur natif et la classification D-Pad restent en place.
 
 ## Traçabilité de la révision
 
@@ -29,19 +29,20 @@ La V25 ne réécrit pas le moteur métier. Elle réutilise Dexie, les imports M3
 | V24 — action Favori D-Pad | Le lecteur partagé expose une action Favori focalisable dans ses contrôles. Live, VOD et épisode de série réutilisent le même snapshot et restent synchronisés avec la vue Favoris. | `src/app.js`, `src/styles/main.css` |
 | V25 — écrans transmis intégrés | Films/VOD reçoit un hero spotlight, filtres de genres, recherche, cartes/carrousels bornés et ajout récent ; Séries conserve l’accès saisons/épisodes lazy ; Live TV reçoit bouquets, liste, prévisualisation et EPG réel. Les actions restent reliées aux listes, au lecteur, aux favoris et au D-pad. | `buildListView()`, `buildCatalogShelves()`, `buildLivePreview()`, `src/styles/main.css` |
 | V25 — collision EPG | Les programmes XMLTV valides reçoivent un ordinal primaire monotone à l’intérieur de l’import. Le couple `importId/channelId/startTime` reste indexé pour les requêtes EPG ; les doublons XMLTV ne font plus échouer `bulkAdd`, y compris après la frontière du lot 2 000. | `src/data/epg.worker.js`, `tests/epg-import.test.mjs` |
+| V26 — palette, rail et D-pad | Les couleurs principales reprennent les tokens des prototypes (`#051424`, `#0d1c2d`, `#122131`, `#1c2b3c`, `#273647`, `#4cd7f6`, `#0566d9`). Le rail gauche est fixe, se déploie au survol/focus comme le prototype et ne décale plus le contenu. Haut/Bas pilotent uniquement les lignes Live/VOD/Séries/Guide ; la ligne sélectionnée est focalisée et surlignée. | `src/styles/main.css`, `src/app.js` |
 
 ## Correspondance avec la demande
 
 | Exigence | État | Vérification / réalisation |
 |---|---|---|
-| Direction sombre « Luminous Cinema / Lumina IPTV » | OK | Fond ardoise profond, surfaces titanium/slate, cyan électrique, cobalt et indigo ; aucun fond pastel résiduel dans le nouveau thème. |
-| Interface 10-foot webOS | OK statique | Safe-area par variables de gouttière, titres contrastés, métadonnées lisibles, barre de raccourcis Magic Remote et focus cyan visible. |
-| Sidebar compacte de 96 px extensible au focus | OK statique | Rail 96 px, icônes SVG inline, libellés masqués au repos, expansion `:focus-within` sans dépendance externe. |
+| Direction sombre « Luminous Cinema / Lumina IPTV » | OK V26 | Fond ardoise profond, surfaces titanium/slate, cyan électrique, cobalt et indigo ; aucun fond pastel résiduel dans le nouveau thème. |
+| Interface 10-foot webOS | OK statique V26 | Safe-area par variables de gouttière, titres contrastés, métadonnées lisibles, barre de raccourcis Magic Remote et focus cyan visible. |
+| Sidebar compacte de 96 px extensible au focus | OK V26 | Rail fixe 96 px, expansion au survol/focus vers 320 px, libellés visibles à l’ouverture, contenu principal non décalé. |
 | Accueil / Découverte | OK | Hero, données live réelles, fallback local par lettre/dégradé, quatre univers, rangées de cartes et accès Guide. |
 | Profils « Qui regarde la télévision ? » | OK | Sélection du profil actif, état vide, cartes persistées et bouton d’ajout. |
 | Ajout Xtream / M3U | OK | Modal native, onglets sans `<select>` visible, champs conditionnels, création via `ctx.manager.create()`, erreurs visibles. |
-| Catalogue films et séries | OK V25 | Hero/spotlight, recherche, filtres/pills, carrousels bornés et ajouts récents pour Films/Séries ; familles chargées séparément, séries ouvertes via `SeriesBrowser`, lecture épisode conservée. |
-| Live TV / EPG en trois zones | OK V25 | Bouquets, liste de chaînes, aperçu de lecture et détail EPG ; le Guide garde ses trois zones et l’EPG exploite le véritable `activeEpgImportId`. |
+| Catalogue films et séries | OK V26 | Hero/spotlight, recherche, filtres/pills, carrousels bornés et ajouts récents pour Films/Séries ; familles chargées séparément, séries ouvertes via `SeriesBrowser`, lecture épisode conservée. |
+| Live TV / EPG en trois zones | OK V26 | Bouquets, liste de chaînes, aperçu de lecture et détail EPG ; le Guide garde ses trois zones et l’EPG exploite le véritable `activeEpgImportId`. |
 | Favoris et profil actif | OK V23 | Nouveau store Dexie V5 `favorites`, snapshots bornés à 100 éléments affichés, ajout/retrait depuis Accueil, lignes catalogues et Guide, séparation par playlist et purge des orphelins. |
 | Paramètres webOS, lecteur, synchronisation | OK | Vue paramètres détaillée, actions de synchronisation/EPG, statut catalogue et rappel du lecteur natif/HLS secours. |
 | Données IPTV réelles et logos | OK | Les cartes et lignes utilisent les données des catalogues actifs ; logo fourni utilisé quand présent, fallback SVG/CSS local sinon. Aucun jeu de données fictif ajouté. |
@@ -61,6 +62,8 @@ La V25 ne réécrit pas le moteur métier. Elle réutilise Dexie, les imports M3
 - Le worker EPG ne fabrique plus plusieurs lignes avec la même clé primaire : chaque programme valide reçoit `importId:channelId:startTime:ordinal`. L’index composé utilisé par le Guide n’est pas changé ; deux programmes qui partagent chaîne et début restent donc lisibles comme deux entrées.
 - Les tests couvrent un doublon dans un même lot et une collision après le lot 2 000 ; `bulkAdd` de production reste le seul chemin d’écriture.
 - `VirtualList` reste le composant utilisé pour Live, Films, Séries et le centre du Guide ; aucun tableau de 20 000 cartes n’est créé dans le DOM.
+- Dans les onglets de contenu, `FocusEngine` reçoit uniquement les lignes visibles de la `VirtualList` : les boutons de catégories ne capturent plus Haut/Bas à la place des chaînes/films. Les champs de recherche et sélecteurs conservent leurs événements natifs.
+- Chaque ligne active reçoit `aria-selected=true`, une bordure cyan et une surface `#1c2b3c` ; le focus suit `state.selIndex` après déplacement, changement de page et recherche.
 
 ### Lecture, séries et EPG — PASS statique
 
@@ -90,7 +93,7 @@ La V25 ne réécrit pas le moteur métier. Elle réutilise Dexie, les imports M3
 
 1. `tools/browser-run.mjs` n’a pas pu certifier le boot, le focus, la modal, le Guide et le lecteur : `chrome-headless-shell`/Chromium n’est pas installé dans l’environnement et l’installation système sans root échoue.
 2. La preview Vite sert correctement le shell, `main.css` et `app.js`, mais elle ne remplace pas une validation sur téléviseur webOS et télécommande réelle.
-3. Le bundle principal reste supérieur à 500 kB après minification (environ 608,17 kB dans cette révision) ; l’avertissement Vite est connu, non bloquant et sans nouvelle dépendance UI.
+3. Le bundle principal reste supérieur à 500 kB après minification (environ 611,40 kB dans cette révision) ; l’avertissement Vite est connu, non bloquant et sans nouvelle dépendance UI.
 4. La vue Favoris est maintenant persistante en V23 ; la limitation volontaire porte sur les 100 éléments affichés afin de conserver une UI TV bornée.
 
 ## Validation exécutée
@@ -98,7 +101,7 @@ La V25 ne réécrit pas le moteur métier. Elle réutilise Dexie, les imports M3
 ```text
 npm test                         PASS — 95/95
 npm run gate:syntax              PASS — 25 fichiers compatibles Chromium 68
-npm run build                    PASS — Vite ; bundle principal ~608,17 kB minifié
+npm run build                    PASS — Vite ; bundle principal ~611,40 kB minifié
 curl shell / CSS / app           PASS — ressources servies par la preview Vite
 npm install --ignore-scripts     PASS — environnement de test restauré (fake-indexeddb)
 ```
@@ -116,4 +119,4 @@ La preview peut être relancée via Vite ; aucune validation navigateur réelle 
 - `src/data/epg.worker.js` — ordinal primaire EPG borné par import, sans table de déduplication en mémoire.
 - `tests/epg-import.test.mjs` — doublons intra-lot et après frontière de chunk, en plus des fixtures XMLTV existantes.
 - `tests/favorites.test.mjs` — tests du schéma, de l’isolation entre profils et de la purge.
-- `docs/REVIEW-VISIONTV-UI.md` — traçabilité et protocole de revue V22/V23/V24.
+- `docs/REVIEW-VISIONTV-UI.md` — traçabilité et protocole de revue V22/V23/V24/V25/V26.

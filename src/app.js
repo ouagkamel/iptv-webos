@@ -327,8 +327,11 @@ function appendMediaCardContents(host, item, kind) {
   host.appendChild(thumb); host.appendChild(cardTitle); host.appendChild(cardMeta);
 }
 
-function renderCatalogRow(kind, row, item) {
+function renderCatalogRow(kind, row, item, index) {
   row.classList.add('catalog-row-' + kind);
+  const isSelected = state.selIndex === index && (state.tab === kind || (state.tab === 'guide' && kind === 'live'));
+  row.classList.toggle('catalog-selected', isSelected);
+  row.setAttribute('aria-selected', isSelected ? 'true' : 'false');
   let art = row.querySelector('.row-art');
   if (!art) { art = el('span', 'row-art'); row.appendChild(art); }
   art.innerHTML = '';
@@ -543,7 +546,7 @@ function buildGuideView() {
   const sub = el('p'); sub.textContent = 'Naviguez entre vos chaînes et le programme en cours.'; head.appendChild(sub); view.appendChild(head);
   const layout = el('div', 'guide-layout');
   const categories = el('aside', 'guide-categories'); const catTitle = el('h2'); catTitle.textContent = 'Bouquets TV'; categories.appendChild(catTitle); const catHost = el('div', 'guide-category-list'); categories.appendChild(catHost); layout.appendChild(categories);
-  const center = el('section', 'guide-channels'); const tools = el('div', 'guide-tools'); const search = input('Rechercher une chaîne…', 'text'); tools.appendChild(search); const reload = button('Actualiser', function () { applySearch('guide', search.value); }); reload.classList.add('vision-secondary'); reload.insertBefore(svgIcon('refresh', 18), reload.firstChild); tools.appendChild(reload); center.appendChild(tools); const scroller = el('div', 'guide-scroller'); center.appendChild(scroller); guideList = new VirtualList(scroller, { itemHeight: 82, overscan: 4, onRender: function (row, item) { renderCatalogRow('live', row, item); } }); guideList.mount(); lists.guide = guideList; search.addEventListener('change', function () { applySearch('guide', search.value); }); scroller.addEventListener('click', function (ev) { let target = ev.target; while (target && target !== scroller && !(target.getAttribute && target.getAttribute('data-index') !== null)) target = target.parentNode; if (!target || target === scroller) return; const idx = parseInt(target.getAttribute('data-index'), 10); if (isNaN(idx)) return; state.selIndex = idx; const item = lists.guide.items[idx]; if (item) { renderGuideDetail(item); syncFocusables('guide'); } }); layout.appendChild(center);
+  const center = el('section', 'guide-channels'); const tools = el('div', 'guide-tools'); const search = input('Rechercher une chaîne…', 'text'); tools.appendChild(search); const reload = button('Actualiser', function () { applySearch('guide', search.value); }); reload.classList.add('vision-secondary'); reload.insertBefore(svgIcon('refresh', 18), reload.firstChild); tools.appendChild(reload); center.appendChild(tools); const scroller = el('div', 'guide-scroller'); center.appendChild(scroller); guideList = new VirtualList(scroller, { itemHeight: 82, overscan: 4, onRender: function (row, item, index) { renderCatalogRow('live', row, item, index); } }); guideList.mount(); lists.guide = guideList; search.addEventListener('change', function () { applySearch('guide', search.value); }); scroller.addEventListener('click', function (ev) { let target = ev.target; while (target && target !== scroller && !(target.getAttribute && target.getAttribute('data-index') !== null)) target = target.parentNode; if (!target || target === scroller) return; const idx = parseInt(target.getAttribute('data-index'), 10); if (isNaN(idx)) return; state.selIndex = idx; const item = lists.guide.items[idx]; if (item) { renderGuideDetail(item); syncFocusables('guide'); } }); layout.appendChild(center);
   const detail = el('section', 'guide-detail'); const detailBadge = el('span', 'hero-kicker'); detailBadge.textContent = 'SÉLECTIONNEZ UNE CHAÎNE'; detail.appendChild(detailBadge); const detailTitle = el('h2'); detailTitle.textContent = 'Programme en cours'; detail.appendChild(detailTitle); const detailMeta = el('div', 'guide-detail-meta'); detailMeta.textContent = 'EPG disponible après synchronisation'; detail.appendChild(detailMeta); const detailPlot = el('p'); detailPlot.textContent = 'Le programme en cours et le suivant apparaîtront ici.'; detail.appendChild(detailPlot); const detailActions = el('div', 'hero-actions'); const play = button('Regarder', function () { if (state.guideDetailItem) activateChannel('live', state.guideDetailItem, state.selIndex); }); play.classList.add('vision-primary'); play.insertBefore(svgIcon('play', 19), play.firstChild); detailActions.appendChild(play); const info = button('Actualiser EPG', function () { if (state.activePlaylistId != null) runImport(state.activePlaylistId, true); }); info.classList.add('vision-secondary'); detailActions.appendChild(info); detail.appendChild(detailActions); const schedule = el('div', 'guide-schedule'); detail.appendChild(schedule); layout.appendChild(detail);
   state.guideRefs = { view: view, categories: catHost, search: search, detailTitle: detailTitle, detailMeta: detailMeta, detailPlot: detailPlot, schedule: schedule }; return view;
 }
@@ -738,7 +741,7 @@ function buildListView(kind) {
     }
   });
 
-  lists[kind] = new VirtualList(scroller, { itemHeight: kind === 'live' ? 76 : 74, overscan: 4, onRender: function (row, item) { renderCatalogRow(kind, row, item); } });
+  lists[kind] = new VirtualList(scroller, { itemHeight: kind === 'live' ? 76 : 74, overscan: 4, onRender: function (row, item, index) { renderCatalogRow(kind, row, item, index); } });
   lists[kind].mount();
 
   if (kind === 'live') {
@@ -1089,35 +1092,31 @@ function visibleSlice(kind) {
   return { rows: out, start: start };
 }
 
-function catalogFixedFocusables(kind) {
-  const refs = state.catalogRefs && state.catalogRefs[kind];
-  if (!refs || !refs.view) return [];
-  return visibleFocusables(refs.view, 'button, input, select').filter(function (node) {
-    // Les étoiles de lignes sont volontairement actionnées par le lecteur et
-    // ne doivent pas devenir un deuxième niveau dans la liste virtuelle.
-    return !node.classList.contains('row-favorite') && !node.closest('.list-row');
-  });
-}
-
-function syncFocusables(kind) {
+function syncFocusables(kind, forceFocus) {
+  const list = lists[kind];
+  if (!list) { engine.setFocusables([]); engine.currentIndex = -1; return; }
+  list._renderWindow();
   const vis = visibleSlice(kind);
-  if (kind === 'guide') {
-    syncGuideFocusables(vis.rows);
-    return;
-  }
-  const fixed = catalogFixedFocusables(kind);
-  const all = fixed.concat(vis.rows || []);
-  engine.setFocusables(all);
-  engine.currentIndex = vis.rows.length === 0
-    ? (fixed.length ? 0 : -1)
-    : fixed.length + Math.max(0, Math.min(vis.rows.length - 1, state.selIndex - vis.start));
+  const rows = vis.rows || [];
+  engine.setFocusables(rows);
+  engine.currentIndex = rows.length === 0 ? -1
+    : Math.max(0, Math.min(rows.length - 1, state.selIndex - vis.start));
+  const selected = rows[engine.currentIndex];
+  const active = document.activeElement;
+  const activeTag = active && active.tagName;
+  if (selected && (forceFocus || (activeTag !== 'INPUT' && activeTag !== 'SELECT' && activeTag !== 'TEXTAREA'))) selected.focus();
 }
 
-function syncGuideFocusables(rows) {
-  const fixed = state.views && state.views.guide ? visibleFocusables(state.views.guide, 'button, input') : [];
-  const all = fixed.concat(rows || []);
+function syncGuideFocusables(rows, forceFocus) {
+  if (lists.guide) lists.guide._renderWindow();
+  const slice = visibleSlice('guide');
+  const all = rows || slice.rows || [];
   engine.setFocusables(all);
-  engine.currentIndex = all.length ? 0 : -1;
+  engine.currentIndex = all.length ? Math.max(0, Math.min(all.length - 1, state.selIndex - slice.start)) : -1;
+  const selected = all[engine.currentIndex];
+  const active = document.activeElement;
+  const activeTag = active && active.tagName;
+  if (selected && (forceFocus || (activeTag !== 'INPUT' && activeTag !== 'SELECT' && activeTag !== 'TEXTAREA'))) selected.focus();
 }
 
 /* ————————————— V12 §8.4 : routeur télécommande unifié —————————————
@@ -1148,15 +1147,16 @@ function handleRemoteKey(e) {
   // Back/Home restent toutefois routables pour sortir d’un champ ou d’un menu.
   const nativeEditKey = e.keyCode === 37 || e.keyCode === 38 || e.keyCode === 39 || e.keyCode === 40 || e.keyCode === 33 || e.keyCode === 34 || e.keyCode === 13;
   if (!action && ctx.editing && nativeEditKey) { e.stopImmediatePropagation(); return; }
-  let focusedControl = t;
-  while (focusedControl && focusedControl !== document.body && focusedControl.tagName !== 'BUTTON') focusedControl = focusedControl.parentNode;
-  const isCatalogButton = focusedControl && focusedControl.tagName === 'BUTTON' && LIST_TABS[state.tab] && !focusedControl.closest('.list-row');
-  if (isCatalogButton && (action === 'activate' || action === 'row-next' || action === 'row-prev' || action === 'page-next' || action === 'page-prev')) return;
   if (!action) return;
 
   if (action === 'form-enter') {
     e.preventDefault(); e.stopImmediatePropagation();
-    if (LIST_TABS[state.tab] && t) applySearch(state.tab, t.value);
+    if (LIST_TABS[state.tab] && t) {
+      applySearch(state.tab, t.value);
+      // Après validation de la recherche, le prochain Haut/Bas doit repartir
+      // de la première ligne filtrée, pas rester prisonnier du champ texte.
+      syncFocusables(state.tab, true);
+    }
     return;
   }
   if (action === 'osd') { if (osd && typeof osd.reveal === 'function') osd.reveal(); return; }
