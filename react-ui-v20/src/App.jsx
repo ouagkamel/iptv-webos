@@ -89,7 +89,7 @@ function useTvNavigation() {
     const candidates = Array.from(document.querySelectorAll('.tv-focusable, .tv-focusable-mild, .tv-input')).filter((element) => {
       if (element === current || element.disabled) return false;
       const rect = element.getBoundingClientRect();
-      return rect.width > 0 && rect.height > 0 && rect.right > 0 && rect.bottom > 0 && rect.left < window.innerWidth && rect.top < window.innerHeight;
+      return rect.width > 0 && rect.height > 0;
     });
     if (!candidates.length) return;
     if (!current || !current.getBoundingClientRect || !current.matches('.tv-focusable, .tv-focusable-mild, .tv-input')) {
@@ -383,6 +383,7 @@ async function removeProfile(profile) {
 }
 
 export default function App() {
+  useTvNavigation();
   const [profiles, setProfiles] = useState([]);
   const [activeProfile, setActiveProfile] = useState(null);
   const [data, setData] = useState({ channels: [], movies: [], series: [], favorites: [], epg: [], episodes: [] });
