@@ -1,0 +1,695 @@
+import React, { useState, useEffect, useRef } from 'react';
+
+// Custom CSS for Glassmorphism, Animated Mesh Gradients, and WebOS TV Remote Focus Effects
+const CustomStyles = () => (
+  <style>{`
+    @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&display=swap');
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: 'Plus Jakarta Sans', sans-serif;
+      margin: 0;
+      padding: 0;
+      overflow: hidden;
+      background-color: #f8fafc;
+      color: #0f172a;
+      user-select: none;
+    }
+
+    /* Dynamic Futuristic Mesh Gradient - Light & Vibrant */
+    .glass-bg-animated {
+      background: linear-gradient(-45deg, #e0e7ff, #fae8ff, #f0fdf4, #e0f2fe);
+      background-size: 400% 400%;
+      animation: gradientShift 20s ease infinite;
+    }
+
+    @keyframes gradientShift {
+      0% { background-position: 0% 50%; }
+      50% { background-position: 100% 50%; }
+      100% { background-position: 0% 50%; }
+    }
+
+    /* WebOS Smart TV Focus Styles */
+    .tv-focusable {
+      transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+      outline: none;
+    }
+    .tv-focusable:focus, .tv-focusable:hover {
+      transform: scale(1.04) translateY(-2px);
+      box-shadow: 0 20px 35px -10px rgba(79, 70, 229, 0.3), 0 0 0 4px #6366f1;
+      z-index: 30;
+    }
+
+    .tv-focusable-mild:focus, .tv-focusable-mild:hover {
+      transform: scale(1.02);
+      outline: none;
+      box-shadow: 0 0 0 3px #6366f1;
+    }
+
+    /* Glass Panels */
+    .glass-card {
+      background: rgba(255, 255, 255, 0.65);
+      backdrop-filter: blur(20px);
+      -webkit-backdrop-filter: blur(20px);
+      border: 1px solid rgba(255, 255, 255, 0.8);
+      box-shadow: 0 20px 40px -15px rgba(0, 0, 0, 0.05);
+    }
+
+    .glass-card-dark {
+      background: rgba(15, 23, 42, 0.85);
+      backdrop-filter: blur(24px);
+      -webkit-backdrop-filter: blur(24px);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.3);
+    }
+
+    .glass-pill {
+      background: rgba(255, 255, 255, 0.5);
+      backdrop-filter: blur(12px);
+      border: 1px solid rgba(255, 255, 255, 0.7);
+    }
+
+    /* Custom Scrollbar */
+    .no-scrollbar::-webkit-scrollbar {
+      display: none;
+    }
+    .no-scrollbar {
+      -ms-overflow-style: none;
+      scrollbar-width: none;
+    }
+  `}</style>
+);
+
+const Icons = {
+  Plus: ({ className = "w-6 h-6" }) => (
+    <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
+    </svg>
+  ),
+  Trash: ({ className = "w-6 h-6" }) => (
+    <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0" />
+    </svg>
+  ),
+  User: ({ className = "w-6 h-6" }) => (
+    <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 6a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0zM4.501 20.118a7.5 7.5 0 0114.998 0A17.933 17.933 0 0112 21.75c-2.676 0-5.216-.584-7.499-1.632z" />
+    </svg>
+  ),
+  Link: ({ className = "w-6 h-6" }) => (
+    <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M13.19 8.688a4.5 4.5 0 011.242 7.244l-4.5 4.5a4.5 4.5 0 01-6.364-6.364l1.757-1.757m13.35-.622l1.757-1.757a4.5 4.5 0 00-6.364-6.364l-4.5 4.5a4.5 4.5 0 001.242 7.244" />
+    </svg>
+  ),
+  Tv: ({ className = "w-6 h-6" }) => (
+    <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M6 20.25h12m-6-3v3m-6.9-6h13.8c1.1 0 1.9-.8 2-1.9L21 6.5C21.1 5.3 20.2 4.5 19 4.5H5c-1.1 0-2 .8-2 1.9l.2 5.8c.1 1.1.9 2.05 2 2.05z" />
+    </svg>
+  ),
+  Film: ({ className = "w-6 h-6" }) => (
+    <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M3.375 19.5h17.25m-17.25 0a1.125 1.125 0 01-1.125-1.125M3.375 19.5h1.5C5.496 19.5 6 18.996 6 18.375m-3.75 0V5.625m0 12.75v-1.5c0-.621.504-1.125 1.125-1.125m17.25 2.625a1.125 1.125 0 001.125-1.125M20.625 19.5h-1.5c-.621 0-1.125-.504-1.125-1.125m3.75 0V5.625m0 12.75v-1.5c0-.621-.504-1.125-1.125-1.125M3.375 4.5h17.25c.621 0 1.125.504 1.125 1.125v12.75c0 .621-.504 1.125-1.125 1.125H3.375A1.125 1.125 0 012.25 18.375V5.625C2.25 5.004 2.754 4.5 3.375 4.5z" />
+    </svg>
+  ),
+  Clapperboard: ({ className = "w-6 h-6" }) => (
+    <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 5.25v13.5m-7.5-13.5v13.5M3 7.5h18M3 12h18M3 16.5h18" />
+    </svg>
+  ),
+  Settings: ({ className = "w-6 h-6" }) => (
+    <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M9.594 3.94c.09-.542.56-.94 1.11-.94h2.593c.55 0 1.02.398 1.11.94l.213 1.281c.063.374.313.686.645.87.074.04.147.083.22.127.324.196.72.257 1.075.124l1.217-.456a1.125 1.125 0 011.37.49l1.296 2.247a1.125 1.125 0 01-.26 1.431l-1.003.827c-.293.24-.438.613-.431.992a6.759 6.759 0 010 .255c-.007.378.138.75.43.99l1.005.828c.424.35.534.954.26 1.43l-1.298 2.247a1.125 1.125 0 01-1.369.491l-1.217-.456c-.355-.133-.75-.072-1.076.124a6.57 6.57 0 01-.22.128c-.331.183-.581.495-.644.869l-.213 1.28c-.09.543-.56.941-1.11.941h-2.594c-.55 0-1.02-.398-1.11-.94l-.213-1.281c-.062-.374-.312-.686-.644-.87a6.52 6.52 0 01-.22-.127c-.325-.196-.72-.257-1.076-.124l-1.217.456a1.125 1.125 0 01-1.369-.49l-1.297-2.247a1.125 1.125 0 01.26-1.431l1.004-.827c.292-.24.437-.613.43-.992a6.932 6.932 0 010-.255c.007-.378-.138-.75-.43-.99l-1.004-.828a1.125 1.125 0 01-.26-1.43l1.297-2.247a1.125 1.125 0 011.37-.491l1.216.456c.356.133.751.072 1.076-.124.072-.044.146-.087.22-.128.332-.183.582-.495.644-.869l.214-1.28z" />
+      <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+    </svg>
+  ),
+  Play: ({ className = "w-6 h-6" }) => (
+    <svg className={className} fill="currentColor" viewBox="0 0 24 24">
+      <path d="M8 5v14l11-7z" />
+    </svg>
+  ),
+  X: ({ className = "w-6 h-6" }) => (
+    <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+    </svg>
+  ),
+  Home: ({ className = "w-6 h-6" }) => (
+    <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 12l8.954-8.955c.44-.439 1.152-.439 1.591 0L21.75 12M4.5 9.75v10.125c0 .621.504 1.125 1.125 1.125H9.75v-4.875c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125V21h4.125c.621 0 1.125-.504 1.125-1.125V9.75M8.25 21h8.25" />
+    </svg>
+  ),
+  Star: ({ className = "w-6 h-6" }) => (
+    <svg className={className} fill="currentColor" viewBox="0 0 24 24">
+      <path d="M12 17.27L18.18 21l-1.64-7.03L22 9.24l-7.19-.61L12 2 9.19 8.63 2 9.24l5.46 4.73L5.82 21z" />
+    </svg>
+  ),
+  LogOut: ({ className = "w-6 h-6" }) => (
+    <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 9V5.25A2.25 2.25 0 0013.5 3h-6a2.25 2.25 0 00-2.25 2.25v13.5A2.25 2.25 0 007.5 21h6a2.25 2.25 0 002.25-2.25V15M12 9l3 3m0 0l-3 3m3-3H2.25" />
+    </svg>
+  )
+};
+
+const MOCK_CHANNELS = [
+  { id: '1', name: 'TF1 HD', category: 'Généraliste', number: '01', program: 'Le Journal de 20H', progress: 65, logo: 'TF1' },
+  { id: '2', name: 'France 2', category: 'Généraliste', number: '02', program: 'N\'oubliez pas les paroles', progress: 30, logo: 'F2' },
+  { id: '3', name: 'Canal+ Cinema', category: 'Cinéma', number: '03', program: 'Dune: Part Two (2024)', progress: 80, logo: 'C+' },
+  { id: '4', name: 'BeIN Sports 1', category: 'Sport', number: '04', program: 'UEFA Champions League Live', progress: 50, logo: 'beIN' },
+  { id: '5', name: 'Arte HD', category: 'Documentaire', number: '05', program: 'Voyage au cœur du Pacifique', progress: 15, logo: 'ARTE' },
+  { id: '6', name: 'National Geographic', category: 'Documentaire', number: '06', program: 'Les Mystères de l\'Univers', progress: 90, logo: 'NAT' },
+];
+
+const MOCK_MOVIES = [
+  { id: 'm1', title: 'Oppenheimer', rating: '9.0', year: '2023', genre: 'Biographie / Drame', duration: '3h 00m', poster: 'https://images.unsplash.com/photo-1440407876336-62333a6f010f?q=80&w=600&auto=format&fit=crop' },
+  { id: 'm2', title: 'Interstellar', rating: '8.7', year: '2014', genre: 'Sci-Fi / Aventure', duration: '2h 49m', poster: 'https://images.unsplash.com/photo-1419242902214-272b3f66ee7a?q=80&w=600&auto=format&fit=crop' },
+  { id: 'm3', title: 'Cyberpunk Vision', rating: '8.4', year: '2024', genre: 'Action / Sci-Fi', duration: '2h 15m', poster: 'https://images.unsplash.com/photo-1506469717960-433cebe3f181?q=80&w=600&auto=format&fit=crop' },
+  { id: 'm4', title: 'Dune: Deuxième Partie', rating: '8.9', year: '2024', genre: 'Aventure / Sci-Fi', duration: '2h 46m', poster: 'https://images.unsplash.com/photo-1534447677768-be436bb09401?q=80&w=600&auto=format&fit=crop' },
+];
+
+const ProfileScreen = ({ profiles, setProfiles, onSelectProfile }) => {
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [activeTab, setActiveTab] = useState('xtream');
+  const [isConnecting, setIsConnecting] = useState(false);
+  const [progress, setProgress] = useState(0);
+  const [statusText, setStatusText] = useState('Connexion au serveur...');
+
+  // Form State
+  const [pName, setPName] = useState('');
+  const [url, setUrl] = useState('');
+  const [username, setUsername] = useState('');
+  const [password, setPassword] = useState('');
+
+  const handleCreateProfile = () => {
+    setIsConnecting(true);
+    setProgress(10);
+    setStatusText('Connexion aux serveurs IPTV...');
+
+    const interval = setInterval(() => {
+      setProgress((prev) => {
+        if (prev >= 100) {
+          clearInterval(interval);
+          setTimeout(() => {
+            const newProfile = {
+              id: Date.now().toString(),
+              name: pName || (activeTab === 'xtream' ? 'Compte IPTV' : 'Playlist M3U'),
+              type: activeTab === 'xtream' ? 'Xtream Codes' : 'Lien M3U',
+              url: url,
+            };
+            setProfiles([...profiles, newProfile]);
+            setIsConnecting(false);
+            setIsModalOpen(false);
+            // Reset fields
+            setPName(''); setUrl(''); setUsername(''); setPassword('');
+          }, 300);
+          return 100;
+        }
+        if (prev === 40) setStatusText('Téléchargement du guide EPG...');
+        if (prev === 75) setStatusText('Synchronisation des chaînes & films...');
+        return prev + 15;
+      });
+    }, 180);
+  };
+
+  const handleDeleteProfile = (e, id) => {
+    e.stopPropagation();
+    setProfiles(profiles.filter((p) => p.id !== id));
+  };
+
+  return (
+    <div className="w-screen h-screen glass-bg-animated flex flex-col items-center justify-center relative p-8">
+      {/* Top Brand Banner */}
+      <div className="absolute top-10 left-12 flex items-center gap-4">
+        <div className="w-14 h-14 rounded-2xl bg-gradient-to-tr from-indigo-600 to-purple-500 flex items-center justify-center text-white font-extrabold text-2xl shadow-lg shadow-indigo-500/20">
+          V
+        </div>
+        <div>
+          <h1 className="text-3xl font-extrabold text-slate-800 tracking-tight">VisionTV</h1>
+          <p className="text-xs font-semibold text-indigo-600 tracking-widest uppercase">WebOS IPTV Player</p>
+        </div>
+      </div>
+
+      {/* Screen Content */}
+      {profiles.length === 0 ? (
+        /* Empty State */
+        <div className="flex flex-col items-center text-center max-w-lg">
+          <div className="w-32 h-32 rounded-3xl glass-card flex items-center justify-center mb-8 shadow-2xl text-indigo-600">
+            <Icons.Tv className="w-16 h-16" />
+          </div>
+          <h2 className="text-4xl font-extrabold text-slate-800 mb-4 tracking-tight">Bienvenue sur VisionTV</h2>
+          <p className="text-slate-600 text-lg mb-10 leading-relaxed">
+            Aucun profil n'est configuré. Ajoutez votre premier compte Xtream ou votre liste M3U pour démarrer.
+          </p>
+          <button
+            onClick={() => setIsModalOpen(true)}
+            className="tv-focusable flex items-center gap-4 bg-indigo-600 text-white px-10 py-5 rounded-2xl font-bold text-xl shadow-xl shadow-indigo-600/30 hover:bg-indigo-500 transition-all"
+          >
+            <Icons.Plus className="w-7 h-7" />
+            Ajouter un profil
+          </button>
+        </div>
+      ) : (
+        /* Active Profiles Grid */
+        <div className="w-full max-w-5xl flex flex-col items-center">
+          <h2 className="text-4xl font-extrabold text-slate-800 mb-3 tracking-tight">Sélectionnez votre profil</h2>
+          <p className="text-slate-500 text-lg mb-12">Choisissez un compte pour accéder au direct et à la VOD</p>
+
+          <div className="flex flex-wrap justify-center gap-8 w-full">
+            {profiles.map((p) => (
+              <div key={p.id} className="relative group">
+                <button
+                  onClick={() => onSelectProfile(p)}
+                  className="tv-focusable w-64 h-64 glass-card rounded-3xl p-6 flex flex-col items-center justify-center text-center cursor-pointer border-2 border-white/80 hover:bg-white/80 transition-all"
+                >
+                  <div className="w-20 h-20 rounded-2xl bg-indigo-100 text-indigo-600 flex items-center justify-center mb-5 shadow-inner">
+                    {p.type.includes('Xtream') ? <Icons.User className="w-10 h-10" /> : <Icons.Link className="w-10 h-10" />}
+                  </div>
+                  <h3 className="text-2xl font-bold text-slate-800 truncate w-full mb-1">{p.name}</h3>
+                  <span className="text-xs font-bold text-indigo-500 uppercase tracking-wider bg-indigo-50 px-3 py-1 rounded-full border border-indigo-100">
+                    {p.type}
+                  </span>
+                </button>
+
+                {/* Delete Profile Button */}
+                <button
+                  onClick={(e) => handleDeleteProfile(e, p.id)}
+                  className="tv-focusable absolute top-4 right-4 w-10 h-10 rounded-xl bg-red-500/10 text-red-600 flex items-center justify-center hover:bg-red-500 hover:text-white transition-all border border-red-200"
+                  title="Supprimer ce profil"
+                >
+                  <Icons.Trash className="w-5 h-5" />
+                </button>
+              </div>
+            ))}
+          </div>
+
+          {/* Bottom Right Floating Add Button */}
+          <button
+            onClick={() => setIsModalOpen(true)}
+            className="tv-focusable fixed bottom-12 right-12 flex items-center gap-3 bg-indigo-600 text-white px-8 py-4 rounded-2xl font-bold text-lg shadow-xl shadow-indigo-600/30 hover:bg-indigo-500"
+          >
+            <Icons.Plus className="w-6 h-6" />
+            Nouveau profil
+          </button>
+        </div>
+      )}
+
+      {/* Add Profile Modal */}
+      {isModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/30 backdrop-blur-md p-6">
+          <div className="glass-card bg-white/90 w-full max-w-2xl rounded-3xl p-8 shadow-2xl border border-white relative flex flex-col">
+            {/* Modal Header */}
+            <div className="flex justify-between items-center mb-8">
+              <h3 className="text-3xl font-extrabold text-slate-800">Ajouter un profil IPTV</h3>
+              {!isConnecting && (
+                <button
+                  onClick={() => setIsModalOpen(false)}
+                  className="p-3 rounded-xl hover:bg-slate-200/60 text-slate-500 tv-focusable transition-colors"
+                >
+                  <Icons.X className="w-6 h-6" />
+                </button>
+              )}
+            </div>
+
+            {/* Connecting State Bar */}
+            {isConnecting ? (
+              <div className="py-12 flex flex-col items-center">
+                <div className="w-full bg-slate-200 rounded-full h-4 mb-6 overflow-hidden">
+                  <div
+                    className="bg-gradient-to-r from-indigo-500 to-purple-500 h-full transition-all duration-300 ease-out"
+                    style={{ width: `${progress}%` }}
+                  />
+                </div>
+                <p className="text-xl font-bold text-indigo-600 animate-pulse">{statusText}</p>
+                <span className="text-sm text-slate-500 font-semibold mt-2">{progress}%</span>
+              </div>
+            ) : (
+              /* Modal Form */
+              <>
+                {/* Tabs */}
+                <div className="flex gap-2 p-1.5 bg-slate-200/60 rounded-2xl mb-8">
+                  <button
+                    onClick={() => setActiveTab('xtream')}
+                    className={`flex-1 py-3.5 rounded-xl font-bold text-base transition-all tv-focusable ${
+                      activeTab === 'xtream' ? 'bg-white text-indigo-600 shadow-md' : 'text-slate-600 hover:bg-white/50'
+                    }`}
+                  >
+                    Compte Xtream
+                  </button>
+                  <button
+                    onClick={() => setActiveTab('m3u')}
+                    className={`flex-1 py-3.5 rounded-xl font-bold text-base transition-all tv-focusable ${
+                      activeTab === 'm3u' ? 'bg-white text-indigo-600 shadow-md' : 'text-slate-600 hover:bg-white/50'
+                    }`}
+                  >
+                    Lien M3U
+                  </button>
+                </div>
+
+                {/* Form Inputs */}
+                <div className="flex flex-col gap-4 mb-8">
+                  <input
+                    type="text"
+                    placeholder="Nom du profil (ex: Salon, Sport, Xtream VIP)"
+                    value={pName}
+                    onChange={(e) => setPName(e.target.value)}
+                    className="w-full bg-white/80 border border-slate-200 rounded-2xl px-5 py-4 text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-4 focus:ring-indigo-300 tv-focusable text-lg shadow-sm"
+                  />
+                  {activeTab === 'xtream' ? (
+                    <>
+                      <input
+                        type="url"
+                        placeholder="Lien du serveur (ex: http://iptv-server.com:8080)"
+                        value={url}
+                        onChange={(e) => setUrl(e.target.value)}
+                        className="w-full bg-white/80 border border-slate-200 rounded-2xl px-5 py-4 text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-4 focus:ring-indigo-300 tv-focusable text-lg shadow-sm"
+                      />
+                      <div className="flex gap-4">
+                        <input
+                          type="text"
+                          placeholder="Nom d'utilisateur"
+                          value={username}
+                          onChange={(e) => setUsername(e.target.value)}
+                          className="w-1/2 bg-white/80 border border-slate-200 rounded-2xl px-5 py-4 text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-4 focus:ring-indigo-300 tv-focusable text-lg shadow-sm"
+                        />
+                        <input
+                          type="password"
+                          placeholder="Mot de passe"
+                          value={password}
+                          onChange={(e) => setPassword(e.target.value)}
+                          className="w-1/2 bg-white/80 border border-slate-200 rounded-2xl px-5 py-4 text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-4 focus:ring-indigo-300 tv-focusable text-lg shadow-sm"
+                        />
+                      </div>
+                    </>
+                  ) : (
+                    <input
+                      type="url"
+                      placeholder="URL complète de la playlist M3U (http://...)"
+                      value={url}
+                      onChange={(e) => setUrl(e.target.value)}
+                      className="w-full bg-white/80 border border-slate-200 rounded-2xl px-5 py-4 text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-4 focus:ring-indigo-300 tv-focusable text-lg shadow-sm"
+                    />
+                  )}
+                </div>
+
+                {/* Submit Button */}
+                <button
+                  onClick={handleCreateProfile}
+                  disabled={!url}
+                  className="tv-focusable bg-indigo-600 text-white py-5 rounded-2xl font-bold text-xl shadow-lg shadow-indigo-600/30 hover:bg-indigo-500 disabled:opacity-50 disabled:shadow-none transition-all flex items-center justify-center gap-2"
+                >
+                  <Icons.Play className="w-6 h-6" />
+                  Se Connecter
+                </button>
+              </>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
+const MainAppScreen = ({ activeProfile, onSwitchProfile }) => {
+  const [activeTab, setActiveTab] = useState('tv');
+  const [selectedCategory, setSelectedCategory] = useState('Tous');
+  const [currentChannel, setCurrentChannel] = useState(MOCK_CHANNELS[0]);
+
+  const categories = ['Tous', 'Généraliste', 'Cinéma', 'Sport', 'Documentaire'];
+
+  const filteredChannels = selectedCategory === 'Tous' 
+    ? MOCK_CHANNELS 
+    : MOCK_CHANNELS.filter(c => c.category === selectedCategory);
+
+  return (
+    <div className="w-screen h-screen glass-bg-animated flex text-slate-800 overflow-hidden relative">
+      
+      {/* Left Navigation Sidebar */}
+      <aside className="w-24 h-full glass-card flex flex-col items-center justify-between py-8 border-r border-white/60 z-20">
+        <div className="flex flex-col items-center gap-8">
+          {/* Logo */}
+          <div className="w-12 h-12 rounded-2xl bg-gradient-to-tr from-indigo-600 to-purple-500 flex items-center justify-center text-white font-extrabold text-xl shadow-md">
+            V
+          </div>
+
+          {/* Menu Items */}
+          <nav className="flex flex-col gap-4">
+            {[
+              { id: 'tv', icon: Icons.Tv, label: 'En Direct' },
+              { id: 'movies', icon: Icons.Film, label: 'Films' },
+              { id: 'series', icon: Icons.Clapperboard, label: 'Séries' },
+              { id: 'favorites', icon: Icons.Star, label: 'Favoris' },
+            ].map((item) => {
+              const Icon = item.icon;
+              const isActive = activeTab === item.id;
+              return (
+                <button
+                  key={item.id}
+                  onClick={() => setActiveTab(item.id)}
+                  title={item.label}
+                  className={`p-4 rounded-2xl tv-focusable transition-all ${
+                    isActive ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-600/30 scale-105' : 'text-slate-500 hover:bg-white/60'
+                  }`}
+                >
+                  <Icon className="w-7 h-7" />
+                </button>
+              );
+            })}
+          </nav>
+        </div>
+
+        {/* Bottom Actions */}
+        <div className="flex flex-col gap-4">
+          <button
+            onClick={onSwitchProfile}
+            title="Changer de profil"
+            className="p-4 rounded-2xl glass-pill text-slate-600 hover:bg-white tv-focusable"
+          >
+            <Icons.LogOut className="w-6 h-6" />
+          </button>
+        </div>
+      </aside>
+
+      {/* Main Content View Area */}
+      <main className="flex-1 flex flex-col h-full overflow-hidden p-8 gap-6">
+        
+        {/* Top Header Bar */}
+        <header className="flex justify-between items-center w-full">
+          <div>
+            <h2 className="text-3xl font-extrabold text-slate-800 tracking-tight">
+              {activeTab === 'tv' && 'Télévision en Direct'}
+              {activeTab === 'movies' && 'Bibliothèque de Films'}
+              {activeTab === 'series' && 'Séries TV'}
+              {activeTab === 'favorites' && 'Mes Favoris'}
+            </h2>
+            <p className="text-slate-500 text-sm font-medium mt-1">
+              Connecté via : <span className="font-bold text-indigo-600">{activeProfile?.name}</span> ({activeProfile?.type})
+            </p>
+          </div>
+
+          {/* Clock & Status */}
+          <div className="flex items-center gap-4">
+            <div className="glass-pill px-5 py-2.5 rounded-full font-bold text-slate-700 text-sm">
+              14:30 | WEBOS HD
+            </div>
+            <div className="w-10 h-10 rounded-full bg-indigo-600 text-white font-bold flex items-center justify-center text-sm shadow-md">
+              {activeProfile?.name ? activeProfile.name.charAt(0).toUpperCase() : 'U'}
+            </div>
+          </div>
+        </header>
+
+        {/* Dynamic View Switcher */}
+        {activeTab === 'tv' && (
+          <div className="flex-1 flex gap-6 overflow-hidden">
+            
+            {/* Left Channel Grid & Categories */}
+            <div className="w-1/2 flex flex-col gap-4 h-full">
+              {/* Category Pills */}
+              <div className="flex gap-2 overflow-x-auto no-scrollbar pb-1">
+                {categories.map((cat) => (
+                  <button
+                    key={cat}
+                    onClick={() => setSelectedCategory(cat)}
+                    className={`px-5 py-2.5 rounded-2xl font-bold text-sm transition-all whitespace-nowrap tv-focusable-mild ${
+                      selectedCategory === cat ? 'bg-slate-800 text-white shadow-md' : 'glass-pill text-slate-600 hover:bg-white'
+                    }`}
+                  >
+                    {cat}
+                  </button>
+                ))}
+              </div>
+
+              {/* Channel List */}
+              <div className="flex-1 overflow-y-auto no-scrollbar flex flex-col gap-3 pr-1">
+                {filteredChannels.map((channel) => {
+                  const isSelected = currentChannel.id === channel.id;
+                  return (
+                    <button
+                      key={channel.id}
+                      onClick={() => setCurrentChannel(channel)}
+                      className={`tv-focusable w-full p-4 rounded-2xl glass-card flex items-center justify-between text-left transition-all ${
+                        isSelected ? 'border-2 border-indigo-600 bg-white shadow-lg' : 'hover:bg-white/70'
+                      }`}
+                    >
+                      <div className="flex items-center gap-4">
+                        <div className="w-12 h-12 rounded-xl bg-slate-900 text-white font-extrabold flex items-center justify-center text-sm">
+                          {channel.logo}
+                        </div>
+                        <div>
+                          <span className="text-xs font-bold text-indigo-600 uppercase tracking-wider">{channel.number} • {channel.category}</span>
+                          <h4 className="text-lg font-bold text-slate-800">{channel.name}</h4>
+                          <p className="text-xs text-slate-500 font-medium truncate max-w-xs">{channel.program}</p>
+                        </div>
+                      </div>
+
+                      {/* Live Badge */}
+                      <div className="flex flex-col items-end gap-1">
+                        <span className="flex items-center gap-1.5 px-2.5 py-1 bg-red-100 text-red-600 rounded-full text-xs font-extrabold">
+                          <span className="w-2 h-2 rounded-full bg-red-600 animate-ping" />
+                          DIRECT
+                        </span>
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Right Live Player & Interactive EPG */}
+            <div className="w-1/2 flex flex-col gap-6 h-full">
+              {/* Simulated Live Video Player */}
+              <div className="w-full h-2/3 glass-card-dark rounded-3xl overflow-hidden relative flex flex-col justify-between p-6 text-white group">
+                {/* Simulated Ambient Player Visual */}
+                <div className="absolute inset-0 bg-gradient-to-tr from-indigo-950 via-slate-900 to-purple-950 opacity-90" />
+
+                {/* Top Info Overlay */}
+                <div className="relative z-10 flex justify-between items-start">
+                  <div className="flex items-center gap-3">
+                    <span className="px-3 py-1 bg-indigo-600/80 rounded-full text-xs font-bold tracking-wider uppercase border border-indigo-400/30">
+                      FULL HD
+                    </span>
+                    <span className="text-sm font-semibold text-slate-300">{currentChannel.category}</span>
+                  </div>
+                  <div className="w-10 h-10 rounded-xl bg-white/10 backdrop-blur-md flex items-center justify-center font-bold">
+                    {currentChannel.logo}
+                  </div>
+                </div>
+
+                {/* Play Icon Placeholder */}
+                <div className="absolute inset-0 flex items-center justify-center z-10">
+                  <div className="w-20 h-20 rounded-full bg-white/20 backdrop-blur-md flex items-center justify-center text-white border border-white/40 shadow-2xl tv-focusable cursor-pointer">
+                    <Icons.Play className="w-10 h-10 ml-1" />
+                  </div>
+                </div>
+
+                {/* Bottom Player Overlay */}
+                <div className="relative z-10">
+                  <h3 className="text-2xl font-extrabold text-white">{currentChannel.name}</h3>
+                  <p className="text-indigo-200 font-medium text-sm mt-0.5">{currentChannel.program}</p>
+                </div>
+              </div>
+
+              {/* Active EPG (Guide TV) Card */}
+              <div className="flex-1 glass-card rounded-3xl p-6 flex flex-col justify-between">
+                <div>
+                  <div className="flex justify-between items-center mb-3">
+                    <span className="text-xs font-extrabold text-indigo-600 tracking-wider uppercase">Guide TV En Cours</span>
+                    <span className="text-xs font-bold text-slate-500">20:00 - 21:30</span>
+                  </div>
+                  <h4 className="text-xl font-bold text-slate-800 mb-2">{currentChannel.program}</h4>
+                  <p className="text-sm text-slate-600 line-clamp-2">
+                    Diffusion en haute définition en direct sur la chaîne {currentChannel.name}. Suivez les moments forts du programme interactif.
+                  </p>
+                </div>
+
+                {/* Progress Bar */}
+                <div className="mt-4">
+                  <div className="flex justify-between text-xs font-bold text-slate-500 mb-1.5">
+                    <span>Avancement</span>
+                    <span>{currentChannel.progress}%</span>
+                  </div>
+                  <div className="w-full bg-slate-200 rounded-full h-2.5 overflow-hidden">
+                    <div className="bg-indigo-600 h-full rounded-full" style={{ width: `${currentChannel.progress}%` }} />
+                  </div>
+                </div>
+              </div>
+
+            </div>
+          </div>
+        )}
+
+        {/* Movies View */}
+        {activeTab === 'movies' && (
+          <div className="flex-1 overflow-y-auto no-scrollbar">
+            <div className="grid grid-cols-4 gap-6">
+              {MOCK_MOVIES.map((movie) => (
+                <div
+                  key={movie.id}
+                  className="tv-focusable glass-card rounded-3xl overflow-hidden group cursor-pointer relative flex flex-col"
+                >
+                  <div className="h-72 w-full overflow-hidden relative">
+                    <img src={movie.poster} alt={movie.title} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" />
+                    <div className="absolute top-3 right-3 bg-slate-900/80 backdrop-blur-md text-amber-400 px-3 py-1 rounded-full text-xs font-bold flex items-center gap-1">
+                      <Icons.Star className="w-3.5 h-3.5" />
+                      {movie.rating}
+                    </div>
+                  </div>
+                  <div className="p-5">
+                    <span className="text-xs font-bold text-indigo-600">{movie.year} • {movie.duration}</span>
+                    <h4 className="text-xl font-bold text-slate-800 truncate mt-1">{movie.title}</h4>
+                    <p className="text-xs text-slate-500 mt-1">{movie.genre}</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Placeholder for other views */}
+        {(activeTab === 'series' || activeTab === 'favorites') && (
+          <div className="flex-1 glass-card rounded-3xl flex flex-col items-center justify-center text-center p-8">
+            <Icons.Clapperboard className="w-20 h-20 text-indigo-400 mb-4 animate-bounce" />
+            <h3 className="text-3xl font-bold text-slate-800 mb-2">Section {activeTab.toUpperCase()}</h3>
+            <p className="text-slate-500">Contenu synchronisé prêt à la lecture pour votre Smart TV WebOS.</p>
+          </div>
+        )}
+
+      </main>
+    </div>
+  );
+};
+
+export default function App() {
+  const [currentView, setCurrentView] = useState('profiles'); // 'profiles' or 'main'
+  const [profiles, setProfiles] = useState([
+    { id: '1', name: 'Salon VIP', type: 'Xtream Codes', url: 'http://my-iptv.net:8080' },
+  ]);
+  const [activeProfile, setActiveProfile] = useState(null);
+
+  const handleSelectProfile = (profile) => {
+    setActiveProfile(profile);
+    setCurrentView('main');
+  };
+
+  const handleSwitchProfile = () => {
+    setCurrentView('profiles');
+  };
+
+  return (
+    <div className="w-screen h-screen overflow-hidden">
+      <CustomStyles />
+      {currentView === 'profiles' ? (
+        <ProfileScreen
+          profiles={profiles}
+          setProfiles={setProfiles}
+          onSelectProfile={handleSelectProfile}
+        />
+      ) : (
+        <MainAppScreen
+          activeProfile={activeProfile}
+          onSwitchProfile={handleSwitchProfile}
+        />
+      )}
+    </div>
+  );
+}
