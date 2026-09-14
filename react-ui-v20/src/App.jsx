@@ -8,6 +8,7 @@ import {
   readProfileData,
   readProfiles
 } from './iptvDb';
+import { importProfileAndEpg } from './importer';
 
 const FALLBACK_ART = {
   movie: 'https://images.unsplash.com/photo-1440407876336-62333a6f010f?q=80&w=900&auto=format&fit=crop',
@@ -88,11 +89,12 @@ function ProfileScreen({ profiles, onSelectProfile, onCreate, onDelete }) {
   const [tab, setTab] = useState('xtream');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+  const [progress, setProgress] = useState(null);
   const [form, setForm] = useState({ name: '', base: '', username: '', password: '', url: '', epgUrl: '' });
   const update = (key, value) => setForm((old) => ({ ...old, [key]: value }));
   const submit = async () => {
-    setSaving(true); setError('');
-    try { await onCreate({ ...form, source: tab }); setForm({ name: '', base: '', username: '', password: '', url: '', epgUrl: '' }); setOpen(false); }
+    setSaving(true); setError(''); setProgress({ phase: 'profile', message: 'Création du profil…', percent: 0, current: 0, total: 0 });
+    try { await onCreate({ ...form, source: tab }, setProgress); setForm({ name: '', base: '', username: '', password: '', url: '', epgUrl: '' }); setOpen(false); }
     catch (err) { setError(String(err.message || err)); }
     finally { setSaving(false); }
   };
@@ -143,8 +145,9 @@ function ProfileScreen({ profiles, onSelectProfile, onCreate, onDelete }) {
               <div className="flex gap-4"><input className="tv-input w-1/2" placeholder="Nom d'utilisateur" value={form.username} onChange={(e) => update('username', e.target.value)} /><input className="tv-input w-1/2" type="password" placeholder="Mot de passe" value={form.password} onChange={(e) => update('password', e.target.value)} /></div>
             </> : <><input className="tv-input" placeholder="URL complète de la playlist M3U" value={form.url} onChange={(e) => update('url', e.target.value)} /><input className="tv-input" placeholder="URL XMLTV optionnelle" value={form.epgUrl} onChange={(e) => update('epgUrl', e.target.value)} /></>}
           </div>
+          {saving && progress && <div className="mt-6 rounded-2xl bg-indigo-50/80 p-4"><div className="mb-2 flex items-center justify-between text-xs font-extrabold uppercase tracking-wider text-indigo-600"><span>{progress.message}</span><span>{progress.percent || 0}%</span></div><div className="h-3 overflow-hidden rounded-full bg-indigo-100"><div className="h-full rounded-full bg-gradient-to-r from-indigo-500 to-purple-500 transition-all" style={{ width: `${Math.max(3, progress.percent || 0)}%` }} /></div></div>}
           {error && <p className="mt-4 text-sm font-semibold text-red-600">{error}</p>}
-          <button className="tv-focusable mt-8 flex w-full items-center justify-center gap-2 rounded-2xl bg-indigo-600 py-5 text-xl font-bold text-white shadow-lg shadow-indigo-600/30 disabled:opacity-50" onClick={submit} disabled={saving}><Icon name={saving ? 'refresh' : 'play'} className="h-6 w-6" />{saving ? 'Enregistrement…' : 'Créer le profil'}</button>
+          <button className="tv-focusable mt-8 flex w-full items-center justify-center gap-2 rounded-2xl bg-indigo-600 py-5 text-xl font-bold text-white shadow-lg shadow-indigo-600/30 disabled:opacity-50" onClick={submit} disabled={saving}><Icon name={saving ? 'refresh' : 'play'} className="h-6 w-6" />{saving ? (progress && progress.message ? progress.message : 'Import en cours…') : 'Créer le profil + importer'}</button>
         </div>
       </div>}
     </div>
@@ -237,7 +240,14 @@ export default function App() {
   useEffect(() => { loadProfiles(); }, []);
   useEffect(() => { if (!activeProfile) return; let cancelled = false; setLoading(true); readProfileData(activeProfile).then((next) => { if (!cancelled) setData(next); }).finally(() => { if (!cancelled) setLoading(false); }); return () => { cancelled = true; }; }, [activeProfile]);
   const selectProfile = (profile) => { setActiveProfile(profile); setScreen('main'); };
-  const create = async (form) => { await createProfile(form); await loadProfiles(); };
+  const create = async (form, onProgress) => {
+    const profileId = await createProfile(form);
+    try {
+      await importProfileAndEpg(profileId, onProgress);
+    } finally {
+      await loadProfiles();
+    }
+  };
   const remove = async (profile) => { await removeProfile(profile); if (activeProfile && activeProfile.id === profile.id) { setActiveProfile(null); setScreen('profiles'); } await loadProfiles(); };
   const refresh = async () => { if (activeProfile) setData(await readProfileData(activeProfile)); };
   if (loading && !profiles.length && !activeProfile) return <div className="glass-bg-animated flex h-screen items-center justify-center text-xl font-bold text-indigo-600">Chargement des profils réels…</div>;

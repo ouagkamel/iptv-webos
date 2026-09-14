@@ -30,8 +30,14 @@ Le cœur natif V20 — `src/app.js`, les workers, `PlaylistManager`, `DataManage
 - Les catégories V20 sont utilisées pour reconstituer l’ordre serveur avant `sortIdx`.
 - Le détail d’une série est lazy et utilise le même endpoint Xtream `get_series_info` que le contrat V20 ; un échec ne bloque pas l’écran.
 - Le fichier de référence conservé contient des constantes `MOCK_*`, mais elles ne sont ni importées ni incluses dans `src/` ou le bundle runtime.
-- L’import, la purge lazy, le budget de chunks et le lecteur webOS restent ceux du backend V20 ; cette variante ne crée pas de second protocole.
+- La création de profil déclenche maintenant l’adaptateur d’import V20 : chaînes, VOD, séries, swap `activeImportId`, puis EPG et swap `activeEpgImportId`. Les lots sont écrits par `bulkAdd` de 2 000 avec au maximum deux lots en vol et une purge différée des anciens imports. Le lecteur webOS natif et le contrat des stores V20 restent inchangés.
 - Aucun contenu fictif n’est ajouté pour remplir une carte manquante.
+
+## Import automatique à la création du profil
+
+La création n’est plus une simple écriture de profil. `src/importer.js` crée un import staging V20, vérifie l’accès Xtream ou télécharge la M3U, écrit les tables `channels`, `vod` et `series` en lots `bulkAdd` de 2 000, écrit les catégories puis publie le swap `activeImportId`. Ensuite, si une URL XMLTV existe, il crée un import EPG séparé, parse les programmes XMLTV et publie `activeEpgImportId` seulement après les écritures réussies.
+
+Le flux affiche les phases dans la modal : connexion, catégories, chaînes, films, séries, EPG et fin. Les lignes partielles d’un import échoué sont supprimées sans toucher à l’import actif. Les anciens imports sont nettoyés en tâche différée avec une vérification de l’identifiant actif.
 
 ## Preview et paquet simulateur
 

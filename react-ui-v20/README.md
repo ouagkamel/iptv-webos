@@ -28,7 +28,16 @@ npm install
 npm run dev -- --host 0.0.0.0
 ```
 
-Le profil et les catalogues doivent déjà exister dans `IPTVDatabase` sur la même origine. La création du profil écrit un vrai profil Dexie ; l’import V20 reste celui du backend natif, conformément au choix de ne pas réimplémenter l’import dans cette variante UI.
+À la validation du formulaire, le profil est écrit dans `IPTVDatabase`, puis l’adaptateur exécute automatiquement la séquence réelle :
+
+1. authentification Xtream ou téléchargement M3U ;
+2. import et écriture des chaînes ;
+3. import et écriture des films VOD ;
+4. import et écriture des séries ;
+5. import et écriture de l’EPG XMLTV ;
+6. activation des `activeImportId` et `activeEpgImportId` uniquement après écriture réussie.
+
+Les écritures utilisent `bulkAdd` par lots de 2 000, au maximum deux lots en vol, avec respiration entre les lots. Les anciens imports restent protégés pendant le swap et sont supprimés par une purge différée. La modal affiche la phase et la progression. En cas d’erreur EPG, le catalogue déjà importé reste conservé et le message est affiché.
 
 ## Installation dans le simulateur webOS
 
