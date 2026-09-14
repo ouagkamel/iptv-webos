@@ -2,12 +2,12 @@
 
 **Date :** 2026-09-14
 **Base fonctionnelle :** V27 publiée, commit `c2e1499`, tag `v27`
-**Révision :** V28 — refonte de la seule page Accueil en interface streaming premium, en attente de validation utilisateur avant extension aux autres écrans
+**Révision :** V28 publiée — refonte de la seule page Accueil en interface streaming premium, avec extension des autres écrans laissée pour une révision ultérieure
 **Référence visuelle :** `/home/user/uploads/accueil.html`, `/home/user/uploads/catalogue_vod_films_s_ries.html` et `/home/user/uploads/live_tv_guide_des_programmes_epg.html`
 
 ## Verdict
 
-**WARNING — V28 est une proposition d’Accueil prête pour validation : gate, tests et build PASS ; validation visuelle CDP/webOS réel et validation utilisateur encore indisponibles.**
+**WARNING — V28 publiée et validée par gate, tests et build ; validation visuelle CDP/webOS réel encore indisponible. Les autres écrans restent hors périmètre V28.**
 
 La V28 ne réécrit pas le moteur métier et ne modifie pas les vues catalogue, Guide, profils, paramètres ou lecteur. Elle reste limitée à la page Accueil et à son chargement éditorial. Elle réutilise Dexie, les imports M3U/Xtream/XMLTV, la persistance des playlists, le chargement lazy, `VirtualList`, `SeriesBrowser`, `MediaAdapter`, `LifecycleAdapter`, le GC lazy et le routeur D-Pad existants. Les changements applicatifs se concentrent sur la composition de `src/app.js`, le thème natif de `src/styles/main.css`, le worker EPG et les tests de collision ; le moteur d’import, le lecteur natif et la classification D-Pad restent en place.
 
@@ -31,7 +31,7 @@ La V28 ne réécrit pas le moteur métier et ne modifie pas les vues catalogue, 
 | V25 — collision EPG | Les programmes XMLTV valides reçoivent un ordinal primaire monotone à l’intérieur de l’import. Le couple `importId/channelId/startTime` reste indexé pour les requêtes EPG ; les doublons XMLTV ne font plus échouer `bulkAdd`, y compris après la frontière du lot 2 000. | `src/data/epg.worker.js`, `tests/epg-import.test.mjs` |
 | V26 — palette, rail et D-pad | Les couleurs principales reprennent les tokens des prototypes (`#051424`, `#0d1c2d`, `#122131`, `#1c2b3c`, `#273647`, `#4cd7f6`, `#0566d9`). Le rail gauche est fixe, se déploie au survol/focus comme le prototype et ne décale plus le contenu. Haut/Bas pilotent uniquement les lignes Live/VOD/Séries/Guide ; la ligne sélectionnée est focalisée et surlignée. | `src/styles/main.css`, `src/app.js` |
 | V27 — Accueil fourni | Le prototype `accueil.html` est adapté sans CDN : hero de 420 px, badge Direct 4K, marque/status Lumina, rangée « Chaînes Favorites & Reprises Rapides », cartes alimentées par le profil actif et accès rapides. Les boutons Regarder/Guide/favoris et les touches couleur restent branchés aux vues réelles. | `buildHomeView()`, `renderHomeView()`, `buildTopbar()`, `buildFooter()`, `src/styles/main.css` |
-| V28 — Accueil premium en validation | Refonte ciblée de l’Accueil : hero immersif, rails horizontaux inspirés streaming, matchs live détectés dans l’EPG, derniers films du catalogue, derniers épisodes via `SeriesBrowser` lazy/cache et favoris persistants. Le profil actif, les actions natives, le D-pad et les fallbacks locaux restent réels ; aucune donnée fictive n’est ajoutée. | `buildHomeView()`, `renderHomeView()`, `hydrateHomeSections()`, `renderHomeRail()`, `src/styles/main.css` |
+| V28 — Accueil premium publié | Refonte ciblée de l’Accueil : hero immersif, rails horizontaux inspirés streaming, matchs live détectés dans l’EPG, derniers films du catalogue, derniers épisodes via `SeriesBrowser` lazy/cache et favoris persistants. Le profil actif, les actions natives, le D-pad et les fallbacks locaux restent réels ; aucune donnée fictive n’est ajoutée. | `buildHomeView()`, `renderHomeView()`, `hydrateHomeSections()`, `renderHomeRail()`, `src/styles/main.css` |
 
 ## Correspondance avec la demande
 
@@ -40,7 +40,7 @@ La V28 ne réécrit pas le moteur métier et ne modifie pas les vues catalogue, 
 | Direction sombre « Luminous Cinema / Lumina IPTV » | OK V27 | Fond ardoise profond, surfaces titanium/slate, cyan électrique, cobalt et indigo ; aucun fond pastel résiduel dans le nouveau thème. |
 | Interface 10-foot webOS | OK statique V27 | Safe-area par variables de gouttière, titres contrastés, métadonnées lisibles, barre de raccourcis Magic Remote et focus cyan visible. |
 | Sidebar compacte de 96 px extensible au focus | OK V27 | Rail fixe 96 px, expansion au survol/focus vers 320 px, libellés visibles à l’ouverture, contenu principal non décalé. |
-| Accueil / Découverte | EN ATTENTE VALIDATION V28 | Hero immersif, rails « En direct maintenant », « Derniers films ajoutés », « Derniers épisodes » et « Vos favoris » ; EPG réel, `SeriesBrowser` lazy/cache, fallbacks locaux et actions natives. |
+| Accueil / Découverte | OK V28 | Hero immersif, rails « En direct maintenant », « Derniers films ajoutés », « Derniers épisodes » et « Vos favoris » ; EPG réel, `SeriesBrowser` lazy/cache, fallbacks locaux et actions natives. |
 | Profils « Qui regarde la télévision ? » | OK | Sélection du profil actif, état vide, cartes persistées et bouton d’ajout. |
 | Ajout Xtream / M3U | OK | Modal native, onglets sans `<select>` visible, champs conditionnels, création via `ctx.manager.create()`, erreurs visibles. |
 | Catalogue films et séries | OK V27 | Hero/spotlight, recherche, filtres/pills, carrousels bornés et ajouts récents pour Films/Séries ; familles chargées séparément, séries ouvertes via `SeriesBrowser`, lecture épisode conservée. |
@@ -95,7 +95,7 @@ La V28 ne réécrit pas le moteur métier et ne modifie pas les vues catalogue, 
 
 1. `tools/browser-run.mjs` n’a pas pu certifier le boot, le focus, la modal, le Guide et le lecteur : `chrome-headless-shell`/Chromium n’est pas installé dans l’environnement et l’installation système sans root échoue.
 2. La preview Vite sert correctement le shell, `main.css` et `app.js`, mais elle ne remplace pas une validation sur téléviseur webOS et télécommande réelle.
-3. Le bundle principal reste supérieur à 500 kB après minification (environ 635,09 kB dans cette proposition V28) ; l’avertissement Vite est connu, non bloquant et sans nouvelle dépendance UI.
+3. Le bundle principal reste supérieur à 500 kB après minification (environ 635,09 kB dans V28) ; l’avertissement Vite est connu, non bloquant et sans nouvelle dépendance UI.
 4. La vue Favoris est maintenant persistante en V23 ; la limitation volontaire porte sur les 100 éléments affichés afin de conserver une UI TV bornée.
 
 ## Validation exécutée
