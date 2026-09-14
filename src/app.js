@@ -139,6 +139,11 @@ function buildTopbar() {
   });
   left.appendChild(links); header.appendChild(left);
 
+  const context = el('div', 'topbar-context');
+  const contextTitle = el('strong'); contextTitle.textContent = 'Votre télévision'; context.appendChild(contextTitle);
+  const contextSub = el('small'); contextSub.textContent = 'Sélectionnez un profil pour commencer'; context.appendChild(contextSub);
+  header.appendChild(context);
+
   const status = el('div', 'topbar-status');
   const net = el('span', 'status-pill'); net.appendChild(svgIcon('wifi', 17));
   const netText = el('span'); netText.textContent = 'Flux fournisseur prêt'; net.appendChild(netText); status.appendChild(net);
@@ -151,10 +156,28 @@ function buildTopbar() {
   profile.appendChild(avatar); profile.appendChild(profileName);
   profile.addEventListener('click', function () { state.tab = 'playlists'; renderTab(); }); status.appendChild(profile);
   header.appendChild(status);
-  state.topbarRefs = { clock: clock, profile: profile, avatar: avatar, profileName: profileName, netText: netText, badge: badge };
+  state.topbarRefs = { clock: clock, profile: profile, avatar: avatar, profileName: profileName, netText: netText, badge: badge, contextTitle: contextTitle, contextSub: contextSub };
   updateTopClock();
+  updateTopbarContext();
   if (!state.topClockTimer) state.topClockTimer = setInterval(updateTopClock, 30000);
   return header;
+}
+
+function updateTopbarContext() {
+  if (!state.topbarRefs || !state.topbarRefs.contextTitle) return;
+  const labels = {
+    home: ['Votre télévision', 'Direct, nouveautés et favoris'],
+    live: ['Télévision en direct', 'Chaînes, programmes et EPG'],
+    vod: ['Bibliothèque de films', 'Les nouveautés de votre catalogue'],
+    series: ['Séries TV', 'Saisons et derniers épisodes'],
+    guide: ['Guide TV', 'Programmes en cours et à suivre'],
+    favorites: ['Mes favoris', 'Vos contenus enregistrés'],
+    settings: ['Paramètres', 'Configuration du lecteur et des sources'],
+    playlists: ['Vos profils IPTV', 'Choisissez un accès pour continuer']
+  };
+  const label = labels[state.tab] || labels.home;
+  state.topbarRefs.contextTitle.textContent = label[0];
+  state.topbarRefs.contextSub.textContent = label[1];
 }
 
 function updateTopClock() {
@@ -323,6 +346,7 @@ function updateActiveProfileBadge() {
   if (state.topbarRefs.netText) state.topbarRefs.netText.textContent = active
     ? (active.source === 'xtream' ? 'Xtream Ultra-Stream' : 'Playlist M3U active')
     : 'Flux fournisseur prêt';
+  updateTopbarContext();
 }
 
 function renderHomeView() {
@@ -1913,6 +1937,7 @@ function renderTab() {
   }
   root.classList.toggle('profile-mode', state.tab === 'playlists');
   root.classList.toggle('home-route', state.tab === 'home');
+  updateTopbarContext();
   const navs = root.querySelectorAll('[data-tab]');
   for (let n = 0; n < navs.length; n++) navs[n].classList.toggle('active', navs[n].getAttribute('data-tab') === state.tab);
 

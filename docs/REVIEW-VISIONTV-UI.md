@@ -1,15 +1,15 @@
-# Revue UI VisionTV — révision V28 « accueil premium éditorial »
+# Revue UI VisionTV — révision V29 « Glass UI premium jointe »
 
 **Date :** 2026-09-14
-**Base fonctionnelle :** V27 publiée, commit `c2e1499`, tag `v27`
-**Révision :** V28 publiée — refonte de la seule page Accueil en interface streaming premium, avec extension des autres écrans laissée pour une révision ultérieure
-**Référence visuelle :** `/home/user/uploads/accueil.html`, `/home/user/uploads/catalogue_vod_films_s_ries.html` et `/home/user/uploads/live_tv_guide_des_programmes_epg.html`
+**Base fonctionnelle :** V28 publiée, commit `d8dc633`, tag `v28`
+**Révision :** V29 — port natif de la UI jointe `code UI.txt` sur l’application réelle, profils, Accueil, Live, Films, Séries, Favoris, Paramètres et Guide
+**Référence visuelle :** `/home/user/uploads/code UI.txt` et les références précédentes `/home/user/uploads/accueil.html`, `/home/user/uploads/catalogue_vod_films_s_ries.html`, `/home/user/uploads/live_tv_guide_des_programmes_epg.html`
 
 ## Verdict
 
-**WARNING — V28 publiée et validée par gate, tests et build ; validation visuelle CDP/webOS réel encore indisponible. Les autres écrans restent hors périmètre V28.**
+**WARNING — V29 validée par gate, tests et build ; validation visuelle CDP/webOS réel encore indisponible. La UI jointe est portée en DOM/CSS natif, sans les mocks React ni les dépendances CDN de la référence.**
 
-La V28 ne réécrit pas le moteur métier et ne modifie pas les vues catalogue, Guide, profils, paramètres ou lecteur. Elle reste limitée à la page Accueil et à son chargement éditorial. Elle réutilise Dexie, les imports M3U/Xtream/XMLTV, la persistance des playlists, le chargement lazy, `VirtualList`, `SeriesBrowser`, `MediaAdapter`, `LifecycleAdapter`, le GC lazy et le routeur D-Pad existants. Les changements applicatifs se concentrent sur la composition de `src/app.js`, le thème natif de `src/styles/main.css`, le worker EPG et les tests de collision ; le moteur d’import, le lecteur natif et la classification D-Pad restent en place.
+La V29 ne réécrit pas le moteur métier : elle remplace la couche visuelle par une direction glassmorphism claire, conserve les imports IPTV, l’EPG, les favoris, le lecteur natif, les profils et le D-pad. Le code React/Tailwind joint sert de référence visuelle ; il n’est pas embarqué. Elle réutilise Dexie, les imports M3U/Xtream/XMLTV, la persistance des playlists, le chargement lazy, `VirtualList`, `SeriesBrowser`, `MediaAdapter`, `LifecycleAdapter`, le GC lazy et le routeur D-Pad existants. Les changements applicatifs se concentrent sur la composition de `src/app.js`, le thème natif de `src/styles/main.css`, le worker EPG et les tests de collision ; le moteur d’import, le lecteur natif et la classification D-Pad restent en place.
 
 ## Traçabilité de la révision
 
@@ -32,25 +32,26 @@ La V28 ne réécrit pas le moteur métier et ne modifie pas les vues catalogue, 
 | V26 — palette, rail et D-pad | Les couleurs principales reprennent les tokens des prototypes (`#051424`, `#0d1c2d`, `#122131`, `#1c2b3c`, `#273647`, `#4cd7f6`, `#0566d9`). Le rail gauche est fixe, se déploie au survol/focus comme le prototype et ne décale plus le contenu. Haut/Bas pilotent uniquement les lignes Live/VOD/Séries/Guide ; la ligne sélectionnée est focalisée et surlignée. | `src/styles/main.css`, `src/app.js` |
 | V27 — Accueil fourni | Le prototype `accueil.html` est adapté sans CDN : hero de 420 px, badge Direct 4K, marque/status Lumina, rangée « Chaînes Favorites & Reprises Rapides », cartes alimentées par le profil actif et accès rapides. Les boutons Regarder/Guide/favoris et les touches couleur restent branchés aux vues réelles. | `buildHomeView()`, `renderHomeView()`, `buildTopbar()`, `buildFooter()`, `src/styles/main.css` |
 | V28 — Accueil premium publié | Refonte ciblée de l’Accueil : hero immersif, rails horizontaux inspirés streaming, matchs live détectés dans l’EPG, derniers films du catalogue, derniers épisodes via `SeriesBrowser` lazy/cache et favoris persistants. Le profil actif, les actions natives, le D-pad et les fallbacks locaux restent réels ; aucune donnée fictive n’est ajoutée. | `buildHomeView()`, `renderHomeView()`, `hydrateHomeSections()`, `renderHomeRail()`, `src/styles/main.css` |
+| V29 — UI jointe portée dans l’application réelle | La composition React jointe est transposée en DOM/CSS natif : mesh gradient clair, cartes glass, indigo de focus, profil/modal, rail latéral, topbar contextuelle, surfaces Live/VOD/Séries/Guide/Paramètres et overlays. Les données fictives, Tailwind, Google Fonts, Unsplash et `backdrop-filter` obligatoire sont exclus. | `src/app.js`, `src/styles/main.css` |
 
 ## Correspondance avec la demande
 
 | Exigence | État | Vérification / réalisation |
 |---|---|---|
-| Direction sombre « Luminous Cinema / Lumina IPTV » | OK V27 | Fond ardoise profond, surfaces titanium/slate, cyan électrique, cobalt et indigo ; aucun fond pastel résiduel dans le nouveau thème. |
-| Interface 10-foot webOS | OK statique V27 | Safe-area par variables de gouttière, titres contrastés, métadonnées lisibles, barre de raccourcis Magic Remote et focus cyan visible. |
-| Sidebar compacte de 96 px extensible au focus | OK V27 | Rail fixe 96 px, expansion au survol/focus vers 320 px, libellés visibles à l’ouverture, contenu principal non décalé. |
-| Accueil / Découverte | OK V28 | Hero immersif, rails « En direct maintenant », « Derniers films ajoutés », « Derniers épisodes » et « Vos favoris » ; EPG réel, `SeriesBrowser` lazy/cache, fallbacks locaux et actions natives. |
+| Direction glass premium inspirée de la UI jointe | OK V29 | Mesh gradient clair, surfaces blanches translucides, indigo/violet, ombres douces et panneaux sombres uniquement pour le player vidéo. |
+| Interface 10-foot webOS | OK statique V29 | Safe-area par variables de gouttière, titres contrastés, métadonnées lisibles, barre de raccourcis Magic Remote et focus indigo visible. |
+| Sidebar compacte de 96 px extensible au focus | OK V29 | Rail fixe 96 px, expansion au survol/focus vers 320 px, libellés visibles à l’ouverture, contenu principal non décalé. |
+| Accueil / Découverte | OK V29 | Hero immersif, rails « En direct maintenant », « Derniers films ajoutés », « Derniers épisodes » et « Vos favoris » ; EPG réel, `SeriesBrowser` lazy/cache, fallbacks locaux et actions natives. |
 | Profils « Qui regarde la télévision ? » | OK | Sélection du profil actif, état vide, cartes persistées et bouton d’ajout. |
 | Ajout Xtream / M3U | OK | Modal native, onglets sans `<select>` visible, champs conditionnels, création via `ctx.manager.create()`, erreurs visibles. |
-| Catalogue films et séries | OK V27 | Hero/spotlight, recherche, filtres/pills, carrousels bornés et ajouts récents pour Films/Séries ; familles chargées séparément, séries ouvertes via `SeriesBrowser`, lecture épisode conservée. |
-| Live TV / EPG en trois zones | OK V27 | Bouquets, liste de chaînes, aperçu de lecture et détail EPG ; le Guide garde ses trois zones et l’EPG exploite le véritable `activeEpgImportId`. |
+| Catalogue films et séries | OK V29 | Hero/spotlight, recherche, filtres/pills, carrousels bornés et ajouts récents pour Films/Séries ; familles chargées séparément, séries ouvertes via `SeriesBrowser`, lecture épisode conservée. |
+| Live TV / EPG en trois zones | OK V29 | Bouquets, liste de chaînes, aperçu de lecture et détail EPG ; le Guide garde ses trois zones et l’EPG exploite le véritable `activeEpgImportId`. |
 | Favoris et profil actif | OK V23 | Nouveau store Dexie V5 `favorites`, snapshots bornés à 100 éléments affichés, ajout/retrait depuis Accueil, lignes catalogues et Guide, séparation par playlist et purge des orphelins. |
 | Paramètres webOS, lecteur, synchronisation | OK | Vue paramètres détaillée, actions de synchronisation/EPG, statut catalogue et rappel du lecteur natif/HLS secours. |
 | Données IPTV réelles et logos | OK | Les cartes et lignes utilisent les données des catalogues actifs ; logo fourni utilisé quand présent, fallback SVG/CSS local sinon. Aucun jeu de données fictif ajouté. |
 | Pas de dépendances UI externes | OK | Pas de Tailwind CDN, Google Fonts, Material Symbols CDN, images CDN, React ou autre librairie UI ; CSS natif et SVG inline uniquement. |
 | DOM borné / focus déterministe | OK | `VirtualList` inchangé ; pool de lignes recyclé ; écouteurs délégués ; focus modal/lecteur/série et back LIFO conservés. |
-| Compatibilité webOS / Chromium 68 | OK statique | Gate syntaxe réussi ; pas de `backdrop-filter`, de blur lourd, d’animations permanentes ni d’API UI moderne non nécessaire. |
+| Compatibilité webOS / Chromium 68 | OK statique | Gate syntaxe réussi ; glassmorphism sans dépendance, `backdrop-filter` seulement progressif via `@supports`, animation mesh unique et lente, aucune API UI moderne obligatoire. |
 
 ## Analyse des régressions potentielles
 
@@ -59,7 +60,7 @@ La V28 ne réécrit pas le moteur métier et ne modifie pas les vues catalogue, 
 - `ensureDefaultPlaylist()` reste exécuté avant le chemin Importer.
 - `runImport()` garde les chemins `importPlaylist()` et `importEpg()` ainsi que les événements `import-complete`, `import-error` et `import-aborted`.
 - Aucun protocole worker, mapping compact, taille de chunk, budget de lecture ou règle GC n’a été modifié.
-- `clearCatalogMemory()` conserve la stratégie V20 pour les vues catalogue ; l’Accueil charge les trois familles déjà persistées afin de construire ses rails éditoriaux, sans créer de second tableau DOM virtuel.
+- `clearCatalogMemory()` conserve la stratégie V20 pour les vues catalogue ; l’Accueil charge les trois familles déjà persistées afin de construire ses rails éditoriaux, sans créer de second tableau DOM virtuel. La couche V29 change uniquement les surfaces et états visuels.
 - Les catégories continuent d’être demandées via `ctx.manager.categories()` et l’ordre serveur est conservé avant les groupes de secours rencontrés dans les lignes.
 - Le worker EPG ne fabrique plus plusieurs lignes avec la même clé primaire : chaque programme valide reçoit `importId:channelId:startTime:ordinal`. L’index composé utilisé par le Guide n’est pas changé ; deux programmes qui partagent chaîne et début restent donc lisibles comme deux entrées.
 - Les tests couvrent un doublon dans un même lot et une collision après le lot 2 000 ; `bulkAdd` de production reste le seul chemin d’écriture.
@@ -89,13 +90,13 @@ La V28 ne réécrit pas le moteur métier et ne modifie pas les vues catalogue, 
 - Les logos distants sont ceux déjà fournis par la source IPTV ; le fallback est local (lettre, SVG, CSS), sans image externe imposée.
 - Les identifiants Xtream ne sont pas journalisés.
 - Les feuilles de style et scripts applicatifs ne dépendent d’aucun CDN.
-- Les surfaces utilisent des aplats et gradients légers ; aucune boucle d’animation permanente ou `backdrop-filter` n’a été ajoutée.
+- Les surfaces utilisent des aplats et gradients légers ; le mesh gradient est une animation CSS unique et lente sur le shell. `backdrop-filter` est seulement progressif via `@supports` et n’est jamais requis pour lire l’UI.
 
 ## Points non certifiés — WARNING
 
 1. `tools/browser-run.mjs` n’a pas pu certifier le boot, le focus, la modal, le Guide et le lecteur : `chrome-headless-shell`/Chromium n’est pas installé dans l’environnement et l’installation système sans root échoue.
 2. La preview Vite sert correctement le shell, `main.css` et `app.js`, mais elle ne remplace pas une validation sur téléviseur webOS et télécommande réelle.
-3. Le bundle principal reste supérieur à 500 kB après minification (environ 635,09 kB dans V28) ; l’avertissement Vite est connu, non bloquant et sans nouvelle dépendance UI.
+3. Le bundle principal reste supérieur à 500 kB après minification (environ 651,01 kB dans V29) ; l’avertissement Vite est connu, non bloquant et sans nouvelle dépendance UI.
 4. La vue Favoris est maintenant persistante en V23 ; la limitation volontaire porte sur les 100 éléments affichés afin de conserver une UI TV bornée.
 
 ## Validation exécutée
@@ -103,7 +104,7 @@ La V28 ne réécrit pas le moteur métier et ne modifie pas les vues catalogue, 
 ```text
 npm test                         PASS — 95/95
 npm run gate:syntax              PASS — 25 fichiers compatibles Chromium 68
-npm run build                    PASS — Vite ; bundle principal ~635,09 kB minifié
+npm run build                    PASS — Vite ; bundle principal ~651,01 kB minifié
 curl shell / CSS / app           PASS — ressources servies par la preview Vite
 npm install --ignore-scripts     PASS — environnement de test restauré (fake-indexeddb)
 ```
@@ -121,4 +122,4 @@ La preview peut être relancée via Vite ; aucune validation navigateur réelle 
 - `src/data/epg.worker.js` — ordinal primaire EPG borné par import, sans table de déduplication en mémoire.
 - `tests/epg-import.test.mjs` — doublons intra-lot et après frontière de chunk, en plus des fixtures XMLTV existantes.
 - `tests/favorites.test.mjs` — tests du schéma, de l’isolation entre profils et de la purge.
-- `docs/REVIEW-VISIONTV-UI.md` — traçabilité et protocole de revue V22/V23/V24/V25/V26/V27/V28.
+- `docs/REVIEW-VISIONTV-UI.md` — traçabilité et protocole de revue V22/V23/V24/V25/V26/V27/V28/V29.
