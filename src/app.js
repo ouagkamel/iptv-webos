@@ -125,7 +125,10 @@ function buildTopbar() {
   const header = el('header', 'vision-topbar');
   const left = el('div', 'topbar-left');
   const mark = el('span', 'topbar-mark'); mark.textContent = 'V'; left.appendChild(mark);
-  const name = el('span', 'topbar-name'); name.textContent = 'VisionTV'; left.appendChild(name);
+  const name = el('span', 'topbar-name'); name.textContent = 'LUMINA IPTV'; left.appendChild(name);
+  const badge = el('span', 'topbar-badge');
+  const webosMajor = ctx && ctx.capabilities && ctx.capabilities.webosVersion ? ctx.capabilities.webosVersion.major : 5;
+  badge.textContent = 'webOS ' + webosMajor + ' NATIVE'; left.appendChild(badge);
   const links = el('nav', 'topbar-links');
   [['home', 'Explorer'], ['live', 'En direct'], ['vod', 'Cinéma'], ['series', 'Séries']].forEach(function (entry) {
     const b = tabButton(entry[0], entry[1]); b.classList.add('top-link'); links.appendChild(b);
@@ -134,9 +137,9 @@ function buildTopbar() {
 
   const status = el('div', 'topbar-status');
   const net = el('span', 'status-pill'); net.appendChild(svgIcon('wifi', 17));
-  const netText = el('span'); netText.textContent = 'TV prête'; net.appendChild(netText); status.appendChild(net);
+  const netText = el('span'); netText.textContent = 'Flux fournisseur prêt'; net.appendChild(netText); status.appendChild(net);
   const quality = el('span', 'status-pill'); quality.appendChild(svgIcon('hdr', 17));
-  const qualityText = el('span'); const webosMajor = ctx && ctx.capabilities && ctx.capabilities.webosVersion ? ctx.capabilities.webosVersion.major : 5; qualityText.textContent = 'webOS ' + webosMajor; quality.appendChild(qualityText); status.appendChild(quality);
+  const qualityText = el('span'); qualityText.textContent = 'Wi-Fi · 4K HDR'; quality.appendChild(qualityText); status.appendChild(quality);
   const clock = el('time', 'status-clock'); clock.textContent = '--:--'; status.appendChild(clock);
   const profile = el('button', 'topbar-profile'); profile.tabIndex = 0; profile.setAttribute('data-tab', 'playlists');
   const avatar = el('span', 'topbar-avatar'); avatar.textContent = 'V';
@@ -144,7 +147,7 @@ function buildTopbar() {
   profile.appendChild(avatar); profile.appendChild(profileName);
   profile.addEventListener('click', function () { state.tab = 'playlists'; renderTab(); }); status.appendChild(profile);
   header.appendChild(status);
-  state.topbarRefs = { clock: clock, profile: profile, avatar: avatar, profileName: profileName };
+  state.topbarRefs = { clock: clock, profile: profile, avatar: avatar, profileName: profileName, netText: netText, badge: badge };
   updateTopClock();
   if (!state.topClockTimer) state.topClockTimer = setInterval(updateTopClock, 30000);
   return header;
@@ -159,13 +162,14 @@ function updateTopClock() {
 function buildFooter() {
   const footer = el('footer', 'vision-footer');
   const left = el('div', 'footer-hints');
-  [['▲▼', 'Naviguer'], ['OK', 'Valider'], ['◀', 'Retour'], ['Y', 'Options']].forEach(function (entry) {
+  [['red', 'Bouquets TV'], ['green', 'Guide EPG'], ['yellow', 'Recherche rapide'], ['blue', 'Paramètres débit']].forEach(function (entry) {
     const hint = el('span', 'footer-hint');
-    const key = el('b'); key.textContent = entry[0]; hint.appendChild(key);
+    const dot = el('span', 'key-color key-' + entry[0]); hint.appendChild(dot);
     const label = el('span'); label.textContent = entry[1]; hint.appendChild(label); left.appendChild(hint);
   });
   footer.appendChild(left);
-  const right = el('span', 'footer-brand'); right.textContent = 'Magic Remote  ·  D-Pad Ready'; footer.appendChild(right);
+  const right = el('span', 'footer-brand');
+  right.textContent = 'D-PAD  Naviguer   ·   OK  Valider   ·   RETOUR  Quitter'; footer.appendChild(right);
   return footer;
 }
 
@@ -226,28 +230,31 @@ function tabButton(tab, label) {
 
 function buildHomeView() {
   const view = el('div', 'view view-home');
-  const header = el('div', 'page-heading');
-  const kicker = el('span', 'eyebrow'); kicker.textContent = 'PORTAIL UTILISATEUR'; header.appendChild(kicker);
-  const title = el('h1'); title.textContent = 'Accueil'; header.appendChild(title);
-  const subtitle = el('p'); subtitle.textContent = 'Un accès simple à vos chaînes, films et séries.'; header.appendChild(subtitle);
-  view.appendChild(header);
 
-  const hero = el('section', 'home-hero');
+  // Accueil du prototype : un hero éditorial, puis une rangée de reprises et
+  // favoris. Les données affichées restent celles du profil actif, jamais un
+  // jeu de démonstration figé.
+  const hero = el('section', 'home-hero'); hero.tabIndex = 0; hero.setAttribute('aria-label', 'Sélection à la une');
   const backdrop = el('div', 'hero-backdrop');
   const backdropImage = document.createElement('img'); backdropImage.alt = ''; backdropImage.style.display = 'none'; backdrop.appendChild(backdropImage);
   const scrim = el('div', 'hero-scrim'); backdrop.appendChild(scrim); hero.appendChild(backdrop);
   const heroCopy = el('div', 'hero-copy');
-  const heroKicker = el('span', 'hero-kicker'); heroKicker.textContent = 'VISIONTV'; heroCopy.appendChild(heroKicker);
-  const heroTitle = el('h2'); heroTitle.textContent = 'Bienvenue sur VisionTV'; heroCopy.appendChild(heroTitle);
+  const heroKicker = el('span', 'hero-kicker'); heroKicker.textContent = 'LUMINA IPTV'; heroCopy.appendChild(heroKicker);
+  const heroTitle = el('h2'); heroTitle.textContent = 'Bienvenue sur Lumina IPTV'; heroCopy.appendChild(heroTitle);
   const heroMeta = el('div', 'hero-meta'); heroMeta.textContent = 'TV en direct  ·  Films  ·  Séries'; heroCopy.appendChild(heroMeta);
   const heroPlot = el('p'); heroPlot.textContent = 'Sélectionnez un profil et importez votre accès pour découvrir votre catalogue.'; heroCopy.appendChild(heroPlot);
   const heroActions = el('div', 'hero-actions');
-  const heroPlay = button('Regarder en direct', function () {}); heroPlay.classList.add('vision-primary'); heroPlay.insertBefore(svgIcon('play', 20), heroPlay.firstChild);
-  const heroGuide = button('Guide des chaînes', function () { state.tab = 'guide'; renderTab(); }); heroGuide.classList.add('vision-secondary'); heroGuide.insertBefore(svgIcon('guide', 19), heroGuide.firstChild);
-  const heroFav = button('', function () {}); heroFav.classList.add('icon-button', 'hero-favorite'); heroFav.setAttribute('aria-label', 'Ajouter aux favoris'); heroFav.appendChild(svgIcon('favorite', 21));
+  const heroPlay = button('Regarder en Direct', function () {}); heroPlay.classList.add('vision-primary'); heroPlay.insertBefore(svgIcon('play', 20), heroPlay.firstChild);
+  const heroGuide = button('Guide EPG (Guide TV)', function () { state.tab = 'guide'; renderTab(); }); heroGuide.classList.add('vision-secondary'); heroGuide.insertBefore(svgIcon('guide', 19), heroGuide.firstChild);
+  const heroFav = button('', function () {}); heroFav.classList.add('icon-button', 'hero-favorite'); heroFav.setAttribute('aria-label', 'Ajouter aux favoris'); setFavoriteControl(heroFav, false);
   heroActions.appendChild(heroPlay); heroActions.appendChild(heroGuide); heroActions.appendChild(heroFav); heroCopy.appendChild(heroActions); hero.appendChild(heroCopy); view.appendChild(hero);
 
-  const universHead = sectionHeader('Les univers VisionTV', '4 accès rapides', null); view.appendChild(universHead);
+  const feedHead = sectionHeader('Chaînes Favorites & Reprises Rapides', 'Voir tout', function () { state.tab = 'live'; renderTab(); }); view.appendChild(feedHead);
+  const primaryRow = el('div', 'home-card-row'); view.appendChild(primaryRow);
+
+  // Les accès rapides restent disponibles sous la rangée principale sans
+  // concurrencer le hero du prototype. Ils utilisent les mêmes actions réelles.
+  const quickHead = sectionHeader('Accès rapides', 'Explorer', function () { state.tab = 'vod'; renderTab(); }); view.appendChild(quickHead);
   const univers = el('div', 'universe-row');
   [['live', 'tv', 'Direct TV', 'Flux temps réel'], ['vod', 'film', 'Films VOD', 'Catalogue cinéma'], ['series', 'clapper', 'Séries TV', 'Intégrales et épisodes'], ['guide', 'guide', 'Guide EPG', 'Programmes à suivre']].forEach(function (entry) {
     const card = button('', function () { state.tab = entry[0]; renderTab(); }); card.classList.add('universe-card');
@@ -256,13 +263,9 @@ function buildHomeView() {
     copy.appendChild(name); copy.appendChild(desc); card.appendChild(copy); univers.appendChild(card);
   }); view.appendChild(univers);
 
-  const liveHead = sectionHeader('Mes chaînes favorites', 'Voir tout', function () { state.tab = 'live'; renderTab(); }); view.appendChild(liveHead);
-  const liveRow = el('div', 'home-card-row'); view.appendChild(liveRow);
-  const continueHead = sectionHeader('Tendances du catalogue', 'Explorer les films', function () { state.tab = 'vod'; renderTab(); }); view.appendChild(continueHead);
-  const contentRow = el('div', 'home-card-row'); view.appendChild(contentRow);
   state.homeRefs = { view: view, hero: hero, backdropImage: backdropImage, heroTitle: heroTitle,
     heroMeta: heroMeta, heroPlot: heroPlot, heroKicker: heroKicker, heroPlay: heroPlay,
-    liveRow: liveRow, contentRow: contentRow, heroFavorite: heroFav };
+    primaryRow: primaryRow, heroFavorite: heroFav };
   return view;
 }
 
@@ -283,6 +286,9 @@ function updateActiveProfileBadge() {
   const profileName = active ? String(active.name || 'Profil') : 'Profil';
   state.topbarRefs.profileName.textContent = profileName;
   state.topbarRefs.avatar.textContent = profileName.slice(0, 1).toUpperCase();
+  if (state.topbarRefs.netText) state.topbarRefs.netText.textContent = active
+    ? (active.source === 'xtream' ? 'Xtream Ultra-Stream' : 'Playlist M3U active')
+    : 'Flux fournisseur prêt';
 }
 
 function renderHomeView() {
@@ -290,23 +296,37 @@ function renderHomeView() {
   if (!refs) return;
   updateActiveProfileBadge();
   const live = lists.live && lists.live.items ? lists.live.items.slice(0, 8) : [];
-  const vod = lists.vod && lists.vod.items ? lists.vod.items.slice(0, 8) : [];
-  const lead = live.length ? live[0] : (vod.length ? vod[0] : null);
-  refs.heroKicker.textContent = lead ? (live.length ? 'EN DIRECT' : 'À LA UNE') : 'VISIONTV';
-  refs.heroTitle.textContent = lead ? String(lead.name || 'Votre programme') : 'Bienvenue sur VisionTV';
+  const favoriteEntries = (state.favorites || []).slice().reverse().slice(0, 6).map(function (row) {
+    return { kind: row.kind, item: favoriteToItem(row), favorite: true };
+  });
+  const feed = [];
+  const seen = Object.create(null);
+  favoriteEntries.concat(live.map(function (item) { return { kind: 'live', item: item }; })).forEach(function (entry) {
+    const key = entry.kind + '|' + favoriteSourceKey(entry.kind, entry.item);
+    if (seen[key] || feed.length >= 8) return;
+    seen[key] = true; feed.push(entry);
+  });
+  const leadEntry = (live.length ? { kind: 'live', item: live[0] } : feed[0]) || null;
+  const lead = leadEntry && leadEntry.item;
+  const leadKind = leadEntry && leadEntry.kind;
+  const isLive = leadKind === 'live';
+  const token = (state.homeHeroToken || 0) + 1; state.homeHeroToken = token;
+
+  refs.heroKicker.classList.toggle('hero-live-tag', isLive);
+  refs.heroKicker.textContent = lead ? (isLive ? '● DIRECT 4K' : 'À LA UNE') : 'LUMINA IPTV';
+  refs.heroTitle.textContent = lead ? String(lead.name || 'Votre programme') : 'Bienvenue sur Lumina IPTV';
   refs.heroMeta.textContent = lead ? [lead.groupName, lead.rating ? '★ ' + lead.rating : '', lead.releaseDate].filter(Boolean).join('  ·  ') : 'TV en direct  ·  Films  ·  Séries';
-  refs.heroPlot.textContent = lead && lead.plot ? String(lead.plot) : 'Sélectionnez un profil et importez votre accès pour découvrir votre catalogue.';
+  refs.heroPlot.textContent = lead && lead.plot ? String(lead.plot) : (lead ? (isLive ? 'Programme en direct sélectionné. Ouvrez la chaîne avec OK.' : 'Votre catalogue IPTV est prêt à être repris avec le lecteur natif.') : 'Sélectionnez un profil et importez votre accès pour découvrir votre catalogue.');
   refs.backdropImage.style.display = lead && lead.logo ? '' : 'none';
   if (lead && lead.logo) refs.backdropImage.src = String(lead.logo);
   refs.heroPlay.textContent = '';
   refs.heroPlay.appendChild(svgIcon(lead ? 'play' : 'refresh', 20));
-  refs.heroPlay.appendChild(document.createTextNode(lead ? 'Regarder en direct' : 'Importer une playlist'));
+  refs.heroPlay.appendChild(document.createTextNode(lead ? (isLive ? 'Regarder en Direct' : 'Lecture Directe') : 'Importer une playlist'));
   refs.heroPlay.onclick = function () {
-    if (lead) activateChannel(live.length ? 'live' : 'vod', lead, 0);
+    if (lead) activateChannel(leadKind, lead, 0);
     else if (state.activePlaylistId != null) runImport(state.activePlaylistId, false);
     else { state.tab = 'playlists'; renderTab(); }
   };
-  const leadKind = live.length ? 'live' : 'vod';
   refs.heroFavorite.disabled = !lead;
   setFavoriteControl(refs.heroFavorite, false);
   refs.heroFavorite.onclick = function () {};
@@ -314,17 +334,59 @@ function renderHomeView() {
     refs.heroFavorite.onclick = function () { toggleFavorite(leadKind, lead, refs.heroFavorite); };
     syncFavoriteControl(refs.heroFavorite, leadKind, lead);
   }
-  renderHomeCards(refs.liveRow, live, 'live', 'Aucune chaîne importée');
-  renderHomeCards(refs.contentRow, vod, 'vod', 'Ouvrez Films pour charger le catalogue VOD');
+  renderHomeFeed(refs.primaryRow, feed, 'Aucune chaîne ou reprise disponible');
+  if (isLive && lead) hydrateHomeHeroEpg(lead, token);
+}
+
+async function hydrateHomeHeroEpg(item, token) {
+  if (!ctx || state.activePlaylistId == null || !item.channelId) return;
+  try {
+    const pl = await ctx.manager.get(state.activePlaylistId);
+    if (!pl || !pl.activeEpgImportId || !state.homeRefs || state.homeHeroToken !== token) return;
+    const now = Date.now();
+    const rows = await ctx.db.epg.where('[importId+channelId+startTime]')
+      .between([pl.activeEpgImportId, item.channelId, now - 12 * 3600 * 1000], [pl.activeEpgImportId, item.channelId, now + CONFIG.EPG_WINDOW_MS], true, true)
+      .sortBy('startTime');
+    const current = rows.filter(function (ep) { return Number(ep.stopTime || 0) >= now; })[0];
+    if (!current || !state.homeRefs || state.homeHeroToken !== token) return;
+    state.homeRefs.heroMeta.textContent = [item.groupName, new Date(current.startTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) + ' · ' + (current.title || 'Programme en cours')].filter(Boolean).join('  ·  ');
+    state.homeRefs.heroPlot.textContent = 'En direct maintenant : ' + String(current.title || 'Programme en cours') + '. Ouvrez la chaîne pour afficher le lecteur et le programme suivant.';
+  } catch (err) { /* EPG optionnel sur l’Accueil */ }
 }
 
 function appendMediaCardContents(host, item, kind) {
   const thumb = el('span', 'content-thumb');
   if (item.logo) { const img = document.createElement('img'); img.src = String(item.logo); img.alt = ''; thumb.appendChild(img); }
   else { const letter = el('span'); letter.textContent = String(item.name || 'V').slice(0, 1).toUpperCase(); thumb.appendChild(letter); }
+  host.appendChild(thumb);
+  const stateLabel = el('span', 'content-state');
+  stateLabel.textContent = kind === 'live' ? 'CANAL • DIRECT' : (kind === 'vod' ? 'VOD • REPRENDRE' : 'SÉRIE • CONTINUER');
+  host.appendChild(stateLabel);
   const cardTitle = el('span', 'content-title'); cardTitle.textContent = String(item.name || 'Sans titre');
-  const cardMeta = el('small'); cardMeta.textContent = kind === 'live' ? 'En direct' : (item.groupName || 'Catalogue');
-  host.appendChild(thumb); host.appendChild(cardTitle); host.appendChild(cardMeta);
+  const cardMeta = el('small'); cardMeta.textContent = kind === 'live' ? (item.groupName || 'En direct') : (item.groupName || 'Catalogue');
+  host.appendChild(cardTitle); host.appendChild(cardMeta);
+}
+
+function renderHomeFeed(host, entries, emptyText) {
+  host.innerHTML = '';
+  if (!entries.length) {
+    const empty = el('div', 'home-empty-card'); empty.appendChild(svgIcon('tv', 28));
+    const copy = el('span'); copy.textContent = emptyText; empty.appendChild(copy); host.appendChild(empty); return;
+  }
+  entries.forEach(function (entry, index) {
+    const kind = entry.kind || 'live'; const item = entry.item || entry;
+    const card = el('article', 'content-card');
+    const main = button('', function () { activateChannel(kind, item, index); }); main.classList.add('content-card-main');
+    appendMediaCardContents(main, item, kind);
+    const fav = button('', function () { toggleFavorite(kind, item, fav); }); fav.classList.add('content-fav');
+    setFavoriteControl(fav, false);
+    card.appendChild(main); card.appendChild(fav); host.appendChild(card);
+    syncFavoriteControl(fav, kind, item);
+  });
+}
+
+function renderHomeCards(host, rows, kind, emptyText) {
+  renderHomeFeed(host, (rows || []).map(function (item) { return { kind: kind, item: item }; }), emptyText);
 }
 
 function renderCatalogRow(kind, row, item, index) {
@@ -355,23 +417,6 @@ function renderCatalogRow(kind, row, item, index) {
   row._favoriteItem = item;
   setFavoriteControl(fav, false);
   syncFavoriteControl(fav, kind, item);
-}
-
-function renderHomeCards(host, rows, kind, emptyText) {
-  host.innerHTML = '';
-  if (!rows.length) {
-    const empty = el('div', 'home-empty-card'); empty.appendChild(svgIcon(kind === 'live' ? 'tv' : 'film', 28));
-    const copy = el('span'); copy.textContent = emptyText; empty.appendChild(copy); host.appendChild(empty); return;
-  }
-  rows.forEach(function (item, index) {
-    const card = el('article', 'content-card');
-    const main = button('', function () { activateChannel(kind, item, index); }); main.classList.add('content-card-main');
-    appendMediaCardContents(main, item, kind);
-    const fav = button('', function () { toggleFavorite(kind, item, fav); }); fav.classList.add('content-fav');
-    setFavoriteControl(fav, false);
-    card.appendChild(main); card.appendChild(fav); host.appendChild(card);
-    syncFavoriteControl(fav, kind, item);
-  });
 }
 
 function buildFavoritesView() {
@@ -1069,7 +1114,7 @@ function applySearch(kind, rawQuery) {
   }
   if (state.tab === 'home') {
     renderHomeView();
-    if (engine && state.views && state.views.home) engine.setFocusables(visibleFocusables(state.views.home, 'button'));
+    if (engine && state.views && state.views.home) engine.setFocusables(visibleFocusables(state.views.home, 'button, [tabindex]'));
   }
   if (state.tab === 'guide') {
     renderGuideCategories();
@@ -1140,6 +1185,21 @@ function handleRemoteKey(e) {
   };
   if (state.profileForm && state.profileForm.layer.style.display !== 'none' && (e.keyCode === 27 || e.keyCode === 461)) {
     e.preventDefault(); e.stopImmediatePropagation(); closeProfileModal(); return;
+  }
+  // Touches couleur LG affichées dans la barre d’aide Accueil : elles restent
+  // fonctionnelles partout, sans ajouter de dépendance au moteur FocusEngine.
+  if (e.keyCode === 403 || e.keyCode === 404 || e.keyCode === 406) {
+    e.preventDefault(); e.stopImmediatePropagation();
+    state.tab = e.keyCode === 403 ? 'live' : (e.keyCode === 404 ? 'guide' : 'settings');
+    renderTab(); return;
+  }
+  if (e.keyCode === 405) {
+    e.preventDefault(); e.stopImmediatePropagation();
+    const search = state.views && state.views[state.tab] ? state.views[state.tab].querySelector('input[type="text"]') : null;
+    if (search) { search.focus(); return; }
+    state.tab = 'vod'; renderTab();
+    const vodSearch = state.views.vod.querySelector('input[type="text"]'); if (vodSearch) vodSearch.focus();
+    return;
   }
   const action = classifyKey(e.keyCode, ctx);
   // Laisser les flèches/OK natifs aux champs : sinon le listener FocusEngine
@@ -1684,7 +1744,7 @@ function renderTab() {
   }
   if (state.tab === 'home') {
     renderHomeView();
-    engine.setFocusables(visibleFocusables(state.views.home, 'button'));
+    engine.setFocusables(visibleFocusables(state.views.home, 'button, [tabindex]'));
   } else if (state.tab === 'favorites') {
     loadFavoritesForActive().then(function () { if (state.tab === 'favorites') renderFavoritesView(); });
     renderFavoritesView();
