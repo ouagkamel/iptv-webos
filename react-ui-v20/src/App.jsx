@@ -214,13 +214,15 @@ function MainAppScreen({ profile, data, onSwitchProfile, onRefresh, onFavorite }
 
 async function removeProfile(profile) {
   const imports = await iptvDb.imports.where('playlistId').equals(profile.id).primaryKeys();
-  await iptvDb.transaction('rw', [iptvDb.playlists, iptvDb.imports, iptvDb.channels, iptvDb.epg, iptvDb.vod, iptvDb.series, iptvDb.series_info, iptvDb.categories, iptvDb.favorites], async () => {
+  const tables = [iptvDb.playlists, iptvDb.imports, iptvDb.channels, iptvDb.epg, iptvDb.vod, iptvDb.series, iptvDb.series_info, iptvDb.categories];
+  if (iptvDb.favorites) tables.push(iptvDb.favorites);
+  await iptvDb.transaction('rw', tables, async () => {
     if (imports.length) {
       await Promise.all([
         iptvDb.channels.where('importId').anyOf(imports).delete(), iptvDb.epg.where('importId').anyOf(imports).delete(), iptvDb.vod.where('importId').anyOf(imports).delete(), iptvDb.series.where('importId').anyOf(imports).delete(), iptvDb.series_info.where('importId').anyOf(imports).delete(), iptvDb.categories.where('importId').anyOf(imports).delete(), iptvDb.imports.bulkDelete(imports)
       ]);
     }
-    await iptvDb.favorites.where('playlistId').equals(profile.id).delete();
+    if (iptvDb.favorites) await iptvDb.favorites.where('playlistId').equals(profile.id).delete();
     await iptvDb.playlists.delete(profile.id);
   });
 }

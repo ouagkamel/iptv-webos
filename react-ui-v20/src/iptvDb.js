@@ -4,8 +4,6 @@ import Dexie from 'dexie';
 // mêmes stores V1→V4, mêmes importId/activeImportId et mêmes URL de flux.
 // La variante React ne crée aucun catalogue de démonstration. Elle lit les
 // profils, imports, catalogues, EPG et cache de séries persistés par V20.
-// Le store V5 des favoris est déclaré uniquement pour rester compatible avec
-// une base déjà ouverte par une release plus récente ; V20 n'en dépend pas.
 export const iptvDb = new Dexie('IPTVDatabase');
 
 iptvDb.version(1).stores({
@@ -25,10 +23,6 @@ iptvDb.version(4).stores({
   vod: 'id, importId',
   series: 'id, importId'
 });
-iptvDb.version(5).stores({
-  favorites: '++id, playlistId, kind, sourceKey, [playlistId+kind+sourceKey], createdAt, updatedAt'
-});
-
 export async function readProfiles() {
   return iptvDb.playlists.orderBy('updatedAt').reverse().toArray();
 }

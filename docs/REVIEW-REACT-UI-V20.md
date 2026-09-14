@@ -20,7 +20,7 @@ Le cœur natif V20 — `src/app.js`, les workers, `PlaylistManager`, `DataManage
 | Guide TV | Store `epg` filtré par `activeEpgImportId`, programmes et heures XMLTV réels. |
 | Films | Store `vod` de l’import actif ; état vide explicite si aucune donnée. |
 | Séries | Store `series`, cache `series_info`, état vide explicite si le fournisseur ne fournit pas de séries. |
-| Favoris | Lecture facultative du store V5 lorsqu’une base plus récente l’expose ; avec V20, l’état vide reste explicite. |
+| Favoris | État vide explicite ; le contrat V20 ne possède pas encore de store favoris. |
 | Images | Logo réel en priorité, fallback Unsplash uniquement pour la présentation lorsqu’aucun logo réel n’existe. |
 | Progression de connexion | Remplacée par l’écriture réelle du profil ; aucune progression artificielle d’import n’est simulée. |
 
@@ -33,13 +33,22 @@ Le cœur natif V20 — `src/app.js`, les workers, `PlaylistManager`, `DataManage
 - L’import, la purge lazy, le budget de chunks et le lecteur webOS restent ceux du backend V20 ; cette variante ne crée pas de second protocole.
 - Aucun contenu fictif n’est ajouté pour remplir une carte manquante.
 
-## Validation attendue
+## Preview et paquet simulateur
+
+La preview Vite sert `react-ui-v20/dist` sur `localhost:5173`. Elle ne change pas le paquet natif lancé par le simulateur. Pour obtenir le même rendu dans le simulateur, `device-react-v20/` place le bundle React à la racine de l’application, conserve le même `appinfo.id` (`com.iptv.webos.player`) et utilise un script classique IIFE au lieu d’un module ES.
+
+Le paquet device doit remplacer l’installation V20 précédente, puis l’application doit être relancée. Le même identifiant permet de conserver l’origine et la base IndexedDB V20 ; une installation sous un autre identifiant ne verrait pas les mêmes profils.
+
+## Validation exécutée
 
 ```text
 reference/codeui.txt byte-identique       PASS
 aucun MOCK_* dans react-ui-v20/src        PASS
 npm install --ignore-scripts                PASS
-npm run build                               PASS — cible chrome68
+npm run build                               PASS — React, IIFE, script defer, cible chrome68
+npm run gate:syntax (backend V20)           PASS — 25 fichiers
+npm test (backend V20)                      PASS — 90/90
+package device-react-v20                    PASS — index + bundle + appinfo
 ```
 
-La validation navigateur/webOS doit être réalisée dans la preview ou le simulateur. Si aucune donnée n’est visible, vérifier que l’origine de la preview possède bien sa propre base `IPTVDatabase` : IndexedDB est isolée par origine.
+Si aucune donnée n’est visible, vérifier que l’installation conserve bien `com.iptv.webos.player` : IndexedDB est isolée par origine.
