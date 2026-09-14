@@ -296,12 +296,17 @@ function renderHomeView() {
   if (!refs) return;
   updateActiveProfileBadge();
   const live = lists.live && lists.live.items ? lists.live.items.slice(0, 8) : [];
-  const favoriteEntries = (state.favorites || []).slice().reverse().slice(0, 6).map(function (row) {
+  const vod = lists.vod && lists.vod.items ? lists.vod.items.slice(0, 3) : [];
+  const series = lists.series && lists.series.items ? lists.series.items.slice(0, 3) : [];
+  const favoriteEntries = (state.favorites || []).slice().reverse().slice(0, 4).map(function (row) {
     return { kind: row.kind, item: favoriteToItem(row), favorite: true };
   });
   const feed = [];
   const seen = Object.create(null);
-  favoriteEntries.concat(live.map(function (item) { return { kind: 'live', item: item }; })).forEach(function (entry) {
+  favoriteEntries.concat(live.slice(0, 3).map(function (item) { return { kind: 'live', item: item }; }))
+    .concat(vod.slice(0, 2).map(function (item) { return { kind: 'vod', item: item }; }))
+    .concat(series.slice(0, 2).map(function (item) { return { kind: 'series', item: item }; }))
+    .forEach(function (entry) {
     const key = entry.kind + '|' + favoriteSourceKey(entry.kind, entry.item);
     if (seen[key] || feed.length >= 8) return;
     seen[key] = true; feed.push(entry);
@@ -354,13 +359,15 @@ async function hydrateHomeHeroEpg(item, token) {
   } catch (err) { /* EPG optionnel sur l’Accueil */ }
 }
 
-function appendMediaCardContents(host, item, kind) {
+function appendMediaCardContents(host, item, kind, isFavorite) {
   const thumb = el('span', 'content-thumb');
   if (item.logo) { const img = document.createElement('img'); img.src = String(item.logo); img.alt = ''; thumb.appendChild(img); }
   else { const letter = el('span'); letter.textContent = String(item.name || 'V').slice(0, 1).toUpperCase(); thumb.appendChild(letter); }
   host.appendChild(thumb);
   const stateLabel = el('span', 'content-state');
-  stateLabel.textContent = kind === 'live' ? 'CANAL • DIRECT' : (kind === 'vod' ? 'VOD • REPRENDRE' : 'SÉRIE • CONTINUER');
+  stateLabel.textContent = isFavorite
+    ? ('FAVORI • ' + (kind === 'live' ? 'DIRECT' : (kind === 'vod' ? 'VOD' : 'SÉRIE')))
+    : (kind === 'live' ? 'CANAL • DIRECT' : (kind === 'vod' ? 'VOD • À LA UNE' : 'SÉRIE • À LA UNE'));
   host.appendChild(stateLabel);
   const cardTitle = el('span', 'content-title'); cardTitle.textContent = String(item.name || 'Sans titre');
   const cardMeta = el('small'); cardMeta.textContent = kind === 'live' ? (item.groupName || 'En direct') : (item.groupName || 'Catalogue');
@@ -377,7 +384,10 @@ function renderHomeFeed(host, entries, emptyText) {
     const kind = entry.kind || 'live'; const item = entry.item || entry;
     const card = el('article', 'content-card');
     const main = button('', function () { activateChannel(kind, item, index); }); main.classList.add('content-card-main');
-    appendMediaCardContents(main, item, kind);
+    appendMediaCardContents(main, item, kind, !!entry.favorite);
+    main.addEventListener('focus', function () {
+      try { main.scrollIntoView(false); } catch (err) { /* vieux Chromium */ }
+    });
     const fav = button('', function () { toggleFavorite(kind, item, fav); }); fav.classList.add('content-fav');
     setFavoriteControl(fav, false);
     card.appendChild(main); card.appendChild(fav); host.appendChild(card);
@@ -539,7 +549,7 @@ function renderFavoritesView() {
     const item = favoriteToItem(row);
     const card = el('article', 'content-card favorite-card');
     const main = button('', function () { activateChannel(row.kind, item, index); }); main.classList.add('content-card-main');
-    appendMediaCardContents(main, item, row.kind);
+    appendMediaCardContents(main, item, row.kind, true);
     const remove = button('', function () { toggleFavorite(row.kind, item, remove); }); remove.classList.add('content-fav', 'active');
     setFavoriteControl(remove, true);
     card.appendChild(main); card.appendChild(remove); refs.grid.appendChild(card);

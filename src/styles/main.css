@@ -538,3 +538,5 @@ button.section-action:hover, button.section-action:focus { border-color: var(--c
   .content-card-main { min-height: 148px; }
   .content-thumb { height: 74px; }
 }
+.home-card-row { overflow-x: auto; scrollbar-width: none; }
+.home-card-row::-webkit-scrollbar { display: none; }
