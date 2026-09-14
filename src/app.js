@@ -33,7 +33,9 @@ const state = {
   homeMatchEntries: [],
   homeEpisodeEntries: [],
   homeHydrationRequestKey: null,
-  homeSeriesHydrationKey: null
+  homeSeriesHydrationKey: null,
+  homeCatalogPending: { live: false, vod: false, series: false },
+  homeCatalogErrors: {}
 };
 
 let ctx, engine, osd, videoEl, adapter, lifecycle, root;
@@ -261,7 +263,9 @@ function buildHomeView() {
   hero.setAttribute('aria-label', 'Accueil Lumina IPTV');
   const backdrop = el('div', 'hero-backdrop');
   const backdropImage = document.createElement('img');
-  backdropImage.alt = ''; backdropImage.style.display = 'none'; backdrop.appendChild(backdropImage);
+  backdropImage.alt = ''; backdropImage.style.display = 'none';
+  backdropImage.addEventListener('error', function () { backdropImage.style.display = 'none'; });
+  backdrop.appendChild(backdropImage);
   const backdropGlow = el('div', 'hero-backdrop-glow'); backdrop.appendChild(backdropGlow);
   const scrim = el('div', 'hero-scrim'); backdrop.appendChild(scrim); hero.appendChild(backdrop);
 
@@ -367,9 +371,21 @@ function renderHomeView() {
   const token = (state.homeHeroToken || 0) + 1; state.homeHeroToken = token;
 
   updateHomeHero(leadEntry);
+  const pending = state.homeCatalogPending || {};
+  const errors = state.homeCatalogErrors || {};
   renderHomeRail(refs.matchRail, matchEntries, 'Aucun match en cours dans l’EPG');
-  renderHomeRail(refs.movieRail, vod.map(function (item) { return { kind: 'vod', item: item }; }), 'Aucun film disponible dans ce catalogue');
-  renderHomeRail(refs.episodeRail, episodeEntries.length ? episodeEntries : fallbackEpisodes, episodeEntries.length ? 'Aucun épisode disponible' : 'Chargement des derniers épisodes…', !episodeEntries.length && series.length > 0);
+  renderHomeRail(
+    refs.movieRail,
+    vod.map(function (item) { return { kind: 'vod', item: item }; }),
+    pending.vod ? 'Chargement des films depuis le catalogue…' : (errors.vod ? 'Le catalogue des films n’a pas pu être chargé' : 'Aucun film disponible dans ce catalogue'),
+    pending.vod
+  );
+  renderHomeRail(
+    refs.episodeRail,
+    episodeEntries.length ? episodeEntries : fallbackEpisodes,
+    pending.series ? 'Chargement des séries et épisodes…' : (errors.series ? 'Le catalogue des séries n’a pas pu être chargé' : 'Aucun épisode disponible'),
+    pending.series || (!episodeEntries.length && series.length > 0)
+  );
   renderHomeRail(refs.favoriteRail, favoriteEntries, 'Ajoutez un contenu à vos favoris avec ★');
 
   const requestKey = String(state.activePlaylistId || '') + '|' + live.length + '|' + vod.length + '|' + series.length;
@@ -535,10 +551,26 @@ function formatHomeTime(value) {
   return isNaN(date.getTime()) ? '--:--' : date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 }
 
+function appendLogoOrInitial(host, item, initialClass) {
+  const initial = el('span', initialClass || 'media-initial');
+  initial.textContent = String(item && item.name || 'V').slice(0, 1).toUpperCase();
+  const logo = String(item && item.logo || '').trim();
+  if (!logo) { host.appendChild(initial); return; }
+  initial.style.display = 'none';
+  const img = document.createElement('img');
+  img.alt = '';
+  img.src = logo;
+  img.addEventListener('error', function () {
+    img.style.display = 'none';
+    initial.style.display = '';
+  });
+  host.appendChild(img);
+  host.appendChild(initial);
+}
+
 function appendMediaCardContents(host, item, kind, isFavorite) {
   const thumb = el('span', 'content-thumb');
-  if (item.logo) { const img = document.createElement('img'); img.src = String(item.logo); img.alt = ''; thumb.appendChild(img); }
-  else { const letter = el('span'); letter.textContent = String(item.name || 'V').slice(0, 1).toUpperCase(); thumb.appendChild(letter); }
+  appendLogoOrInitial(thumb, item, 'content-initial');
   host.appendChild(thumb);
   const stateLabel = el('span', 'content-state');
   stateLabel.textContent = isFavorite
@@ -567,8 +599,7 @@ function renderHomeRail(host, entries, emptyText, loading) {
     }); main.classList.add('home-media-main');
     main.setAttribute('aria-label', String(item.name || 'Contenu'));
     const art = el('span', 'home-media-art');
-    if (item.logo) { const img = document.createElement('img'); img.src = String(item.logo); img.alt = ''; art.appendChild(img); }
-    else { const initial = el('span', 'home-media-initial'); initial.textContent = String(item.name || 'L').slice(0, 1).toUpperCase(); art.appendChild(initial); }
+    appendLogoOrInitial(art, item, 'home-media-initial');
     const artShade = el('span', 'home-media-art-shade'); art.appendChild(artShade);
     const tag = el('span', 'home-media-tag');
     tag.textContent = ep ? '● EN DIRECT' : (episode ? 'NOUVEL ÉPISODE' : (kind === 'vod' ? 'NOUVEAU FILM' : kind === 'series' ? 'SÉRIE' : (entry.favorite ? 'FAVORI' : 'DIRECT')));
@@ -600,8 +631,7 @@ function renderCatalogRow(kind, row, item, index) {
   let art = row.querySelector('.row-art');
   if (!art) { art = el('span', 'row-art'); row.appendChild(art); }
   art.innerHTML = '';
-  if (item.logo) { const img = document.createElement('img'); img.src = String(item.logo); img.alt = ''; art.appendChild(img); }
-  else { const initial = el('span'); initial.textContent = String(item.name || 'V').slice(0, 1).toUpperCase(); art.appendChild(initial); }
+  appendLogoOrInitial(art, item, 'row-initial');
   let meta = row.querySelector('.row-meta');
   if (!meta) { meta = el('span', 'row-meta'); row.appendChild(meta); }
   meta.textContent = [item.groupName, item.rating ? '★ ' + item.rating : '', kind === 'live' ? 'DIRECT' : (kind === 'series' ? 'SÉRIE' : 'FILM')].filter(Boolean).join('  ·  ');
@@ -1029,7 +1059,9 @@ function renderCatalogShelves(kind) {
     if (shelf.def.cta) rows = [];
     rows.slice(0, 5).forEach(function (item, index) {
       const card = button('', function () { refs.selected = item; renderCatalogSpotlight(kind, item); activateChannel(kind, item, index); }); card.classList.add('catalog-shelf-card');
-      const art = el('span', 'shelf-art'); if (item.logo) { const img = document.createElement('img'); img.src = String(item.logo); img.alt = ''; art.appendChild(img); } else { const initial = el('span'); initial.textContent = String(item.name || 'V').slice(0, 1).toUpperCase(); art.appendChild(initial); } card.appendChild(art);
+      const art = el('span', 'shelf-art');
+      appendLogoOrInitial(art, item, 'shelf-initial');
+      card.appendChild(art);
       const name = el('span', 'shelf-title'); name.textContent = String(item.name || 'Sans titre'); card.appendChild(name); rail.appendChild(card);
     });
     if (shelf.def.cta || !rows.length) {
@@ -1040,7 +1072,12 @@ function renderCatalogShelves(kind) {
 
 function buildCatalogSpotlight(kind) {
   const spotlight = el('section', 'catalog-spotlight');
-  const art = el('div', 'catalog-spotlight-art'); const image = document.createElement('img'); image.alt = ''; image.style.display = 'none'; art.appendChild(image); const artGlow = el('div', 'catalog-art-glow'); art.appendChild(artGlow); spotlight.appendChild(art);
+  const art = el('div', 'catalog-spotlight-art');
+  const image = document.createElement('img');
+  image.alt = ''; image.style.display = 'none';
+  image.addEventListener('error', function () { image.style.display = 'none'; });
+  art.appendChild(image);
+  const artGlow = el('div', 'catalog-art-glow'); art.appendChild(artGlow); spotlight.appendChild(art);
   const copy = el('div', 'catalog-spotlight-copy');
   const kicker = el('span', 'hero-kicker'); kicker.textContent = kind === 'vod' ? 'FILMS VOD · À LA UNE' : 'SÉRIES TV · VOTRE CATALOGUE'; copy.appendChild(kicker);
   const title = el('h2'); title.textContent = kind === 'vod' ? 'Votre cinéma commence ici' : 'Les histoires continuent'; copy.appendChild(title);
@@ -1055,7 +1092,15 @@ function buildCatalogSpotlight(kind) {
 
 function buildLivePreview() {
   const view = el('section', 'live-preview');
-  const media = el('div', 'live-preview-media'); const image = document.createElement('img'); image.alt = ''; image.style.display = 'none'; media.appendChild(image); const fallback = el('div', 'live-preview-fallback'); fallback.appendChild(svgIcon('tv', 54)); media.appendChild(fallback); const badges = el('div', 'live-preview-badges'); const liveBadge = el('span', 'live-badge'); liveBadge.textContent = 'DIRECT'; const tech = el('span', 'tech-badge'); tech.textContent = 'LIVE TV'; badges.appendChild(liveBadge); badges.appendChild(tech); media.appendChild(badges); view.appendChild(media);
+  const media = el('div', 'live-preview-media');
+  const image = document.createElement('img');
+  image.alt = ''; image.style.display = 'none';
+  const fallback = el('div', 'live-preview-fallback');
+  fallback.appendChild(svgIcon('tv', 54));
+  image.addEventListener('error', function () { image.style.display = 'none'; fallback.style.display = 'flex'; });
+  media.appendChild(image);
+  media.appendChild(fallback);
+  const badges = el('div', 'live-preview-badges'); const liveBadge = el('span', 'live-badge'); liveBadge.textContent = 'DIRECT'; const tech = el('span', 'tech-badge'); tech.textContent = 'LIVE TV'; badges.appendChild(liveBadge); badges.appendChild(tech); media.appendChild(badges); view.appendChild(media);
   const copy = el('div', 'live-preview-copy'); const kicker = el('span', 'hero-kicker'); kicker.textContent = 'SÉLECTIONNEZ UNE CHAÎNE'; copy.appendChild(kicker); const title = el('h2'); title.textContent = 'Prévisualisation Live TV'; copy.appendChild(title); const meta = el('div', 'live-preview-meta'); meta.textContent = 'EPG disponible après synchronisation'; copy.appendChild(meta); const plot = el('p'); plot.textContent = 'La chaîne et son programme en cours apparaîtront ici.'; copy.appendChild(plot); const actions = el('div', 'hero-actions'); const play = button('Plein écran', function () { const r = state.catalogRefs.live; if (r && r.selected) activateChannel('live', r.selected, state.selIndex); }); play.classList.add('vision-primary'); play.insertBefore(svgIcon('play', 19), play.firstChild); actions.appendChild(play); const fav = button('', function () { const r = state.catalogRefs.live; if (r && r.selected) toggleFavorite('live', r.selected, fav); }); fav.classList.add('icon-button'); fav.setAttribute('aria-label', 'Ajouter aux favoris'); setFavoriteControl(fav, false); actions.appendChild(fav); copy.appendChild(actions); const scheduleLabel = el('div', 'live-schedule-label'); scheduleLabel.textContent = 'À suivre'; copy.appendChild(scheduleLabel); const schedule = el('div', 'live-schedule'); copy.appendChild(schedule); view.appendChild(copy);
   return { view: view, image: image, fallback: fallback, title: title, meta: meta, plot: plot, play: play, favorite: fav, schedule: schedule };
 }
@@ -1201,12 +1246,17 @@ async function loadCatalog(kind, token, playlistId) {
     rows = await ctx.manager[KIND_TO_MANAGER[kind]](playlistId);
     if (token !== catalogLoadToken || state.activePlaylistId !== playlistId || !catalogViewIs(kind)) return;
     state.items[kind] = rows || [];
+    state.homeCatalogPending[kind] = false;
+    state.homeCatalogErrors[kind] = false;
     await refreshCategorySelectors(kind, playlistId, token);
     if (token !== catalogLoadToken || state.activePlaylistId !== playlistId || !catalogViewIs(kind)) return;
     applySearch(kind, '');
   } catch (err) {
-    if (token === catalogLoadToken && state.activePlaylistId === playlistId && osd) {
-      osd.setStatus('Catalogue : ' + ((err && err.message) || err));
+    if (token === catalogLoadToken && state.activePlaylistId === playlistId) {
+      state.homeCatalogPending[kind] = false;
+      state.homeCatalogErrors[kind] = true;
+      if (osd) osd.setStatus('Catalogue : ' + ((err && err.message) || err));
+      if (state.tab === 'home') renderHomeView();
     }
   }
 }
@@ -1215,9 +1265,14 @@ function loadActiveData() {
   const token = ++catalogLoadToken;
   state.homeHydrationRequestKey = null;
   state.homeSeriesHydrationKey = null;
+  state.homeCatalogPending = { live: false, vod: false, series: false };
+  state.homeCatalogErrors = {};
   clearCatalogMemory();
   if (state.activePlaylistId == null) return;
   const kinds = state.tab === 'home' ? CATALOG_KINDS.slice() : [(state.tab === 'guide' ? 'live' : state.tab)];
+  if (state.tab === 'home') {
+    kinds.forEach(function (kind) { state.homeCatalogPending[kind] = true; });
+  }
   kinds.forEach(function (kind) {
     if (CATALOG_KINDS.indexOf(kind) !== -1) loadCatalog(kind, token, state.activePlaylistId);
   });

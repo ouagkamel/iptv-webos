@@ -958,8 +958,29 @@ button:focus, input:focus, select:focus { outline: 3px solid var(--ui-indigo-lig
 .profile-form-error { color: #dc2626; }
 
 /* Accueil V28 : la composition reste éditoriale, mais adopte le verre clair. */
-.home-route .vision-topbar { border-bottom-color: rgba(255,255,255,.7); background: linear-gradient(180deg, rgba(255,255,255,.84), rgba(255,255,255,.2)); }
-.home-route .vision-footer { background: rgba(255,255,255,.68); }
+.home-route .vision-main {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+.home-route .vision-topbar {
+  flex: 0 0 74px;
+  border-bottom-color: rgba(255,255,255,.7);
+  background: linear-gradient(180deg, rgba(255,255,255,.84), rgba(255,255,255,.2));
+}
+.home-route .vision-views {
+  flex: 1 1 auto;
+  height: auto;
+  min-height: 0;
+}
+.home-route .vision-footer {
+  position: relative;
+  left: auto;
+  right: auto;
+  bottom: auto;
+  flex: 0 0 44px;
+  background: rgba(255,255,255,.68);
+}
 .home-route .vision-sidebar { background: rgba(255,255,255,.72); }
 .home-route .view-home {
   background: transparent;

@@ -111,6 +111,25 @@ npm install --ignore-scripts     PASS — environnement de test restauré (fake-
 
 La preview peut être relancée via Vite ; aucune validation navigateur réelle n’a été ajoutée dans cette révision. La sonde navigateur réelle reste à relancer dès qu’un binaire Chrome/webOS est disponible.
 
+## Retour simulateur webOS TV 26 — correctif d’affichage post-V29
+
+**Entrée :** capture `/home/user/uploads/image-1.png` reçue le 2026-09-14.
+
+La capture ne montre pas une absence de données IPTV : l’EPG réel et la chaîne `CANAL+ BOX OFFICE` sont bien présents. Elle révèle deux défauts perceptibles :
+
+1. le pied de page fixe recouvrait le début du rail « Derniers films ajoutés » ; les rails suivants semblaient donc non chargés dans la fenêtre visible ;
+2. pendant le chargement concurrent Live/VOD/Séries, un rail vide affichait auparavant directement son état final « aucun contenu », sans distinguer l’attente d’une réponse catalogue ;
+3. un logo distant en erreur pouvait laisser une vignette vide au lieu de conserver la carte exploitable.
+
+Correctifs appliqués dans la révision suivante :
+
+- le shell Accueil devient une colonne flex avec une zone de contenu réellement scrollable et un footer réservé hors recouvrement ;
+- les rails Films et Séries affichent un état explicite « Chargement… », puis « Aucun… » ou une erreur seulement après la réponse ;
+- les logos Live/VOD/Séries ont un repli local par initiale lorsque l’URL fournie par le fournisseur échoue ;
+- le hero, le spotlight et l’aperçu Live masquent proprement une image en erreur sans supprimer le contenu textuel ni les actions.
+
+Les données restent exclusivement celles de `IPTVDatabase`/du fournisseur actif : aucun film, épisode ou canal de démonstration n’a été ajouté pour masquer une absence de catalogue.
+
 ## Fichiers modifiés dans la révision
 
 - `src/app.js` — refonte Accueil V28, chargement éditorial live/VOD/séries, EPG de matchs, épisodes lazy/cache, rails et actions ; autres vues conservées.
