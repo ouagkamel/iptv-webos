@@ -27,8 +27,12 @@ Aucune donnée de démonstration n’a été ajoutée : les écrans vides contin
 - bundle device classique IIFE avec imports dynamiques inline ;
 - preview Vite et dossier `device-react-v20` générés depuis le même build React ;
 - identifiant webOS inchangé : `com.iptv.webos.player` ;
-- version device de cette révision : `1.0.22` ;
+- version device de cette révision corrective : `1.0.23` ;
 - aucun store Dexie V5 ni modification de la variante native.
+
+## Choix du paquetage
+
+Le dépôt complet conserve la variante native V20 dans sa racine pour ne pas la modifier. La preview React est exclusivement `react-ui-v20/dist` et le paquet installable est exclusivement `device-react-v20`. Les archives de release React dédiées ne contiennent plus la racine native ambiguë : elles exposent directement la preview React et le dossier device React.
 
 ## Validation
 

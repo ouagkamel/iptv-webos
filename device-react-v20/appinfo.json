@@ -1,6 +1,6 @@
 {
   "id": "com.iptv.webos.player",
-  "version": "1.0.22",
+  "version": "1.0.23",
   "vendor": "IPTV Dev Team",
   "type": "web",
   "main": "index.html",
