@@ -11,18 +11,18 @@
   "artifacts": {
     "ipk": {
       "path": "releases/iptv-webos-enact-v20-1.0.24.ipk",
-      "sha256": "ab766dfb57702a51c5cce5c0b1d5f2336967d50b0d29bcf597a278dd71210255",
-      "sizeBytes": 2234886
+      "sha256": "4658adb5ad1b5a40c9aa926585a303db7509cf4191864a57ae2aa7e5ca6d7462",
+      "sizeBytes": 2235068
     },
     "zip": {
       "path": "releases/iptv-webos-enact-v20-1.0.24.zip",
-      "sha256": "9243f33f2e588a0b509cf3c37a7b1e071ae58c51c9a032b8862195dfb924ba1b",
-      "sizeBytes": 2942114
+      "sha256": "72073ad3a1c416fd649a7f5e5f8d9b2b99d3c902c0ab74f5336ef0b0d53eff0c",
+      "sizeBytes": 2936571
     },
     "sourceZip": {
       "asset": "iptv-webos-enact-v20-1.0.24-source.zip",
-      "sha256": "e3490b2f8c1d9f4b7122896890fba3b3446053cc5d0da3a504b72528042d8a93",
-      "sizeBytes": 1836330
+      "sha256": "6ebc267dd2d79a40625d26760d996e28c86bb3c4363e8e84cdc4644f27afe793",
+      "sizeBytes": 1836898
     }
   },
   "validation": {
@@ -37,5 +37,6 @@
     "fullBuildUncompressed": "~79 MB with all iLib locales",
     "releasePackage": "~2.2 MB ipk / ~2.9 MB zip"
   },
-  "packager": "@webos-tools/cli@3.2.6 ares-package"
+  "packager": "@webos-tools/cli@3.2.6 ares-package",
+  "compatibilityFix": "globalThis bootstrap in index.html for Chromium 68 / webOS TV 5"
 }

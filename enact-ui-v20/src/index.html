@@ -3,17 +3,17 @@
 	<head>
 		<meta charset="UTF-8">
 		<meta http-equiv="x-ua-compatible" content="ie=edge">
-		<meta name="viewport" content="width=device-width,initial-scale=1,minimum-scale=1,maximum-scale=1,user-scalable=no">
+		<meta name="viewport" content="width=device-width, initial-scale=1, minimum-scale=1, maximum-scale=1, user-scalable=no">
 		<title>Salon Prestige IPTV — Enact V20</title>
 		<script>
+			// Chromium 68 (webOS TV 5) predates globalThis. Enact's platform
+			// detection reads it before the React entry module is evaluated.
 			(function () {
 				if (typeof window !== 'undefined' && typeof window.globalThis === 'undefined') window.globalThis = window;
 			}());
 		</script>
-		<link href="main.css" rel="stylesheet"/>
 	</head>
 	<body>
 		<div id="root"></div>
-		<script defer="defer" src="main.js"></script>
 	</body>
 </html>

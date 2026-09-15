@@ -25,7 +25,8 @@
 		},
 		"target": [
 			"chrome 68"
-		]
+		],
+		"template": "src/index.html"
 	},
 	"eslintConfig": {
 		"extends": "enact-proxy"

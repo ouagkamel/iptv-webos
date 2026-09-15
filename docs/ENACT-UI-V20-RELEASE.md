@@ -34,6 +34,8 @@ La suite V20 existante a également été exécutée depuis la racine : `npm tes
 
 Le paquet `.ipk` a été régénéré avec `@webos-tools/cli@3.2.6 ares-package`, puis vérifié avec `ares-package -i` et `ares-package -I`. Il contient le format webOS Package Format 2, `packageinfo.json`, `appinfo.json`, `index.html`, les bundles Enact, les ressources Sandstone/iLib et les icônes locales. Le paquet manuel précédent n’était pas signé/structuré comme un paquet webOS produit par `ares-package`, ce qui provoquait `ipk verified failed` sur le téléviseur.
 
+Le HTML d’amorçage définit aussi `window.globalThis` avant le bundle React. Chromium 68, utilisé par webOS TV 5, ne fournit pas cette API alors que la détection de plateforme Enact la lit dès le démarrage ; sans ce correctif, l’application peut afficher un écran noir malgré une installation réussie.
+
 Le build Enact complet génère environ 79 Mo décompressés car le chargeur iLib copie par défaut 6 755 fichiers de locale. Cette donnée n’est pas du code IPTV et n’était pas présente dans les anciennes releases Vite : c’est la raison de l’archive initiale d’environ 14–15 Mo. La release publiée a été réduite aux packs iLib français et anglais ainsi qu’aux métadonnées globales : elle fait environ 2,2 Mo en `.ipk` et 2,9 Mo en `.zip`. Le bundle Enact lui-même reste nécessaire : `main.js` fait environ 1,26 Mo et `main.css` environ 456 Ko, contrairement à une simple release source de quelques kilo-octets.
 
 Le message Browserslist indiquant que `caniuse-lite` est ancien est informatif ; il n’a pas bloqué le build et ne change pas la cible Chrome 68.
