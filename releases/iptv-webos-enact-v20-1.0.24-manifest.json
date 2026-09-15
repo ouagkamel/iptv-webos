@@ -18,6 +18,11 @@
       "path": "releases/iptv-webos-enact-v20-1.0.24.zip",
       "sha256": "9243f33f2e588a0b509cf3c37a7b1e071ae58c51c9a032b8862195dfb924ba1b",
       "sizeBytes": 2942114
+    },
+    "sourceZip": {
+      "asset": "iptv-webos-enact-v20-1.0.24-source.zip",
+      "sha256": "e3490b2f8c1d9f4b7122896890fba3b3446053cc5d0da3a504b72528042d8a93",
+      "sizeBytes": 1836330
     }
   },
   "validation": {

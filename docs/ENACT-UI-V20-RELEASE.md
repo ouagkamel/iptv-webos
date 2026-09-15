@@ -38,8 +38,22 @@ Le build Enact complet génère environ 79 Mo décompressés car le chargeur iLi
 
 Le message Browserslist indiquant que `caniuse-lite` est ancien est informatif ; il n’a pas bloqué le build et ne change pas la cible Chrome 68.
 
-## Fichiers publiés
+## Utilisation et fichiers publiés
+
+Les fichiers `.ipk` et runtime `.zip` sont des artefacts compilés webOS, pas des projets npm : ils ne contiennent volontairement pas de `package.json`. Il ne faut donc pas lancer `npm install` dans un dossier extrait depuis l’archive runtime.
+
+Pour le simulateur ou un téléviseur webOS :
+
+```text
+ares-device --list
+ares-install --device <device-name> iptv-webos-enact-v20-1.0.24.ipk
+ares-launch --device <device-name> com.iptv.webos.player
+```
+
+Pour développer, utiliser l’asset source `iptv-webos-enact-v20-1.0.24-source.zip`, extraire le dossier qui contient `package.json`, puis lancer `npm install` depuis ce dossier.
 
 - `releases/iptv-webos-enact-v20-1.0.24.ipk` — paquet simulator/device.
-- `releases/iptv-webos-enact-v20-1.0.24.zip` — archive de staging identique au dossier device.
+- `releases/iptv-webos-enact-v20-1.0.24.zip` — archive runtime de staging.
+- `iptv-webos-enact-v20-1.0.24-source.zip` — projet Enact complet avec `package.json` et `package-lock.json`.
+- `iptv-webos-enact-v20-runtime-usage.txt` — rappel d’utilisation des artefacts.
 - `releases/iptv-webos-enact-v20-1.0.24-manifest.json` — version, chemins, validation et SHA-256.
