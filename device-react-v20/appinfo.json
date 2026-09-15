@@ -11,5 +11,6 @@
 	"resolution": "1920x1080",
 	"handlesPageVisibility": true,
 	"disableBackHistoryAPI": true,
+	"requiredACG": [],
 	"bgColor": "#07090e"
 }

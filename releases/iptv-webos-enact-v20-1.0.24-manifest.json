@@ -11,8 +11,8 @@
   "artifacts": {
     "ipk": {
       "path": "releases/iptv-webos-enact-v20-1.0.24.ipk",
-      "sha256": "081e27c4eaa5f6b7a63d351838f19051d718c0e1dd78d0a688a8b163648efcd9",
-      "sizeBytes": 2242736
+      "sha256": "ab766dfb57702a51c5cce5c0b1d5f2336967d50b0d29bcf597a278dd71210255",
+      "sizeBytes": 2234886
     },
     "zip": {
       "path": "releases/iptv-webos-enact-v20-1.0.24.zip",
@@ -36,5 +36,6 @@
     "localeData": "French and English iLib locale packs only",
     "fullBuildUncompressed": "~79 MB with all iLib locales",
     "releasePackage": "~2.2 MB ipk / ~2.9 MB zip"
-  }
+  },
+  "packager": "@webos-tools/cli@3.2.6 ares-package"
 }
