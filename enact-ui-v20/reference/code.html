@@ -1,0 +1,498 @@
+<!DOCTYPE html>
+
+<html class="h-full bg-[#07090e]" lang="fr"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>webOS IPTV - Moonstone Sandstone Experience</title>
+<!-- Tailwind CSS v3 -->
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<!-- Tailwind Custom Config -->
+<script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            brand: {
+              gold: '#F59E0B',
+              amber: '#FFC83B',
+              glow: 'rgba(245, 158, 11, 0.45)',
+              darkbg: '#07090e',
+              surface: '#0d111c',
+              card: '#131826',
+              border: '#1f293d'
+            }
+          },
+          fontFamily: {
+            tv: ['Inter', 'system-ui', '-apple-system', 'Segoe UI', 'Roboto', 'sans-serif']
+          },
+          boxShadow: {
+            'enact-focus': '0 0 0 3px #FFC83B, 0 10px 30px -5px rgba(245, 158, 11, 0.4)',
+            'enact-subtle': '0 0 20px rgba(0, 0, 0, 0.7)',
+            'nav-active': '0 0 15px rgba(255, 200, 59, 0.35)'
+          }
+        }
+      }
+    }
+  </script>
+<!-- Lucide Icons CDN -->
+<script src="https://unpkg.com/lucide@latest"></script>
+<!-- Custom Enact Moonstone Styles -->
+<style data-purpose="enact-theme">
+    /* Base TV setup */
+    body {
+      user-select: none;
+      -webkit-font-smoothing: antialiased;
+      overflow-x: hidden;
+      background: radial-gradient(circle at 10% 20%, #0f1626 0%, #07090e 70%);
+    }
+
+    /* Enact Spotlight focus transition curve */
+    .spotlight-target {
+      transition: transform 0.24s cubic-bezier(0.25, 1, 0.5, 1),
+                  box-shadow 0.24s cubic-bezier(0.25, 1, 0.5, 1),
+                  border-color 0.24s ease,
+                  background-color 0.24s ease;
+      outline: none;
+    }
+
+    /* Active Enact Focused State */
+    .spotlight-target.is-focused,
+    .spotlight-target:focus-visible {
+      transform: scale(1.045);
+      z-index: 30;
+      border-color: #FFC83B !important;
+      box-shadow: 0 0 0 3px #FFC83B, 0 14px 35px -8px rgba(245, 158, 11, 0.55);
+    }
+
+    /* Rail item focused state */
+    .rail-item.is-focused {
+      background-color: rgba(255, 200, 59, 0.15) !important;
+      color: #FFC83B !important;
+      transform: scale(1.12);
+      box-shadow: 0 0 20px rgba(255, 200, 59, 0.4);
+    }
+
+    /* Subtle pulsing live indicator */
+    @keyframes pulse-live {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50% { opacity: 0.55; transform: scale(0.92); }
+    }
+    .live-dot {
+      animation: pulse-live 1.8s infinite cubic-bezier(0.4, 0, 0.6, 1);
+    }
+
+    /* Custom TV smooth scrollbars */
+    ::-webkit-scrollbar {
+      height: 6px;
+      width: 6px;
+    }
+    ::-webkit-scrollbar-track {
+      background: rgba(13, 17, 28, 0.5);
+    }
+    ::-webkit-scrollbar-thumb {
+      background: #1f293d;
+      border-radius: 9999px;
+    }
+    ::-webkit-scrollbar-thumb:hover {
+      background: #F59E0B;
+    }
+  </style>
+</head>
+<body class="h-screen w-screen text-slate-100 font-tv flex overflow-hidden p-0 m-0">
+<!-- BEGIN: SpotlightNavigationRail -->
+<aside class="w-20 md:w-24 h-full bg-[#080b13]/95 border-r border-[#1a2233] flex flex-col items-center justify-between py-6 z-40 shrink-0 backdrop-blur-md" data-purpose="spotlight-rail">
+<!-- Top Logo / TV Brand -->
+<div class="flex flex-col items-center gap-6">
+<div class="w-12 h-12 rounded-2xl bg-gradient-to-tr from-amber-600/30 to-amber-400/10 border border-amber-500/30 flex items-center justify-center text-brand-amber shadow-lg shadow-amber-500/10">
+<i class="w-6 h-6 stroke-[2.2]" data-lucide="clapperboard"></i>
+</div>
+<!-- Navigation Icons Grid -->
+<nav class="flex flex-col items-center space-y-4 pt-4" id="main-nav-rail">
+<button class="rail-item spotlight-target w-12 h-12 rounded-2xl flex items-center justify-center text-brand-amber bg-amber-500/10 border border-amber-500/40 is-focused" data-nav="direct" title="TV en direct (1)">
+<i class="w-5 h-5" data-lucide="home"></i>
+</button>
+<button class="rail-item spotlight-target w-12 h-12 rounded-2xl flex items-center justify-center text-slate-400 hover:text-white bg-[#101625] border border-transparent hover:border-slate-700" data-nav="vod" title="VOD Masterpieces (2)">
+<i class="w-5 h-5" data-lucide="tv"></i>
+</button>
+<button class="rail-item spotlight-target w-12 h-12 rounded-2xl flex items-center justify-center text-slate-400 hover:text-white bg-[#101625] border border-transparent hover:border-slate-700" data-nav="series" title="Séries &amp; Shows (3)">
+<i class="w-5 h-5" data-lucide="film"></i>
+</button>
+<button class="rail-item spotlight-target w-12 h-12 rounded-2xl flex items-center justify-center text-slate-400 hover:text-white bg-[#101625] border border-transparent hover:border-slate-700" data-nav="replays" title="Replay &amp; Grille (4)">
+<i class="w-5 h-5" data-lucide="layout-grid"></i>
+</button>
+<button class="rail-item spotlight-target w-12 h-12 rounded-2xl flex items-center justify-center text-slate-400 hover:text-white bg-[#101625] border border-transparent hover:border-slate-700" data-nav="favorites" title="Favoris (5)">
+<i class="w-5 h-5" data-lucide="bookmark"></i>
+</button>
+</nav>
+</div>
+<!-- Bottom Settings & System -->
+<div class="flex flex-col items-center gap-3">
+<button class="rail-item spotlight-target w-12 h-12 rounded-2xl flex items-center justify-center text-slate-400 hover:text-white bg-[#101625] border border-transparent hover:border-slate-700" data-nav="settings" title="Paramètres IPTV">
+<i class="w-5 h-5" data-lucide="settings"></i>
+</button>
+<div class="w-2.5 h-2.5 rounded-full bg-emerald-500 shadow-sm shadow-emerald-500/80" title="En Ligne 4K UHD"></div>
+</div>
+</aside>
+<!-- END: SpotlightNavigationRail -->
+<!-- BEGIN: MainExperienceView -->
+<main class="flex-1 flex flex-col h-full overflow-y-auto px-8 md:px-12 py-7 relative bg-gradient-to-br from-[#0b101c] via-[#080b13] to-[#05070a]">
+<!-- Top Bar: Header & Metadata -->
+<!-- BEGIN: TopStatusBar -->
+<header class="flex flex-col lg:flex-row items-start lg:items-center justify-between gap-4 pb-6 border-b border-slate-800/40">
+<!-- Title & Breadcrumbs -->
+<div class="space-y-1">
+<div class="flex items-center gap-3">
+<span class="tracking-widest text-[11px] uppercase font-bold text-brand-amber px-2.5 py-0.5 rounded bg-brand-amber/10 border border-brand-amber/30">
+            PREMIUM EXPERIENCE
+          </span>
+<span class="text-xs text-slate-400 flex items-center gap-1.5">
+<i class="w-3.5 h-3.5 text-emerald-400" data-lucide="wifi"></i> HLS Ultra Low Latency
+          </span>
+</div>
+<h1 class="text-3xl lg:text-4xl font-extrabold tracking-tight text-white flex items-center gap-3">
+          Salon Prestige
+          <span class="text-xs font-medium px-2 py-0.5 rounded-md bg-white/10 text-slate-300">4K HDR</span>
+</h1>
+</div>
+<!-- Telemetry, Remote Helper & Clock -->
+<div class="flex flex-wrap items-center gap-3 self-end lg:self-center">
+<!-- Live Server Ping Badge -->
+<div class="flex items-center gap-2.5 px-3.5 py-1.5 rounded-full bg-[#121927] border border-[#232f48] shadow-inner text-xs font-medium text-slate-300" data-purpose="server-status">
+<span class="w-2 h-2 rounded-full bg-emerald-400 live-dot"></span>
+<span>Serveur Europe : <strong class="text-emerald-300 font-mono">38ms</strong></span>
+</div>
+<!-- D-Pad Active Helper Indicator -->
+<div class="hidden sm:flex items-center gap-2 px-3 py-1.5 rounded-full bg-amber-500/10 border border-amber-500/30 text-[11px] font-semibold text-amber-300" data-purpose="dpad-helper">
+<i class="w-3.5 h-3.5 text-amber-400" data-lucide="compass"></i>
+<span>D-PAD NAVIGATION ACTIVE</span>
+</div>
+<!-- webOS Digital Clock -->
+<div class="flex items-center gap-2 px-4 py-1.5 rounded-xl bg-[#0f1422] border border-slate-800 text-slate-200">
+<i class="w-3.5 h-3.5 text-slate-400" data-lucide="clock"></i>
+<span class="text-sm font-bold tracking-wider font-mono" id="digital-clock">20:45</span>
+</div>
+</div>
+</header>
+<!-- END: TopStatusBar -->
+<!-- Scrollable Showcase Sections -->
+<div class="flex-1 space-y-9 pt-6 pb-20">
+<!-- SECTION 1: En Direct Maintenant -->
+<!-- BEGIN: LiveChannelsSection -->
+<section class="space-y-4" data-purpose="live-channels-row">
+<div class="flex items-center justify-between">
+<div class="flex items-center gap-3">
+<h2 class="text-xl md:text-2xl font-bold tracking-tight text-white flex items-center gap-2">
+<i class="w-5 h-5 text-amber-400" data-lucide="radio"></i>
+              En Direct Maintenant
+            </h2>
+<span class="text-xs text-slate-400 font-medium">142 Chaînes Actives</span>
+</div>
+<button class="text-xs font-semibold text-brand-amber hover:underline flex items-center gap-1">
+            Grille EPG <i class="w-3.5 h-3.5" data-lucide="chevron-right"></i>
+</button>
+</div>
+<!-- Live Channels Cards Grid -->
+<div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+<!-- Card 1 (Focused Spotlight) -->
+<article class="spotlight-target is-focused group relative rounded-2xl overflow-hidden bg-[#101625] border-2 border-brand-amber p-1 cursor-pointer transition-all duration-200" tabindex="0">
+<div class="relative h-44 rounded-xl overflow-hidden bg-slate-900">
+<img alt="Cannes Festival 2024" class="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500 opacity-85" src="https://lh3.googleusercontent.com/aida-public/AB6AXuDHM2v399PUODUj8yrMy9i10wCaz5Y2BzaN4CJydjXZvbnqw_bAZtVdaC7QLtsbQkJvoeQzG3l793s999YE_0KCgjPBe_1bKl966xazwQMTNowxt8-ny0gluih2iwQhf4CyB1Hs-HVwI_zzLXlGRy4f1NAEjLnE6AdTBUFLm8YnvsB_e0AMVWS6WHBvRvuvontwj3P8IKD6xyyoGnbQ-5_zrMO_sauY3FcGwlghW0HiBpFScypn_zbvdA"/>
+<div class="absolute inset-0 bg-gradient-to-t from-[#090d16] via-black/40 to-transparent"></div>
+<!-- Badges -->
+<div class="absolute top-3 left-3 flex items-center gap-2">
+<span class="bg-brand-amber text-slate-950 text-[10px] font-black tracking-wider px-2 py-0.5 rounded uppercase flex items-center gap-1 shadow-md">
+<span class="w-1.5 h-1.5 rounded-full bg-red-600 live-dot"></span> LIVE
+                </span>
+<span class="bg-black/60 backdrop-blur-sm text-slate-200 text-[10px] font-semibold px-2 py-0.5 rounded border border-white/10">
+                  UHD • 50 FPS
+                </span>
+</div>
+<!-- Channel Title & Prog -->
+<div class="absolute bottom-3 left-3 right-3">
+<h3 class="text-lg font-bold text-white tracking-wide leading-tight drop-shadow-sm">Cannes Festival 2024</h3>
+<p class="text-xs text-slate-300 font-medium flex items-center gap-2 mt-0.5">
+<span>Documentaire</span>
+<span class="text-slate-500">•</span>
+<span class="text-amber-300">1080p HEVC</span>
+</p>
+<!-- Timeline progress -->
+<div class="w-full bg-white/20 h-1.5 rounded-full mt-2 overflow-hidden">
+<div class="bg-brand-amber h-full rounded-full" style="width: 68%;"></div>
+</div>
+</div>
+</div>
+</article>
+<!-- Card 2 -->
+<article class="spotlight-target group relative rounded-2xl overflow-hidden bg-[#101625] border-2 border-[#1c2438] hover:border-slate-500 p-1 cursor-pointer transition-all duration-200" tabindex="0">
+<div class="relative h-44 rounded-xl overflow-hidden bg-slate-900">
+<img alt="News Global 24/7" class="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500 opacity-80" src="https://lh3.googleusercontent.com/aida-public/AB6AXuC8vjXUzk9OueDHJqQejVJBS5_MmwT2Aem_jGLhHfsuS8Dj30mnVCM0N38T6deJimxJ9a6JYaaxmxF1F1RA_oOWoIOqvXWY01m6PHhOZ7mcTiHyOZ1WAwSV6mVeX32qMF1RLxInI7n2Sw3VUtbubKyBuqBp4tH6Ejptd4aABx_k7vcSEPs4W1MariWhku3eiXNgKtrZJdv42-rSx9flCSxXrd5RzhIEW57YH4kRlnU8emoL2SLcecU0Bg"/>
+<div class="absolute inset-0 bg-gradient-to-t from-[#090d16] via-black/40 to-transparent"></div>
+<div class="absolute top-3 left-3 flex items-center gap-2">
+<span class="bg-brand-amber text-slate-950 text-[10px] font-black tracking-wider px-2 py-0.5 rounded uppercase flex items-center gap-1 shadow-md">
+<span class="w-1.5 h-1.5 rounded-full bg-red-600 live-dot"></span> LIVE
+                </span>
+</div>
+<div class="absolute bottom-3 left-3 right-3">
+<h3 class="text-lg font-bold text-white tracking-wide leading-tight">News Global 24/7</h3>
+<p class="text-xs text-slate-300 font-medium flex items-center gap-2 mt-0.5">
+<span>Actualités Monde</span>
+<span class="text-slate-500">•</span>
+<span>Direct Satellite</span>
+</p>
+<div class="w-full bg-white/20 h-1.5 rounded-full mt-2 overflow-hidden">
+<div class="bg-brand-amber h-full rounded-full" style="width: 35%;"></div>
+</div>
+</div>
+</div>
+</article>
+<!-- Card 3 -->
+<article class="spotlight-target group relative rounded-2xl overflow-hidden bg-[#101625] border-2 border-[#1c2438] hover:border-slate-500 p-1 cursor-pointer transition-all duration-200" tabindex="0">
+<div class="relative h-44 rounded-xl overflow-hidden bg-slate-900">
+<img alt="Sport Arena Plus" class="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500 opacity-80" src="https://lh3.googleusercontent.com/aida-public/AB6AXuC6AnJs9EKxpyheOPh1hEw2Ww5Bbl3leZTypeBT94laXRH4vT3pMlXDxBvUorkrlWaaHA__LZylkXPcwTe-YSOshenxdfBGiL_FxuoVK4d4pH-q5u6HJSj-XCGFY_DokJ97PEFy8klQNcY8-g3u1uuooI4JLXcFDclEWZsUj6NdZBpD-CQzTCSOJ_BkLNfqOT0DJh_NZrlGu6IjFt5P4iOkPV0mlSfc8AxEdmGgd05tXeidTg3C0jgoEg"/>
+<div class="absolute inset-0 bg-gradient-to-t from-[#090d16] via-black/40 to-transparent"></div>
+<div class="absolute top-3 left-3 flex items-center gap-2">
+<span class="bg-brand-amber text-slate-950 text-[10px] font-black tracking-wider px-2 py-0.5 rounded uppercase flex items-center gap-1 shadow-md">
+<span class="w-1.5 h-1.5 rounded-full bg-red-600 live-dot"></span> LIVE
+                </span>
+<span class="bg-rose-500/80 text-white text-[10px] font-semibold px-2 py-0.5 rounded">
+                  DIRECT MATCH
+                </span>
+</div>
+<div class="absolute bottom-3 left-3 right-3">
+<h3 class="text-lg font-bold text-white tracking-wide leading-tight">Sport Arena Plus UHD</h3>
+<p class="text-xs text-slate-300 font-medium flex items-center gap-2 mt-0.5">
+<span>Ligue des Champions</span>
+<span class="text-slate-500">•</span>
+<span>Audio Stadium</span>
+</p>
+<div class="w-full bg-white/20 h-1.5 rounded-full mt-2 overflow-hidden">
+<div class="bg-brand-amber h-full rounded-full" style="width: 82%;"></div>
+</div>
+</div>
+</div>
+</article>
+</div>
+</section>
+<!-- END: LiveChannelsSection -->
+<!-- SECTION 2: Collection Masterpieces (VOD / Cinema) -->
+<!-- BEGIN: MasterpiecesSection -->
+<section class="space-y-4" data-purpose="vod-masterpieces-row">
+<div class="flex items-center justify-between">
+<div class="flex items-center gap-3">
+<h2 class="text-xl md:text-2xl font-bold tracking-tight text-white flex items-center gap-2">
+<i class="w-5 h-5 text-amber-400" data-lucide="sparkles"></i>
+              Collection Masterpieces
+            </h2>
+<span class="text-xs text-slate-400 font-medium">Dolby Vision &amp; Atmos</span>
+</div>
+<span class="text-xs text-slate-400">Sélection Haute Définition</span>
+</div>
+<!-- Cinema Posters Horizontal Track -->
+<div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-5 pb-4">
+<!-- Cinema Item 1 -->
+<div class="spotlight-target group cursor-pointer rounded-2xl overflow-hidden bg-[#101524] border-2 border-transparent hover:border-amber-400 p-1 flex flex-col" tabindex="0">
+<div class="aspect-[2/3] w-full rounded-xl overflow-hidden relative">
+<img alt="Cinema Masterpiece" class="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" src="https://lh3.googleusercontent.com/aida-public/AB6AXuCfU6VbVvqO77cR5eKckaARFqGaJv_EdFwSKGnpMolIOA86lVmxyTm0ic6Xt4cwgO3UX8h7xNgZa18vKYv3Ful6nYCp42C1kFa5IPawqK5z0rCPEPCJ_9ZKvs4OJ0RB_z48BRi7NYY-B3U9-m-lhdEfjqihCPHuONZz5ThckJuWOlrbfq64lAfHMuqdxMhtGuPuEgwFL-XdQloEgLeM3OjiRuvXzyuWs2Ve3kz2ei-3vt3wi-Z2OByEKQ"/>
+<div class="absolute inset-0 bg-gradient-to-t from-[#0d121f] via-transparent to-transparent"></div>
+<span class="absolute top-2 right-2 px-1.5 py-0.5 rounded bg-black/70 backdrop-blur-md text-[10px] font-bold text-amber-300 border border-amber-400/30">4K HDR</span>
+</div>
+<div class="p-2.5">
+<p class="text-sm font-semibold text-white truncate">Neon Nights: Tokyo</p>
+<div class="flex items-center justify-between text-[11px] text-slate-400 mt-1">
+<span>2024 • Sci-Fi</span>
+<span class="text-amber-400 font-semibold flex items-center gap-1"><i class="w-3 h-3 fill-amber-400" data-lucide="star"></i> 8.9</span>
+</div>
+</div>
+</div>
+<!-- Cinema Item 2 -->
+<div class="spotlight-target group cursor-pointer rounded-2xl overflow-hidden bg-[#101524] border-2 border-transparent hover:border-amber-400 p-1 flex flex-col" tabindex="0">
+<div class="aspect-[2/3] w-full rounded-xl overflow-hidden relative">
+<img alt="The Grand Hall" class="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" src="https://lh3.googleusercontent.com/aida-public/AB6AXuD_vmCiEtaShcLuDzFQRVS5cEeqan-jV8U5a33yBP35mb9H1BTYBMYHewizCb2lyGUgz9l3KS5zYUzZqKWfvlkp2oyCMTsk0Zve9tTOkB_o_9Y18oEP8ixe0XeIDb0G9y1P7JflwBk-CyE2hM_JnDujU0-Qsq6NdlrxHEQZMB1iz9_hVYEI5m6IcC9Vhphgas1ft6eWsFycij5s-LN4at5PNR8xttd-MhJo1U-8fCt0U02SVpExVVDvkw"/>
+<div class="absolute inset-0 bg-gradient-to-t from-[#0d121f] via-transparent to-transparent"></div>
+<span class="absolute top-2 right-2 px-1.5 py-0.5 rounded bg-black/70 backdrop-blur-md text-[10px] font-bold text-slate-200 border border-white/10">1080p</span>
+</div>
+<div class="p-2.5">
+<p class="text-sm font-semibold text-white truncate">Palais Garnier Live</p>
+<div class="flex items-center justify-between text-[11px] text-slate-400 mt-1">
+<span>2023 • Opéra</span>
+<span class="text-amber-400 font-semibold flex items-center gap-1"><i class="w-3 h-3 fill-amber-400" data-lucide="star"></i> 9.3</span>
+</div>
+</div>
+</div>
+<!-- Cinema Item 3 -->
+<div class="spotlight-target group cursor-pointer rounded-2xl overflow-hidden bg-[#101524] border-2 border-transparent hover:border-amber-400 p-1 flex flex-col" tabindex="0">
+<div class="aspect-[2/3] w-full rounded-xl overflow-hidden relative">
+<img alt="Cinema Archival" class="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" src="https://lh3.googleusercontent.com/aida-public/AB6AXuBQoxDqwJYoRUA3G0Hh21uU_qTg49ASOs17oWF4wjtoI8lFKWEfwFfL1d3xHVkdR7acgSyOAfKSkq4_k4amI9I-LD1jV0MG6_jTXELyuevnbDgH_O36jVSKIwMgWnQ5R1y1YXguHohJO4BcMKNInecZcUAM1SeDLzBdTX3dsd46T-tBOtoBdDNeqoYKnqAt5ro7RxGD6L-cWCFZpqMvbBJ2VYqNWCjInFBXMLqLt4v-8-gma9Jk20SeBw"/>
+<div class="absolute inset-0 bg-gradient-to-t from-[#0d121f] via-transparent to-transparent"></div>
+<span class="absolute top-2 right-2 px-1.5 py-0.5 rounded bg-black/70 backdrop-blur-md text-[10px] font-bold text-amber-300 border border-amber-400/30">4K IMAX</span>
+</div>
+<div class="p-2.5">
+<p class="text-sm font-semibold text-white truncate">The Lost Archive</p>
+<div class="flex items-center justify-between text-[11px] text-slate-400 mt-1">
+<span>2022 • Mystère</span>
+<span class="text-amber-400 font-semibold flex items-center gap-1"><i class="w-3 h-3 fill-amber-400" data-lucide="star"></i> 8.6</span>
+</div>
+</div>
+</div>
+<!-- Cinema Item 4 -->
+<div class="spotlight-target group cursor-pointer rounded-2xl overflow-hidden bg-[#101524] border-2 border-transparent hover:border-amber-400 p-1 flex flex-col" tabindex="0">
+<div class="aspect-[2/3] w-full rounded-xl overflow-hidden relative">
+<img alt="Action Studio" class="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" src="https://lh3.googleusercontent.com/aida-public/AB6AXuAfMPNAp6G-Wrdg0wXpNurq-NA-QHSkNjDmj6bE1R0IvtfhM32m3LDaYzMnmMH61ZyPu2a6lE2-R8y8CRJ2IGTDGWiTzMMxezR-7zQRXfg3_jfdTox1JMQN7_nP59LwWlcOcVk_Ep7rvzX2hwQmxSB0z9p1LnoQ0DjWay-pqwo7-KaYQyZiv3nfDwKjLr-yDNJBIYErH6BZ5dEti7Av7lxFDQu_emCJ1kVqX_28dbyE1Pu7hgh1vHZrgQ"/>
+<div class="absolute inset-0 bg-gradient-to-t from-[#0d121f] via-transparent to-transparent"></div>
+<span class="absolute top-2 right-2 px-1.5 py-0.5 rounded bg-black/70 backdrop-blur-md text-[10px] font-bold text-amber-300 border border-amber-400/30">4K HDR</span>
+</div>
+<div class="p-2.5">
+<p class="text-sm font-semibold text-white truncate">Behind The Clapper</p>
+<div class="flex items-center justify-between text-[11px] text-slate-400 mt-1">
+<span>2024 • Docu</span>
+<span class="text-amber-400 font-semibold flex items-center gap-1"><i class="w-3 h-3 fill-amber-400" data-lucide="star"></i> 9.0</span>
+</div>
+</div>
+</div>
+<!-- Cinema Item 5 -->
+<div class="spotlight-target group cursor-pointer hidden lg:flex rounded-2xl overflow-hidden bg-[#101524] border-2 border-transparent hover:border-amber-400 p-1 flex-col" tabindex="0">
+<div class="aspect-[2/3] w-full rounded-xl overflow-hidden relative">
+<img alt="Vintage Reel" class="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" src="https://lh3.googleusercontent.com/aida-public/AB6AXuAuW5PEI1lc_AuGE0DueBNu2HElmVYKry92VuYZrBDG6mUVtr-xvC2kzc8pBDBz9pd3Hmss8kDXfZLSoxBWwAygZMCLz8wWycabslbEsOmGiKrPpJA5MeVhbPBKYoXqGxbjtWI5ry6C4IMzd1eKpjBLURM9GrbGT_4fZ6qbo7EYyDGVr7A5B5bKqayoNBiB-ZeMSqZSBEQoj2aSpIh4l-RdClmzQB50WDpUPHzWntGXudppbA2x2ogOKA"/>
+<div class="absolute inset-0 bg-gradient-to-t from-[#0d121f] via-transparent to-transparent"></div>
+<span class="absolute top-2 right-2 px-1.5 py-0.5 rounded bg-black/70 backdrop-blur-md text-[10px] font-bold text-slate-200 border border-white/10">1080p</span>
+</div>
+<div class="p-2.5">
+<p class="text-sm font-semibold text-white truncate">Classic Film Heritage</p>
+<div class="flex items-center justify-between text-[11px] text-slate-400 mt-1">
+<span>1998 • Remaster</span>
+<span class="text-amber-400 font-semibold flex items-center gap-1"><i class="w-3 h-3 fill-amber-400" data-lucide="star"></i> 9.5</span>
+</div>
+</div>
+</div>
+</div>
+</section>
+<!-- END: MasterpiecesSection -->
+</div>
+<!-- BEGIN: QuickPlayerBar -->
+<!-- LG webOS Enact Bottom Control Dock -->
+<footer class="fixed bottom-4 left-24 md:left-28 right-6 bg-[#0a0f1c]/95 border border-[#1d273e] backdrop-blur-xl rounded-2xl px-5 py-3 shadow-2xl flex flex-wrap items-center justify-between gap-4 z-30" data-purpose="enact-playback-bar">
+<!-- Current Channel Quick Info -->
+<div class="flex items-center gap-3">
+<div class="w-10 h-10 rounded-xl bg-gradient-to-br from-amber-500 to-amber-700 flex items-center justify-center text-slate-950 font-bold shadow-md">
+<i class="w-5 h-5 fill-slate-950" data-lucide="play"></i>
+</div>
+<div>
+<div class="flex items-center gap-2">
+<span class="text-sm font-bold text-white">Cannes Festival 2024</span>
+<span class="text-[10px] bg-brand-amber/20 text-brand-amber font-mono font-bold px-1.5 py-0.2 rounded border border-brand-amber/40">CANAL 01</span>
+</div>
+<p class="text-xs text-slate-400">Stream HLS • 3840x2160 @ 60fps • HEVC Main10</p>
+</div>
+</div>
+<!-- Moonstone TV Controller Buttons -->
+<div class="flex items-center gap-2">
+<button class="spotlight-target w-10 h-10 rounded-full bg-[#141b2c] hover:bg-amber-500/20 text-slate-300 hover:text-amber-400 flex items-center justify-center border border-slate-700/60 transition-colors" tabindex="0" title="Chaîne précédente (P-)">
+<i class="w-4 h-4" data-lucide="skip-back"></i>
+</button>
+<button class="spotlight-target w-11 h-11 rounded-full bg-brand-amber hover:bg-amber-400 text-slate-950 flex items-center justify-center shadow-lg shadow-amber-500/25 transition-colors font-bold" tabindex="0" title="Lecture / Pause (Espace)">
+<i class="w-5 h-5 fill-current" data-lucide="pause"></i>
+</button>
+<button class="spotlight-target w-10 h-10 rounded-full bg-[#141b2c] hover:bg-amber-500/20 text-slate-300 hover:text-amber-400 flex items-center justify-center border border-slate-700/60 transition-colors" tabindex="0" title="Chaîne suivante (P+)">
+<i class="w-4 h-4" data-lucide="skip-forward"></i>
+</button>
+<div class="h-6 w-px bg-slate-800 mx-1"></div>
+<button class="spotlight-target px-3 h-10 rounded-xl bg-[#141b2c] hover:bg-amber-500/20 text-xs font-semibold text-slate-200 flex items-center gap-2 border border-slate-700/60" tabindex="0">
+<i class="w-4 h-4 text-amber-400" data-lucide="subtitles"></i>
+<span>FR [Dolby Atmos]</span>
+</button>
+</div>
+<!-- IPTV Bitrate & Cache Specs -->
+<div class="hidden xl:flex items-center gap-4 text-right font-mono text-[11px] text-slate-400">
+<div>
+<span class="text-slate-500">DÉBIT :</span>
+<span class="text-emerald-400 font-semibold">24.5 Mbps</span>
+</div>
+<div>
+<span class="text-slate-500">BUFFER :</span>
+<span class="text-slate-200 font-semibold">1.4 GB / 99%</span>
+</div>
+<div class="px-2 py-1 rounded bg-[#131c30] text-amber-400 font-semibold border border-amber-500/20">
+          webOS 24
+        </div>
+</div>
+</footer>
+<!-- END: QuickPlayerBar -->
+</main>
+<!-- END: MainExperienceView -->
+<!-- BEGIN: InteractiveScripts -->
+<!-- Clock Script -->
+<script data-purpose="realtime-clock">
+    function updateClock() {
+      const now = new Date();
+      const hours = String(now.getHours()).padStart(2, '0');
+      const minutes = String(now.getMinutes()).padStart(2, '0');
+      const clockElement = document.getElementById('digital-clock');
+      if (clockElement) {
+        clockElement.textContent = `${hours}:${minutes}`;
+      }
+    }
+    setInterval(updateClock, 1000);
+    updateClock();
+  </script>
+<!-- Enact D-Pad Remote Navigation Simulation -->
+<script data-purpose="dpad-remote-controller">
+    document.addEventListener('DOMContentLoaded', () => {
+      // Initialize Lucide icons
+      lucide.createIcons();
+
+      // Collect focusable spotlight items
+      const focusableSelectors = '.spotlight-target';
+      let focusables = Array.from(document.querySelectorAll(focusableSelectors));
+
+      function setFocus(element) {
+        if (!element) return;
+        focusables.forEach(el => {
+          el.classList.remove('is-focused');
+        });
+        element.classList.add('is-focused');
+        element.focus();
+        
+        // Scroll into view if needed
+        element.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' });
+      }
+
+      // Handle Mouse clicks to update Enact Spotlight
+      document.body.addEventListener('click', (e) => {
+        const target = e.target.closest('.spotlight-target');
+        if (target) {
+          setFocus(target);
+        }
+      });
+
+      // Handle Keyboard D-Pad (Arrows, Enter, Back)
+      window.addEventListener('keydown', (e) => {
+        const currentFocused = document.querySelector('.spotlight-target.is-focused') || focusables[0];
+        const currentIndex = focusables.indexOf(currentFocused);
+
+        if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key)) {
+          e.preventDefault();
+        }
+
+        if (e.key === 'ArrowRight') {
+          const nextIndex = (currentIndex + 1) % focusables.length;
+          setFocus(focusables[nextIndex]);
+        } else if (e.key === 'ArrowLeft') {
+          const prevIndex = (currentIndex - 1 + focusables.length) % focusables.length;
+          setFocus(focusables[prevIndex]);
+        } else if (e.key === 'ArrowDown') {
+          // Simple vertical leap logic
+          const jumpIndex = Math.min(currentIndex + 3, focusables.length - 1);
+          setFocus(focusables[jumpIndex]);
+        } else if (e.key === 'ArrowUp') {
+          const jumpIndex = Math.max(currentIndex - 3, 0);
+          setFocus(focusables[jumpIndex]);
+        } else if (e.key === 'Enter') {
+          // Simulate TV remote "OK" click
+          currentFocused.classList.add('scale-95');
+          setTimeout(() => currentFocused.classList.remove('scale-95'), 150);
+        }
+      });
+    });
+  </script>
+<!-- END: InteractiveScripts -->
+</body></html>

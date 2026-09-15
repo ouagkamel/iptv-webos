@@ -1,0 +1,14 @@
+.guide { min-height: 100%; }
+.guideHeader { display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px; }
+.guideHeader :global(.heading) { color: #f8fafc; }
+.guideHeader :global(.bodyText) { color: #94a3b8; margin-top: 8px; }
+.guideColumns { min-height: 650px; display: flex; gap: 26px; }
+.matchList { width: 42%; height: 650px; border: 1px solid #1f293d; border-radius: 22px; background: #0d111c; padding: 10px; box-sizing: border-box; }
+.matchCard { box-sizing: border-box; min-height: 94px; margin: 6px; padding: 15px 17px; border-radius: 15px; border: 1px solid #27324b; background: rgba(16, 22, 37, .9); display: flex; flex-direction: column; gap: 4px; color: #f8fafc; outline: none; }
+.matchCard:global(.spottable-focused) { border-color: #ffc83b; transform: scale(1.02); box-shadow: 0 0 0 3px #ffc83b; }
+.matchCard strong { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: 16px; }
+.matchCard :global(.bodyText) { color: #94a3b8; }
+.matchTime { display: flex; align-items: center; gap: 5px; color: #f87171; font-size: 11px; font-weight: 800; letter-spacing: .06em; }
+.guideInfo { flex: 1; min-width: 0; border: 1px solid #1f293d; border-radius: 22px; background: #0d111c; padding: 44px; display: flex; flex-direction: column; justify-content: center; gap: 16px; color: #fbbf24; }
+.guideInfo :global(.heading) { color: #f8fafc; }
+.guideInfo :global(.bodyText) { color: #94a3b8; }

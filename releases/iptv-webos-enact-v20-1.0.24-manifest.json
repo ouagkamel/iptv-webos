@@ -1,0 +1,35 @@
+{
+  "name": "iptv-webos-enact-v20",
+  "version": "1.0.24",
+  "appId": "com.iptv.webos.player",
+  "source": "enact-ui-v20",
+  "target": "Chrome 68 / webOS TV",
+  "previewBuild": "enact-ui-v20/dist",
+  "simulatorBuild": "device-react-v20",
+  "canonicalDeviceBuild": "device-enact-v20",
+  "legacyDeviceSnapshot": "device-react-v20-legacy",
+  "artifacts": {
+    "ipk": {
+      "path": "releases/iptv-webos-enact-v20-1.0.24.ipk",
+      "sha256": "081e27c4eaa5f6b7a63d351838f19051d718c0e1dd78d0a688a8b163648efcd9",
+      "sizeBytes": 2242736
+    },
+    "zip": {
+      "path": "releases/iptv-webos-enact-v20-1.0.24.zip",
+      "sha256": "9243f33f2e588a0b509cf3c37a7b1e071ae58c51c9a032b8862195dfb924ba1b",
+      "sizeBytes": 2942114
+    }
+  },
+  "validation": {
+    "lint": "pass",
+    "productionPack": "pass",
+    "tests": "passWithNoTests; V20 root suite: 90 passed",
+    "browserSmoke": "HTTP 200 on Enact serve port 8080",
+    "deviceParity": "device-react-v20 and device-enact-v20 copied from the same production dist"
+  },
+  "runtimePackaging": {
+    "localeData": "French and English iLib locale packs only",
+    "fullBuildUncompressed": "~79 MB with all iLib locales",
+    "releasePackage": "~2.2 MB ipk / ~2.9 MB zip"
+  }
+}

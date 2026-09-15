@@ -4,3 +4,10 @@ dist/
 build/
 *.tgz
 deploy-staging/
+
+# Enact build artifacts and generated device mirrors
+releases/*.ipk
+releases/*.zip
+device-enact-v20/
+device-react-v20-legacy/
+*.eslintcache
