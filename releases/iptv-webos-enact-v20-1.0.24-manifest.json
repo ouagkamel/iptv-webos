@@ -19,23 +19,23 @@
   "artifacts": {
     "ipk": {
       "path": "releases/iptv-webos-enact-v20-1.0.24.ipk",
-      "sha256": "8fad1c89a19b4bf9345282af0e89076d8fd877425b5a708dc4f45df2608d7a43",
-      "sizeBytes": 2235452
+      "sha256": "b9ce23615a963f04893d3b0f1648cbc7c6d1edef8e213e64326d8e1cc8b7481b",
+      "sizeBytes": 2235436
     },
     "runtimeZip": {
       "path": "releases/iptv-webos-enact-v20-1.0.24.zip",
-      "sha256": "869158e8d38fb19641eeb77777ea267baed199ed44cceea86deb3495682c619f",
-      "sizeBytes": 2860631
+      "sha256": "49fcac2f299c1ad09e4f778c141dbc87e85a39fac109e0a5dec869f68d8e2d10",
+      "sizeBytes": 2860639
     },
     "sourceZip": {
       "path": "releases/iptv-webos-enact-v20-1.0.24-source.zip",
-      "sha256": "d5623b6d5d4a82d8c9f4eb4f10be2cda99ba63df10097996aa39e9c43b9cfb8b",
-      "sizeBytes": 1839600
+      "sha256": "7a276c144390e0c71dee355667f1ec24de659c80299eae5f6bd29b30d84fc023",
+      "sizeBytes": 1839685
     },
     "distZip": {
       "path": "releases/iptv-webos-enact-v20-1.0.24-dist.zip",
-      "sha256": "710d0aafaa242a4c1317e9c56d078ecfb4c6b56e256650cdea9ea1b8f32cf80f",
-      "sizeBytes": 2871947,
+      "sha256": "b8b7a9b6705019cd585382e4d01e0bcea714586629167e98c4da331c23ed6f67",
+      "sizeBytes": 2871955,
       "contents": "dist/"
     }
   },
@@ -43,7 +43,7 @@
     "command": "npm run pack-p",
     "result": "pass",
     "dist": {
-      "mainJsBytes": 1256428,
+      "mainJsBytes": 1256442,
       "mainCssBytes": 456552,
       "bootstrap": "window.globalThis before main.js",
       "fullIlibLocaleBytesApprox": 72000000
@@ -63,6 +63,7 @@
     "aresPackageInfo": "pass",
     "aresPackageInfoDetail": "pass",
     "distCheck": "ares-package -c enact-ui-v20/dist: pass",
+    "reactHookFix": "App kind functional=true; React minified error 321 addressed",
     "packageFormat": "webOS Package Format 2",
     "appInfo": "com.iptv.webos.player 1.0.24",
     "tvConsole": "not yet verified",

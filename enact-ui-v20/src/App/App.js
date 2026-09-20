@@ -183,6 +183,9 @@ const AppView = (props) => {
 
 const App = kind({
 	name: 'App',
+	// AppView uses React hooks; Enact kind defaults to a class component.
+	// The functional kind keeps the hook dispatcher active on Chromium 68.
+	functional: true,
 	styles: {
 		css,
 		className: 'app'

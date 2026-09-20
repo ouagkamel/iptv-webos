@@ -39,6 +39,12 @@ Les profils, le modal Xtream/M3U, l’import progressif, Live TV, Films, Séries
 
 La progression EPG et les métadonnées de qualité ajoutées dans l’importeur sont dérivées des lignes Xtream/XMLTV ou restent absentes lorsque le fournisseur ne les transmet pas.
 
+## Correction de lancement React
+
+L’erreur de lancement `Minified React error #321` provenait de `AppView`, qui utilisait des hooks (`useState`, `useEffect`, `useMemo`, `useCallback`) derrière `@enact/core/kind` configuré par défaut comme composant classe. `kind` est maintenant configuré avec `functional: true`, ce qui maintient le dispatcher React actif au rendu de l’application.
+
+Le dossier `dist/` a été reconstruit, contrôlé avec `ares-package -c`, puis le nouvel IPK a été reconditionné et vérifié avec `ares-package -i` et `ares-package -I`.
+
 ## Compatibilité et performance
 
 - cible Enact : `chrome 68` ;
@@ -90,11 +96,11 @@ Résultat : package `com.iptv.webos.player`, version `1.0.24`, architecture `all
 
 | Artefact | Chemin | Taille | SHA-256 |
 |---|---|---:|---|
-| IPK webOS | `releases/iptv-webos-enact-v20-1.0.24.ipk` | 2 235 452 octets | `8fad1c89a19b4bf9345282af0e89076d8fd877425b5a708dc4f45df2608d7a43` |
-| Runtime ZIP | `releases/iptv-webos-enact-v20-1.0.24.zip` | 2 860 631 octets | `869158e8d38fb19641eeb77777ea267baed199ed44cceea86deb3495682c619f` |
-| Source ZIP | `releases/iptv-webos-enact-v20-1.0.24-source.zip` | 1 839 600 octets | `d5623b6d5d4a82d8c9f4eb4f10be2cda99ba63df10097996aa39e9c43b9cfb8b` |
-| Dossier `dist/` ZIP | `releases/iptv-webos-enact-v20-1.0.24-dist.zip` | 2 871 947 octets | `710d0aafaa242a4c1317e9c56d078ecfb4c6b56e256650cdea9ea1b8f32cf80f` |
-| Manifeste | `releases/iptv-webos-enact-v20-1.0.24-manifest.json` | 3 226 octets | `c7bed62f8d79cd638b0424e130202b9824ab90fe7ee5991128c0bccdfc343475` |
+| IPK webOS | `releases/iptv-webos-enact-v20-1.0.24.ipk` | 2 235 436 octets | `b9ce23615a963f04893d3b0f1648cbc7c6d1edef8e213e64326d8e1cc8b7481b` |
+| Runtime ZIP | `releases/iptv-webos-enact-v20-1.0.24.zip` | 2 860 639 octets | `49fcac2f299c1ad09e4f778c141dbc87e85a39fac109e0a5dec869f68d8e2d10` |
+| Source ZIP | `releases/iptv-webos-enact-v20-1.0.24-source.zip` | 1 839 685 octets | `7a276c144390e0c71dee355667f1ec24de659c80299eae5f6bd29b30d84fc023` |
+| Dossier `dist/` ZIP | `releases/iptv-webos-enact-v20-1.0.24-dist.zip` | 2 871 955 octets | `b8b7a9b6705019cd585382e4d01e0bcea714586629167e98c4da331c23ed6f67` |
+| Manifeste | `releases/iptv-webos-enact-v20-1.0.24-manifest.json` | 3 310 octets | `133a5be160c59096cc82f4d528734e4b0ee13c33a5206e68ea5f053c4bacc3cd` |
 
 Le dossier de preview compilé est `enact-ui-v20/dist/`. Les deux miroirs destinés au device/simulateur sont `device-react-v20/` et `device-enact-v20/`.
 
