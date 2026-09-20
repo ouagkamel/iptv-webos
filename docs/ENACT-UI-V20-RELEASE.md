@@ -11,8 +11,10 @@ Cette révision concerne exclusivement la variante **Enact V20**, son backend V2
 - Branche : `react-ui-v20`
 - Cible de build : Chromium/Chrome 68, définie dans `enact-ui-v20/package.json`
 - Référence utilisateur préservée : `/home/user/uploads/codeui.txt`
-- Copie de référence embarquée dans la source : `enact-ui-v20/reference/codeui.txt`
-- SHA-256 de la copie : `9bb541c5f9d3a0cd84a74753f032fa59b2b002ffede99e553d215359cdd6bcb9`
+- Copie de référence Home embarquée dans la source : `enact-ui-v20/reference/codeui.txt`
+- SHA-256 de la copie Home : `9bb541c5f9d3a0cd84a74753f032fa59b2b002ffede99e553d215359cdd6bcb9`
+- Copie de référence Live TV embarquée dans la source : `enact-ui-v20/reference/code_source_enact_live_tv_osd_webos_6.md`
+- SHA-256 de la copie Live TV : `23a6cc4f929d727896b70f40239e53fb3254e71b1cf5d0dfb016464539e1f8cb`
 
 La référence utilisateur n’a pas été utilisée comme runtime. L’adaptation est séparée dans `src/views/Home/`, `src/components/MediaCards.js` et `src/services/importer.js`.
 
@@ -28,6 +30,7 @@ La Home Enact reprend la direction « Salon Prestige » sans injecter les donné
 - posters VOD alimentés par `data.movies` et leurs artworks/rating/qualité réels ;
 - dock inférieur lié au canal sélectionné et à `onPlay` ;
 - navigation Spotlight au D-Pad via les containers Enact ;
+- vue **Chaînes TV Live** dédiée dans `src/views/LiveTv/LiveTv.js`, avec filtres dérivés des groupes réels, zapper virtualisé, OSD, EPG suivant et lecture via `onPlay` ;
 - virtualisation conservée avec `VirtualList` et `VirtualGridList` ;
 - états vides explicites si le catalogue réel est vide ou non synchronisé.
 
@@ -96,11 +99,11 @@ Résultat : package `com.iptv.webos.player`, version `1.0.24`, architecture `all
 
 | Artefact | Chemin | Taille | SHA-256 |
 |---|---|---:|---|
-| IPK webOS | `releases/iptv-webos-enact-v20-1.0.24.ipk` | 2 235 436 octets | `b9ce23615a963f04893d3b0f1648cbc7c6d1edef8e213e64326d8e1cc8b7481b` |
-| Runtime ZIP | `releases/iptv-webos-enact-v20-1.0.24.zip` | 2 860 639 octets | `49fcac2f299c1ad09e4f778c141dbc87e85a39fac109e0a5dec869f68d8e2d10` |
-| Source ZIP | `releases/iptv-webos-enact-v20-1.0.24-source.zip` | 1 839 685 octets | `7a276c144390e0c71dee355667f1ec24de659c80299eae5f6bd29b30d84fc023` |
-| Dossier `dist/` ZIP | `releases/iptv-webos-enact-v20-1.0.24-dist.zip` | 2 871 955 octets | `b8b7a9b6705019cd585382e4d01e0bcea714586629167e98c4da331c23ed6f67` |
-| Manifeste | `releases/iptv-webos-enact-v20-1.0.24-manifest.json` | 3 310 octets | `133a5be160c59096cc82f4d528734e4b0ee13c33a5206e68ea5f053c4bacc3cd` |
+| IPK webOS | `releases/iptv-webos-enact-v20-1.0.24.ipk` | 2 242 254 octets | `f0d13f2a39f0ef34f870f34de7c482b777a15417429d5339ea25a22f2afd0ef4` |
+| Runtime ZIP | `releases/iptv-webos-enact-v20-1.0.24.zip` | 2 864 982 octets | `01ee2a1c2b460c1b7800f880aa7593377b5ef76c08d7373f76f8d9a0dcfed085` |
+| Source ZIP | `releases/iptv-webos-enact-v20-1.0.24-source.zip` | 1 856 413 octets | `f68ee1e1be79c5dfc5085474a8a042f6b72f5df9086a515c53edd06ea2a41d87` |
+| Dossier `dist/` ZIP | `releases/iptv-webos-enact-v20-1.0.24-dist.zip` | 2 876 298 octets | `e7e481a9f9cb3d754de124ea27315cbee4f8701e20dae6f4848b054bb46354a1` |
+| Manifeste | `releases/iptv-webos-enact-v20-1.0.24-manifest.json` | 3 501 octets | `8f94afed87ead08743af88b1ae5343343c9bf3dbb7a80c03c0d5133d58bd80fc` |
 
 Le dossier de preview compilé est `enact-ui-v20/dist/`. Les deux miroirs destinés au device/simulateur sont `device-react-v20/` et `device-enact-v20/`.
 

@@ -8,7 +8,9 @@
   "sourceReference": {
     "original": "/home/user/uploads/codeui.txt",
     "preservedCopy": "enact-ui-v20/reference/codeui.txt",
-    "sha256": "9bb541c5f9d3a0cd84a74753f032fa59b2b002ffede99e553d215359cdd6bcb9"
+    "sha256": "9bb541c5f9d3a0cd84a74753f032fa59b2b002ffede99e553d215359cdd6bcb9",
+    "liveTvReferenceCopy": "enact-ui-v20/reference/code_source_enact_live_tv_osd_webos_6.md",
+    "liveTvReferenceSha256": "23a6cc4f929d727896b70f40239e53fb3254e71b1cf5d0dfb016464539e1f8cb"
   },
   "target": "Chrome 68 / webOS TV V20",
   "previewBuild": "enact-ui-v20/dist",
@@ -19,23 +21,23 @@
   "artifacts": {
     "ipk": {
       "path": "releases/iptv-webos-enact-v20-1.0.24.ipk",
-      "sha256": "b9ce23615a963f04893d3b0f1648cbc7c6d1edef8e213e64326d8e1cc8b7481b",
-      "sizeBytes": 2235436
+      "sha256": "f0d13f2a39f0ef34f870f34de7c482b777a15417429d5339ea25a22f2afd0ef4",
+      "sizeBytes": 2242254
     },
     "runtimeZip": {
       "path": "releases/iptv-webos-enact-v20-1.0.24.zip",
-      "sha256": "49fcac2f299c1ad09e4f778c141dbc87e85a39fac109e0a5dec869f68d8e2d10",
-      "sizeBytes": 2860639
+      "sha256": "01ee2a1c2b460c1b7800f880aa7593377b5ef76c08d7373f76f8d9a0dcfed085",
+      "sizeBytes": 2864982
     },
     "sourceZip": {
       "path": "releases/iptv-webos-enact-v20-1.0.24-source.zip",
-      "sha256": "7a276c144390e0c71dee355667f1ec24de659c80299eae5f6bd29b30d84fc023",
-      "sizeBytes": 1839685
+      "sha256": "f68ee1e1be79c5dfc5085474a8a042f6b72f5df9086a515c53edd06ea2a41d87",
+      "sizeBytes": 1856413
     },
     "distZip": {
       "path": "releases/iptv-webos-enact-v20-1.0.24-dist.zip",
-      "sha256": "b8b7a9b6705019cd585382e4d01e0bcea714586629167e98c4da331c23ed6f67",
-      "sizeBytes": 2871955,
+      "sha256": "e7e481a9f9cb3d754de124ea27315cbee4f8701e20dae6f4848b054bb46354a1",
+      "sizeBytes": 2876298,
       "contents": "dist/"
     }
   },
@@ -43,8 +45,8 @@
     "command": "npm run pack-p",
     "result": "pass",
     "dist": {
-      "mainJsBytes": 1256442,
-      "mainCssBytes": 456552,
+      "mainJsBytes": 1266562,
+      "mainCssBytes": 467504,
       "bootstrap": "window.globalThis before main.js",
       "fullIlibLocaleBytesApprox": 72000000
     },

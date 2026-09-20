@@ -8,6 +8,7 @@ import Icon from '@enact/sandstone/Icon';
 
 import HomeView from '../views/Home/Home';
 import CatalogView from '../views/Catalog/Catalog';
+import LiveTvView from '../views/LiveTv/LiveTv';
 import GuideView from '../views/Guide/Guide';
 import SettingsView from '../views/Settings/Settings';
 import ProfilePanel from '../views/Profile/ProfilePanel';
@@ -160,7 +161,7 @@ const AppView = (props) => {
 		const content = useMemo(() => {
 			if (dataLoading) return <LoadingPanel message="Lecture du catalogue V20…" />;
 			if (activeTab === 'home') return <HomeView data={data} profile={activeProfile} onPlay={openPlayer} onNavigate={setActiveTab} />;
-			if (activeTab === 'live') return <CatalogView mode="live" data={data} profile={activeProfile} onPlay={openPlayer} />;
+			if (activeTab === 'live') return <LiveTvView data={data} profile={activeProfile} onPlay={openPlayer} onNavigate={setActiveTab} />;
 			if (activeTab === 'vod') return <CatalogView mode="vod" data={data} profile={activeProfile} onPlay={openPlayer} />;
 			if (activeTab === 'series') return <CatalogView mode="series" data={data} profile={activeProfile} onPlay={openPlayer} />;
 			if (activeTab === 'favorites') return <CatalogView mode="favorites" data={data} profile={activeProfile} onPlay={openPlayer} />;

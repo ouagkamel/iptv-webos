@@ -24,10 +24,10 @@ Diagnostic écran noir — non déclaré résolu :
   npx --yes --package=@webos-tools/cli@3.2.6 ares-inspect com.iptv.webos.player --device <device-name> --open
 
 SHA-256 :
-  IPK    b9ce23615a963f04893d3b0f1648cbc7c6d1edef8e213e64326d8e1cc8b7481b
-  ZIP    49fcac2f299c1ad09e4f778c141dbc87e85a39fac109e0a5dec869f68d8e2d10
-  SOURCE 7a276c144390e0c71dee355667f1ec24de659c80299eae5f6bd29b30d84fc023
-  DIST   b8b7a9b6705019cd585382e4d01e0bcea714586629167e98c4da331c23ed6f67
+  IPK    f0d13f2a39f0ef34f870f34de7c482b777a15417429d5339ea25a22f2afd0ef4
+  ZIP    01ee2a1c2b460c1b7800f880aa7593377b5ef76c08d7373f76f8d9a0dcfed085
+  SOURCE f68ee1e1be79c5dfc5085474a8a042f6b72f5df9086a515c53edd06ea2a41d87
+  DIST   e7e481a9f9cb3d754de124ea27315cbee4f8701e20dae6f4848b054bb46354a1
 
 Release GitHub cible :
   https://github.com/ouagkamel/iptv-webos/releases/tag/v20-enact-1.0.24
