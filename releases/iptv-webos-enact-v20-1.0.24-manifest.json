@@ -31,13 +31,19 @@
       "path": "releases/iptv-webos-enact-v20-1.0.24-source.zip",
       "sha256": "d5623b6d5d4a82d8c9f4eb4f10be2cda99ba63df10097996aa39e9c43b9cfb8b",
       "sizeBytes": 1839600
+    },
+    "distZip": {
+      "path": "releases/iptv-webos-enact-v20-1.0.24-dist.zip",
+      "sha256": "710d0aafaa242a4c1317e9c56d078ecfb4c6b56e256650cdea9ea1b8f32cf80f",
+      "sizeBytes": 2871947,
+      "contents": "dist/"
     }
   },
   "build": {
     "command": "npm run pack-p",
     "result": "pass",
     "dist": {
-      "mainJsBytes": 1256301,
+      "mainJsBytes": 1256428,
       "mainCssBytes": 456552,
       "bootstrap": "window.globalThis before main.js",
       "fullIlibLocaleBytesApprox": 72000000
@@ -71,7 +77,9 @@
       "releases/iptv-webos-enact-v20-1.0.24.ipk",
       "releases/iptv-webos-enact-v20-1.0.24.zip",
       "releases/iptv-webos-enact-v20-1.0.24-source.zip",
-      "releases/iptv-webos-enact-v20-1.0.24-manifest.json"
+      "releases/iptv-webos-enact-v20-1.0.24-dist.zip",
+      "releases/iptv-webos-enact-v20-1.0.24-manifest.json",
+      "iptv-webos-enact-v20-runtime-usage.txt"
     ]
   }
 }

@@ -93,9 +93,38 @@ Résultat : package `com.iptv.webos.player`, version `1.0.24`, architecture `all
 | IPK webOS | `releases/iptv-webos-enact-v20-1.0.24.ipk` | 2 235 452 octets | `8fad1c89a19b4bf9345282af0e89076d8fd877425b5a708dc4f45df2608d7a43` |
 | Runtime ZIP | `releases/iptv-webos-enact-v20-1.0.24.zip` | 2 860 631 octets | `869158e8d38fb19641eeb77777ea267baed199ed44cceea86deb3495682c619f` |
 | Source ZIP | `releases/iptv-webos-enact-v20-1.0.24-source.zip` | 1 839 600 octets | `d5623b6d5d4a82d8c9f4eb4f10be2cda99ba63df10097996aa39e9c43b9cfb8b` |
-| Manifeste | `releases/iptv-webos-enact-v20-1.0.24-manifest.json` | 2 838 octets | `90ff0b858156f1a4838dc4fedde9c46df7637b6376aa47b0633fca771c6184f6` |
+| Dossier `dist/` ZIP | `releases/iptv-webos-enact-v20-1.0.24-dist.zip` | 2 871 947 octets | `710d0aafaa242a4c1317e9c56d078ecfb4c6b56e256650cdea9ea1b8f32cf80f` |
+| Manifeste | `releases/iptv-webos-enact-v20-1.0.24-manifest.json` | 3 166 octets | `816bf45847fcbabda363d75606b161c1d43651685cc12d66aaa7b4474a4b07ce` |
 
 Le dossier de preview compilé est `enact-ui-v20/dist/`. Les deux miroirs destinés au device/simulateur sont `device-react-v20/` et `device-enact-v20/`.
+
+## Dossier `dist/` prêt pour le simulateur
+
+Le dossier compilé est disponible directement ici :
+
+```text
+/home/user/iptv-webos-v20-ui/enact-ui-v20/dist/
+```
+
+Il contient `appinfo.json`, `index.html`, `main.js`, `main.css`, les icônes et les ressources iLib nécessaires. Une archive transportable est également publiée :
+
+```text
+releases/iptv-webos-enact-v20-1.0.24-dist.zip
+```
+
+Pour extraire puis créer un paquet directement depuis ce dossier :
+
+```bash
+unzip -q releases/iptv-webos-enact-v20-1.0.24-dist.zip
+npx --yes --package=@webos-tools/cli@3.2.6 \
+  ares-package dist -o dist-package
+npx --yes --package=@webos-tools/cli@3.2.6 \
+  ares-install --device <simulator-name> dist-package/com.iptv.webos.player_1.0.24_all.ipk
+npx --yes --package=@webos-tools/cli@3.2.6 \
+  ares-launch --device <simulator-name> com.iptv.webos.player
+```
+
+Le paquet déjà validé `releases/iptv-webos-enact-v20-1.0.24.ipk` reste recommandé pour l’installation, car il utilise le même bundle avec le sous-ensemble iLib optimisé.
 
 ## Déploiement
 
