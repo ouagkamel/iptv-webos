@@ -1,42 +1,77 @@
 {
   "name": "iptv-webos-enact-v20",
   "version": "1.0.24",
+  "generatedAt": "2026-09-20",
   "appId": "com.iptv.webos.player",
+  "branch": "react-ui-v20",
   "source": "enact-ui-v20",
-  "target": "Chrome 68 / webOS TV",
+  "sourceReference": {
+    "original": "/home/user/uploads/codeui.txt",
+    "preservedCopy": "enact-ui-v20/reference/codeui.txt",
+    "sha256": "9bb541c5f9d3a0cd84a74753f032fa59b2b002ffede99e553d215359cdd6bcb9"
+  },
+  "target": "Chrome 68 / webOS TV V20",
   "previewBuild": "enact-ui-v20/dist",
   "simulatorBuild": "device-react-v20",
   "canonicalDeviceBuild": "device-enact-v20",
+  "deviceParity": "device-react-v20 and device-enact-v20 are byte-identical staged builds",
   "legacyDeviceSnapshot": "device-react-v20-legacy",
   "artifacts": {
     "ipk": {
       "path": "releases/iptv-webos-enact-v20-1.0.24.ipk",
-      "sha256": "4658adb5ad1b5a40c9aa926585a303db7509cf4191864a57ae2aa7e5ca6d7462",
-      "sizeBytes": 2235068
+      "sha256": "8fad1c89a19b4bf9345282af0e89076d8fd877425b5a708dc4f45df2608d7a43",
+      "sizeBytes": 2235452
     },
-    "zip": {
+    "runtimeZip": {
       "path": "releases/iptv-webos-enact-v20-1.0.24.zip",
-      "sha256": "72073ad3a1c416fd649a7f5e5f8d9b2b99d3c902c0ab74f5336ef0b0d53eff0c",
-      "sizeBytes": 2936571
+      "sha256": "869158e8d38fb19641eeb77777ea267baed199ed44cceea86deb3495682c619f",
+      "sizeBytes": 2860631
     },
     "sourceZip": {
-      "asset": "iptv-webos-enact-v20-1.0.24-source.zip",
-      "sha256": "6ebc267dd2d79a40625d26760d996e28c86bb3c4363e8e84cdc4644f27afe793",
-      "sizeBytes": 1836898
+      "path": "releases/iptv-webos-enact-v20-1.0.24-source.zip",
+      "sha256": "d5623b6d5d4a82d8c9f4eb4f10be2cda99ba63df10097996aa39e9c43b9cfb8b",
+      "sizeBytes": 1839600
     }
   },
-  "validation": {
-    "lint": "pass",
-    "productionPack": "pass",
-    "tests": "passWithNoTests; V20 root suite: 90 passed",
-    "browserSmoke": "HTTP 200 on Enact serve port 8080",
-    "deviceParity": "device-react-v20 and device-enact-v20 copied from the same production dist"
+  "build": {
+    "command": "npm run pack-p",
+    "result": "pass",
+    "dist": {
+      "mainJsBytes": 1256301,
+      "mainCssBytes": 456552,
+      "bootstrap": "window.globalThis before main.js",
+      "fullIlibLocaleBytesApprox": 72000000
+    },
+    "sourceLint": "npm run lint: pass"
   },
-  "runtimePackaging": {
-    "localeData": "French and English iLib locale packs only",
-    "fullBuildUncompressed": "~79 MB with all iLib locales",
-    "releasePackage": "~2.2 MB ipk / ~2.9 MB zip"
+  "backendWiring": {
+    "homeData": ["data.channels", "data.movies", "data.epg"],
+    "actions": ["onPlay", "onNavigate"],
+    "emptyStates": true,
+    "virtualized": ["VirtualList", "VirtualGridList"],
+    "mockRuntimeData": false,
+    "referenceUrlsInRuntime": false
+  },
+  "validation": {
+    "rootTests": "npm test: 90 passed",
+    "aresPackageInfo": "pass",
+    "aresPackageInfoDetail": "pass",
+    "packageFormat": "webOS Package Format 2",
+    "appInfo": "com.iptv.webos.player 1.0.24",
+    "tvConsole": "not yet verified",
+    "blackScreen": "not declared resolved; run ares-inspect on TV/simulator"
   },
   "packager": "@webos-tools/cli@3.2.6 ares-package",
-  "compatibilityFix": "globalThis bootstrap in index.html for Chromium 68 / webOS TV 5"
+  "diagnosticCommand": "npx --yes --package=@webos-tools/cli@3.2.6 ares-inspect com.iptv.webos.player --device <device-name> --open",
+  "github": {
+    "repository": "ouagkamel/iptv-webos",
+    "releaseTag": "v20-enact-1.0.24",
+    "releaseUrl": "https://github.com/ouagkamel/iptv-webos/releases/tag/v20-enact-1.0.24",
+    "assets": [
+      "releases/iptv-webos-enact-v20-1.0.24.ipk",
+      "releases/iptv-webos-enact-v20-1.0.24.zip",
+      "releases/iptv-webos-enact-v20-1.0.24-source.zip",
+      "releases/iptv-webos-enact-v20-1.0.24-manifest.json"
+    ]
+  }
 }

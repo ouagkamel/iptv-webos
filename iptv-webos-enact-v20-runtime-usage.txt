@@ -1,0 +1,31 @@
+Release Enact V20 1.0.24
+
+Artefacts :
+- releases/iptv-webos-enact-v20-1.0.24.ipk
+- releases/iptv-webos-enact-v20-1.0.24.zip
+- releases/iptv-webos-enact-v20-1.0.24-source.zip
+- releases/iptv-webos-enact-v20-1.0.24-manifest.json
+
+App ID : com.iptv.webos.player
+Version : 1.0.24
+Cible : Chromium 68 / webOS TV V20
+
+Déployer :
+  npx --yes --package=@webos-tools/cli@3.2.6 ares-device --list
+  npx --yes --package=@webos-tools/cli@3.2.6 ares-install --device <device-name> releases/iptv-webos-enact-v20-1.0.24.ipk
+  npx --yes --package=@webos-tools/cli@3.2.6 ares-launch --device <device-name> com.iptv.webos.player
+
+Valider le paquet :
+  npx --yes --package=@webos-tools/cli@3.2.6 ares-package -i releases/iptv-webos-enact-v20-1.0.24.ipk
+  npx --yes --package=@webos-tools/cli@3.2.6 ares-package -I releases/iptv-webos-enact-v20-1.0.24.ipk
+
+Diagnostic écran noir — non déclaré résolu :
+  npx --yes --package=@webos-tools/cli@3.2.6 ares-inspect com.iptv.webos.player --device <device-name> --open
+
+SHA-256 :
+  IPK    8fad1c89a19b4bf9345282af0e89076d8fd877425b5a708dc4f45df2608d7a43
+  ZIP    869158e8d38fb19641eeb77777ea267baed199ed44cceea86deb3495682c619f
+  SOURCE d5623b6d5d4a82d8c9f4eb4f10be2cda99ba63df10097996aa39e9c43b9cfb8b
+
+Release GitHub cible :
+  https://github.com/ouagkamel/iptv-webos/releases/tag/v20-enact-1.0.24

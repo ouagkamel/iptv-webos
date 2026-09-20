@@ -1,61 +1,123 @@
 # Release UI Enact V20 — 1.0.24
 
-Date de validation : 14 septembre 2026.
+Date de validation de cette révision : **20 septembre 2026**.
 
-## Livrable
+## Périmètre
 
-- Source de la variante : `enact-ui-v20/`.
-- Variante 100 % Enact : `@enact/core`, `@enact/spotlight`, `@enact/sandstone`.
-- Identifiant webOS conservé : `com.iptv.webos.player`.
-- Cible de production : Chromium/Chrome 68, via la configuration `target` du projet Enact.
-- Le paquet simulator à utiliser est `device-react-v20/` ; il est copié depuis le même build de production que `device-enact-v20/`.
-- L’ancienne copie device React Vite a été conservée dans `device-react-v20-legacy/` afin de ne pas mélanger les variantes.
+Cette révision concerne exclusivement la variante **Enact V20**, son backend V20 réel et l’identifiant webOS conservé :
 
-## Données et parcours
+- App ID : `com.iptv.webos.player`
+- Version applicative : `1.0.24`
+- Branche : `react-ui-v20`
+- Cible de build : Chromium/Chrome 68, définie dans `enact-ui-v20/package.json`
+- Référence utilisateur préservée : `/home/user/uploads/codeui.txt`
+- Copie de référence embarquée dans la source : `enact-ui-v20/reference/codeui.txt`
+- SHA-256 de la copie : `9bb541c5f9d3a0cd84a74753f032fa59b2b002ffede99e553d215359cdd6bcb9`
 
-Le runtime ne contient aucune donnée IPTV artificielle. Les chaînes, films, séries, épisodes et programmes EPG sont lus depuis `IPTVDatabase` avec le schéma Dexie V1 à V4 de la release V20. L’import réel accepte Xtream, M3U et XMLTV ; les URLs de flux sont construites à partir du profil importé.
+La référence utilisateur n’a pas été utilisée comme runtime. L’adaptation est séparée dans `src/views/Home/`, `src/components/MediaCards.js` et `src/services/importer.js`.
 
-Les profils Dexie, le formulaire Xtream/M3U, l’import progressif, les états vides, Live TV, films, séries, favoris, guide EPG et le lecteur Sandstone sont conservés. Le schéma ne crée pas de store favoris V5 : si la base V20 ne fournit pas de favoris, l’écran Favoris reste explicitement vide au lieu d’inventer du contenu.
+## Adaptation de la Home
 
-Les images de catalogue utilisent les URLs fournies par le backend réel. En cas d’image absente ou non lisible, le composant affiche un SVG local générique sans titre IPTV fictif. Aucun CDN Tailwind/Lucide/Three.js, Google Fonts, Unsplash, `test-streams.mux.dev`, profil de démonstration ou constante `LIVE_DATA`/`VOD_DATA` n’est embarqué dans le runtime.
+La Home Enact reprend la direction « Salon Prestige » sans injecter les données fictives de la référence :
 
-## Validation effectuée
+- en-tête premium déjà intégré au Shell avec statut du catalogue, horloge et état D-Pad ;
+- section **En Direct Maintenant** avec le nombre réel de chaînes et le bouton vers la grille EPG ;
+- section **Collection Masterpieces** avec le nombre réel de films ;
+- cartes Live alimentées par `data.channels` et le programme courant de `data.epg` ;
+- progression calculée depuis `startTime`/`stopTime` de l’EPG réel, jamais depuis une valeur inventée ;
+- posters VOD alimentés par `data.movies` et leurs artworks/rating/qualité réels ;
+- dock inférieur lié au canal sélectionné et à `onPlay` ;
+- navigation Spotlight au D-Pad via les containers Enact ;
+- virtualisation conservée avec `VirtualList` et `VirtualGridList` ;
+- états vides explicites si le catalogue réel est vide ou non synchronisé.
 
-Commandes exécutées depuis `enact-ui-v20/` :
+Aucune constante `LIVE_CHANNELS`, `MASTERPIECES`, `MOCK_CHANNELS`, `MOCK_MOVIES` ou `mockData.js` n’est embarquée dans le runtime. Les URLs Unsplash, flux Mux, profils fictifs et télémétrie inventée de la référence ne sont pas utilisés par l’application. Les URLs de lecture et les images restent celles importées depuis le profil Xtream/M3U réel.
+
+## Données et parcours conservés
+
+Les profils, le modal Xtream/M3U, l’import progressif, Live TV, Films, Séries, Favoris, Guide EPG et le lecteur restent branchés sur la base Dexie V20. Le schéma Dexie V4 est conservé ; aucun store Favoris V5 n’est créé. Sans données réelles, l’interface affiche un état vide au lieu de fabriquer un catalogue.
+
+La progression EPG et les métadonnées de qualité ajoutées dans l’importeur sont dérivées des lignes Xtream/XMLTV ou restent absentes lorsque le fournisseur ne les transmet pas.
+
+## Compatibilité et performance
+
+- cible Enact : `chrome 68` ;
+- bootstrap `window.globalThis` conservé dans `src/index.html` et présent dans `dist/index.html` avant `main.js` ;
+- CSS de cette Home sans `backdrop-filter`, `aspect-ratio` ou dépendance CDN ;
+- transitions de focus limitées à `transform`/`opacity` dans les cartes ;
+- grandes listes et grilles virtualisées ;
+- pas de re-render artificiel lié aux appuis rapides de télécommande.
+
+Le build Enact complet génère environ 72 Mo de locales iLib dans `dist/node_modules/ilib`. Pour le runtime webOS, les deux dossiers device utilisent le sous-ensemble français/anglais déjà validé (environ 8,6 Mo décompressés) ; les deux dossiers sont byte-identiques. Le bundle compilé reste le même : `main.js` ~1,26 Mo et `main.css` ~456,55 Ko.
+
+## Validation exécutée
+
+Depuis `enact-ui-v20/` :
 
 ```text
-npx --yes @enact/cli@5.1.3 lint .       PASS — 0 erreur, 0 avertissement
-npx --yes @enact/cli@5.1.3 pack -p     PASS — build production 1.26 MB JS / 456.06 kB CSS
-npx --yes @enact/cli@5.1.3 test --passWithNoTests
-                                         PASS — aucun test local déclaré
+npm ci --ignore-scripts
+npm run lint       PASS
+npm run pack-p     PASS — build production ciblé Chrome 68
 ```
 
-La suite V20 existante a également été exécutée depuis la racine : `npm test` — PASS, 90 tests. La preview Enact a été démarrée sur `0.0.0.0:8080` avec `@enact/cli@5.1.3 serve --host 0.0.0.0` et a répondu HTTP 200. Le paquet device et la preview sont issus du même contenu `dist/`; `device-react-v20/main.js` et `device-enact-v20/main.js` sont identiques.
-
-Le paquet `.ipk` a été régénéré avec `@webos-tools/cli@3.2.6 ares-package`, puis vérifié avec `ares-package -i` et `ares-package -I`. Il contient le format webOS Package Format 2, `packageinfo.json`, `appinfo.json`, `index.html`, les bundles Enact, les ressources Sandstone/iLib et les icônes locales. Le paquet manuel précédent n’était pas signé/structuré comme un paquet webOS produit par `ares-package`, ce qui provoquait `ipk verified failed` sur le téléviseur.
-
-Le HTML d’amorçage définit aussi `window.globalThis` avant le bundle React. Chromium 68, utilisé par webOS TV 5, ne fournit pas cette API alors que la détection de plateforme Enact la lit dès le démarrage ; sans ce correctif, l’application peut afficher un écran noir malgré une installation réussie.
-
-Le build Enact complet génère environ 79 Mo décompressés car le chargeur iLib copie par défaut 6 755 fichiers de locale. Cette donnée n’est pas du code IPTV et n’était pas présente dans les anciennes releases Vite : c’est la raison de l’archive initiale d’environ 14–15 Mo. La release publiée a été réduite aux packs iLib français et anglais ainsi qu’aux métadonnées globales : elle fait environ 2,2 Mo en `.ipk` et 2,9 Mo en `.zip`. Le bundle Enact lui-même reste nécessaire : `main.js` fait environ 1,26 Mo et `main.css` environ 456 Ko, contrairement à une simple release source de quelques kilo-octets.
-
-Le message Browserslist indiquant que `caniuse-lite` est ancien est informatif ; il n’a pas bloqué le build et ne change pas la cible Chrome 68.
-
-## Utilisation et fichiers publiés
-
-Les fichiers `.ipk` et runtime `.zip` sont des artefacts compilés webOS, pas des projets npm : ils ne contiennent volontairement pas de `package.json`. Il ne faut donc pas lancer `npm install` dans un dossier extrait depuis l’archive runtime.
-
-Pour le simulateur ou un téléviseur webOS :
+Depuis la racine V20 :
 
 ```text
-ares-device --list
-ares-install --device <device-name> iptv-webos-enact-v20-1.0.24.ipk
-ares-launch --device <device-name> com.iptv.webos.player
+npm ci --ignore-scripts
+npm test           PASS — 90 tests
 ```
 
-Pour développer, utiliser l’asset source `iptv-webos-enact-v20-1.0.24-source.zip`, extraire le dossier qui contient `package.json`, puis lancer `npm install` depuis ce dossier.
+Contrôles de contenu :
 
-- `releases/iptv-webos-enact-v20-1.0.24.ipk` — paquet simulator/device.
-- `releases/iptv-webos-enact-v20-1.0.24.zip` — archive runtime de staging.
-- `iptv-webos-enact-v20-1.0.24-source.zip` — projet Enact complet avec `package.json` et `package-lock.json`.
-- `iptv-webos-enact-v20-runtime-usage.txt` — rappel d’utilisation des artefacts.
-- `releases/iptv-webos-enact-v20-1.0.24-manifest.json` — version, chemins, validation et SHA-256.
+```text
+grep -RInE 'LIVE_CHANNELS|MASTERPIECES|mockData|MOCK_CHANNELS|MOCK_MOVIES|unsplash|mux\.com' enact-ui-v20/src
+# aucune occurrence
+
+cmp -s device-react-v20/main.js device-enact-v20/main.js
+# identique
+```
+
+Le paquet a été créé avec **`@webos-tools/cli@3.2.6 ares-package`**, puis contrôlé avec les deux commandes demandées :
+
+```text
+npx --yes --package=@webos-tools/cli@3.2.6 ares-package -i releases/iptv-webos-enact-v20-1.0.24.ipk
+npx --yes --package=@webos-tools/cli@3.2.6 ares-package -I releases/iptv-webos-enact-v20-1.0.24.ipk
+```
+
+Résultat : package `com.iptv.webos.player`, version `1.0.24`, architecture `all`, webOS Package Format 2, `main: index.html`.
+
+## Artefacts locaux
+
+| Artefact | Chemin | Taille | SHA-256 |
+|---|---|---:|---|
+| IPK webOS | `releases/iptv-webos-enact-v20-1.0.24.ipk` | 2 235 452 octets | `8fad1c89a19b4bf9345282af0e89076d8fd877425b5a708dc4f45df2608d7a43` |
+| Runtime ZIP | `releases/iptv-webos-enact-v20-1.0.24.zip` | 2 860 631 octets | `869158e8d38fb19641eeb77777ea267baed199ed44cceea86deb3495682c619f` |
+| Source ZIP | `releases/iptv-webos-enact-v20-1.0.24-source.zip` | 1 839 600 octets | `d5623b6d5d4a82d8c9f4eb4f10be2cda99ba63df10097996aa39e9c43b9cfb8b` |
+| Manifeste | `releases/iptv-webos-enact-v20-1.0.24-manifest.json` | — | à recalculer après édition si nécessaire |
+
+Le dossier de preview compilé est `enact-ui-v20/dist/`. Les deux miroirs destinés au device/simulateur sont `device-react-v20/` et `device-enact-v20/`.
+
+## Déploiement
+
+```text
+# Depuis /home/user/iptv-webos-v20-ui
+npx --yes --package=@webos-tools/cli@3.2.6 ares-device --list
+npx --yes --package=@webos-tools/cli@3.2.6 ares-install --device <device-name> releases/iptv-webos-enact-v20-1.0.24.ipk
+npx --yes --package=@webos-tools/cli@3.2.6 ares-launch --device <device-name> com.iptv.webos.player
+```
+
+## Diagnostic écran noir
+
+L’écran noir TV **n’est pas déclaré résolu** par cette release. Le bootstrap `globalThis` est bien présent dans la source et le bundle, mais la console applicative sur le téléviseur/simulateur reste la validation déterminante. Après installation et lancement :
+
+```text
+npx --yes --package=@webos-tools/cli@3.2.6 ares-inspect com.iptv.webos.player --device <device-name> --open
+```
+
+Vérifier dans l’inspecteur : erreurs JavaScript au boot, chargement de `index.html`, `main.js`, `main.css`, et requêtes des locales iLib. Ne pas conclure à la résolution de l’écran noir avant cette vérification.
+
+## Publication GitHub
+
+Release cible : `v20-enact-1.0.24` sur `https://github.com/ouagkamel/iptv-webos/releases/tag/v20-enact-1.0.24`.
+
+Les trois artefacts compilés et le manifeste doivent être envoyés comme assets de cette release avec l’API GitHub disponible dans l’environnement. Le manifeste contient les chemins, tailles, hashes, commandes de packaging et l’état explicite de la validation TV.

@@ -1,4 +1,4 @@
-import React, {useCallback, useMemo, useState} from 'react';
+import React, {useCallback, useEffect, useMemo, useState} from 'react';
 import Heading from '@enact/sandstone/Heading';
 import BodyText from '@enact/sandstone/BodyText';
 import Button from '@enact/sandstone/Button';
@@ -20,6 +20,13 @@ function nowProgram(channel, byChannel) {
 
 const Home = React.memo(function Home({data, profile, onPlay, onNavigate}) {
 	const [selected, setSelected] = useState(data.channels[0] || null);
+	useEffect(() => {
+		if (!data.channels.length) {
+			setSelected(null);
+			return;
+		}
+		if (!selected || !data.channels.some((channel) => channel.id === selected.id)) setSelected(data.channels[0]);
+	}, [data.channels, selected]);
 	const programsByChannel = useMemo(() => {
 		const map = Object.create(null);
 		(data.epg || []).forEach((program) => {
@@ -45,7 +52,13 @@ const Home = React.memo(function Home({data, profile, onPlay, onNavigate}) {
 	const selectedProgram = selected ? nowProgram(selected, programsByChannel) : null;
 	return <div className={css.home}>
 		<LiveRow className={css.section} spotlightId="home-live-row">
-			<div className={css.sectionHeader}><div className={css.sectionTitle}><Icon size="medium">channel</Icon><Heading spacing="none">En Direct Maintenant</Heading><BodyText size="small">{data.channels.length} chaînes actives</BodyText></div><Button backgroundOpacity="transparent" size="small" icon="arrowrightskip" onClick={goGuide}>Grille EPG</Button></div>
+			<div className={css.sectionHeader}>
+				<div className={css.sectionTitle}>
+					<Icon size="medium">liverecord</Icon>
+					<div className={css.sectionTitleCopy}><Heading spacing="none">En Direct Maintenant</Heading><BodyText size="small">{data.channels.length} chaînes actives · catalogue réel V20</BodyText></div>
+				</div>
+				<div className={css.sectionHeaderActions}><span className={css.sectionTag}>HLS · LIVE</span><Button backgroundOpacity="transparent" size="small" icon="arrowrightskip" onClick={goGuide}>Grille EPG</Button></div>
+			</div>
 			{data.channels.length ? <VirtualList
 				className={css.liveList}
 				dataSize={data.channels.length}
@@ -60,7 +73,13 @@ const Home = React.memo(function Home({data, profile, onPlay, onNavigate}) {
 		</LiveRow>
 
 		<VodRow className={css.section} spotlightId="home-vod-row">
-			<div className={css.sectionHeader}><div className={css.sectionTitle}><Icon size="medium">stargroup</Icon><Heading spacing="none">Collection Masterpieces</Heading><BodyText size="small">Films réels · {profile && profile.activeImportId ? 'catalogue actif' : 'non synchronisé'}</BodyText></div><Button backgroundOpacity="transparent" size="small" icon="arrowrightskip" onClick={goVod}>Voir la VOD</Button></div>
+			<div className={css.sectionHeader}>
+				<div className={css.sectionTitle}>
+					<Icon size="medium">stargroup</Icon>
+					<div className={css.sectionTitleCopy}><Heading spacing="none">Collection Masterpieces</Heading><BodyText size="small">Films réels · {profile && profile.activeImportId ? 'catalogue actif' : 'non synchronisé'}</BodyText></div>
+				</div>
+				<div className={css.sectionHeaderActions}><span className={css.sectionTag}>SÉLECTION V20</span><Button backgroundOpacity="transparent" size="small" icon="arrowrightskip" onClick={goVod}>Voir la VOD</Button></div>
+			</div>
 			{data.movies.length ? <VirtualGridList
 				className={css.vodGrid}
 				dataSize={data.movies.length}

@@ -30,12 +30,22 @@ export const EmptyState = React.memo(function EmptyState({icon = 'movies', title
 	</div>;
 });
 
+function programProgress(program) {
+	if (!program) return 0;
+	const start = Number(program.startTime);
+	const stop = Number(program.stopTime);
+	const span = stop - start;
+	if (!Number.isFinite(start) || !Number.isFinite(stop) || span <= 0) return 0;
+	return Math.max(0, Math.min(100, Math.round((Date.now() - start) * 100 / span)));
+}
+
 export const LiveCard = React.memo(function LiveCard({channel, program, onPlay}) {
 	const play = useCallback(() => onPlay({...channel, kind: 'live'}), [channel, onPlay]);
+	const quality = channel.quality || channel.resolution || channel.streamType || channel.groupName;
 	return <SpottableCard className={css.liveCard} onClick={play}>
 		<div className={css.liveMedia}><MediaArt src={channel.logo} kind="live" alt={channel.name} /><div className={css.mediaShade} />
-			<div className={css.mediaBadges}><span className={css.liveBadge}><span className={css.redDot} /> LIVE</span>{channel.groupName && <span className={css.darkBadge}>{channel.groupName}</span>}</div>
-			<div className={css.liveMeta}><strong>{channel.name}</strong><span>{program ? program.title : 'Programme EPG indisponible'}</span><div className={css.progressTrack}><span className={css.progressValue} style={{width: program ? '62%' : '0%'}} /></div></div>
+			<div className={css.mediaBadges}><span className={css.liveBadge}><span className={css.redDot} /> LIVE</span>{quality && <span className={css.darkBadge}>{quality}</span>}</div>
+			<div className={css.liveMeta}><strong>{channel.name}</strong><span>{program ? program.title : 'Programme EPG indisponible'}</span><div className={css.progressTrack}><span className={css.progressValue} style={{width: `${programProgress(program)}%`}} /></div></div>
 		</div>
 	</SpottableCard>;
 });
@@ -43,7 +53,7 @@ export const LiveCard = React.memo(function LiveCard({channel, program, onPlay})
 export const MovieCard = React.memo(function MovieCard({movie, onPlay}) {
 	const play = useCallback(() => onPlay(movie), [movie, onPlay]);
 	return <SpottableCard className={css.posterCard} onClick={play}>
-		<div className={css.posterMedia}><MediaArt src={movie.logo} kind="movie" alt={movie.name} /><span className={css.qualityBadge}>{movie.rating ? `★ ${movie.rating}` : 'VOD'}</span></div>
+		<div className={css.posterMedia}><MediaArt src={movie.logo} kind="movie" alt={movie.name} /><span className={css.qualityBadge}>{movie.quality || (movie.rating ? `★ ${movie.rating}` : 'VOD')}</span></div>
 		<div className={css.posterInfo}><strong>{movie.name}</strong><span>{movie.releaseDate || 'Catalogue VOD'}{movie.groupName ? ` · ${movie.groupName}` : ''}</span></div>
 	</SpottableCard>;
 });

@@ -14,17 +14,22 @@
 	justify-content: space-between;
 	min-height: 56px;
 	padding: 0 4px 12px;
+	gap: 18px;
 }
 
 .sectionTitle {
 	display: flex;
 	align-items: center;
 	gap: 14px;
+	min-width: 0;
 	color: #fbbf24;
 }
 
-.sectionTitle :global(.heading) { color: #f8fafc; }
-.sectionTitle :global(.bodyText) { color: #94a3b8; margin-left: 4px; }
+.sectionTitleCopy { min-width: 0; }
+.sectionTitleCopy :global(.heading) { color: #f8fafc; }
+.sectionTitleCopy :global(.bodyText) { color: #94a3b8; margin-top: 6px; }
+.sectionHeaderActions { display: flex; align-items: center; gap: 14px; }
+.sectionTag { color: #fbbf24; font: 800 11px/1.2 monospace; letter-spacing: .08em; white-space: nowrap; }
 
 .liveList {
 	width: 100%;
@@ -60,3 +65,9 @@
 .quickInfo :global(.bodyText) { color: #94a3b8; white-space: nowrap; }
 .quickMeta { display: flex; gap: 18px; color: #94a3b8; font: 700 11px monospace; white-space: nowrap; }
 .quickAction { min-width: 120px; }
+
+@media (max-width: 1280px) {
+	.quickDock { left: 106px; right: 20px; gap: 12px; }
+	.quickMeta { gap: 9px; font-size: 10px; }
+	.sectionTag { display: none; }
+}

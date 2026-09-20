@@ -117,6 +117,8 @@ function mapXtreamRows(rows, kind, importId, profile, groups) {
         channelId: row.epg_channel_id ? text(row.epg_channel_id) : null,
         groupName: groupName,
         logo: text(row.stream_icon),
+        quality: text(row.quality || row.video_quality || row.resolution || row.stream_type),
+        streamType: text(row.stream_type),
         streamUrl: base + '/live/' + encodeURIComponent(profile.username) + '/' + encodeURIComponent(profile.password) + '/' + encodeURIComponent(streamId) + '.m3u8',
         searchName: searchName(name)
       };
@@ -130,6 +132,7 @@ function mapXtreamRows(rows, kind, importId, profile, groups) {
         name: name,
         groupName: groupName,
         logo: text(row.stream_icon),
+        quality: text(row.quality || row.video_quality || row.resolution),
         streamUrl: base + '/movie/' + encodeURIComponent(profile.username) + '/' + encodeURIComponent(profile.password) + '/' + encodeURIComponent(streamId) + '.' + text(row.container_extension || 'mp4'),
         searchName: searchName(name),
         rating: text(row.rating),
