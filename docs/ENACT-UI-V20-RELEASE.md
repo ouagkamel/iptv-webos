@@ -94,7 +94,7 @@ Résultat : package `com.iptv.webos.player`, version `1.0.24`, architecture `all
 | Runtime ZIP | `releases/iptv-webos-enact-v20-1.0.24.zip` | 2 860 631 octets | `869158e8d38fb19641eeb77777ea267baed199ed44cceea86deb3495682c619f` |
 | Source ZIP | `releases/iptv-webos-enact-v20-1.0.24-source.zip` | 1 839 600 octets | `d5623b6d5d4a82d8c9f4eb4f10be2cda99ba63df10097996aa39e9c43b9cfb8b` |
 | Dossier `dist/` ZIP | `releases/iptv-webos-enact-v20-1.0.24-dist.zip` | 2 871 947 octets | `710d0aafaa242a4c1317e9c56d078ecfb4c6b56e256650cdea9ea1b8f32cf80f` |
-| Manifeste | `releases/iptv-webos-enact-v20-1.0.24-manifest.json` | 3 166 octets | `816bf45847fcbabda363d75606b161c1d43651685cc12d66aaa7b4474a4b07ce` |
+| Manifeste | `releases/iptv-webos-enact-v20-1.0.24-manifest.json` | 3 226 octets | `c7bed62f8d79cd638b0424e130202b9824ab90fe7ee5991128c0bccdfc343475` |
 
 Le dossier de preview compilé est `enact-ui-v20/dist/`. Les deux miroirs destinés au device/simulateur sont `device-react-v20/` et `device-enact-v20/`.
 

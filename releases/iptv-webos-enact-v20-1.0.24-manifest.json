@@ -62,6 +62,7 @@
     "rootTests": "npm test: 90 passed",
     "aresPackageInfo": "pass",
     "aresPackageInfoDetail": "pass",
+    "distCheck": "ares-package -c enact-ui-v20/dist: pass",
     "packageFormat": "webOS Package Format 2",
     "appInfo": "com.iptv.webos.player 1.0.24",
     "tvConsole": "not yet verified",
