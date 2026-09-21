@@ -118,4 +118,4 @@ La release cible est :
 
 `https://github.com/ouagkamel/iptv-webos/releases/tag/v20-enact-2.0`
 
-Les cinq fichiers listés dans le manifeste doivent être publiés comme assets de cette release : IPK, runtime ZIP, source ZIP, archive `dist/` et manifeste.
+Les cinq fichiers listés dans le manifeste sont publiés comme assets de cette release : IPK, runtime ZIP, source ZIP, archive `dist/` et manifeste. Publication effectuée le 21 septembre 2026.
