@@ -161,7 +161,7 @@ const AppView = (props) => {
 		const content = useMemo(() => {
 			if (dataLoading) return <LoadingPanel message="Lecture du catalogue V20…" />;
 			if (activeTab === 'home') return <HomeView data={data} profile={activeProfile} onPlay={openPlayer} onNavigate={setActiveTab} />;
-			if (activeTab === 'live') return <LiveTvView data={data} profile={activeProfile} onPlay={openPlayer} onNavigate={setActiveTab} />;
+			if (activeTab === 'live') return <LiveTvView data={data} profile={activeProfile} onPlay={openPlayer} onNavigate={setActiveTab} onSwitchProfile={switchProfile} />;
 			if (activeTab === 'vod') return <CatalogView mode="vod" data={data} profile={activeProfile} onPlay={openPlayer} />;
 			if (activeTab === 'series') return <CatalogView mode="series" data={data} profile={activeProfile} onPlay={openPlayer} />;
 			if (activeTab === 'favorites') return <CatalogView mode="favorites" data={data} profile={activeProfile} onPlay={openPlayer} />;
@@ -171,6 +171,7 @@ const AppView = (props) => {
 
 		if (loading) return <div className={css.app}><LoadingPanel message="Ouverture de la base V20…" /></div>;
 		if (!activeProfile) return <div className={css.app}><ProfilePanel profiles={profiles} error={error} onSelect={selectProfile} onCreate={createAndImport} onDelete={deleteProfile} /></div>;
+		if (activeTab === 'live') return <div {...props} className={`${css.app} ${css.liveApp}`}><LiveTvView data={data} profile={activeProfile} onPlay={openPlayer} onNavigate={setActiveTab} onSwitchProfile={switchProfile} />{player && <VideoPlayerView item={player} onClose={closePlayer} />}</div>;
 		return <div {...props} className={css.app}>
 			<NavigationRail activeTab={activeTab} onNavigate={setActiveTab} onSwitchProfile={switchProfile} />
 			<main className={css.contentStage}>

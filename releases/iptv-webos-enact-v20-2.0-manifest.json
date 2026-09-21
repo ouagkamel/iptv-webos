@@ -1,0 +1,88 @@
+{
+  "product": "IPTV webOS Enact V20",
+  "appId": "com.iptv.webos.player",
+  "version": "2.0.0",
+  "releaseTag": "v20-enact-2.0",
+  "releaseUrl": "https://github.com/ouagkamel/iptv-webos/releases/tag/v20-enact-2.0",
+  "branch": "react-ui-v20",
+  "variant": "Enact V20 exclusivement",
+  "backend": "V20 réel · Dexie V4 · aucun catalogue de démonstration",
+  "target": "Chromium 68 / webOS 5+",
+  "artifactContract": {
+    "rawDist": "enact-ui-v20/dist/",
+    "simulatorMirror": "device-react-v20/",
+    "deviceMirror": "device-enact-v20/",
+    "mirrorsByteIdentical": true,
+    "rawDistContainsFullProductionLocales": true
+  },
+  "artifacts": [
+    {
+      "path": "releases/iptv-webos-enact-v20-2.0.ipk",
+      "sizeBytes": 2244418,
+      "sha256": "96fc860312486b8c6c66efe38a8a86a4eb88770806437956dd5a1047e7aff94a"
+    },
+    {
+      "path": "releases/iptv-webos-enact-v20-2.0.zip",
+      "sizeBytes": 2924871,
+      "sha256": "6013399995eef08365049d84e4b8ef2d058a75a538f39076736fdd27e16d0dc9"
+    },
+    {
+      "path": "releases/iptv-webos-enact-v20-2.0-source.zip",
+      "sizeBytes": 3316856,
+      "sha256": "a7b7350444b20d7de59ff0daafebf363899461bc0d86ac739e44b9bbcab21fd4"
+    },
+    {
+      "path": "releases/iptv-webos-enact-v20-2.0-dist.zip",
+      "sizeBytes": 18529229,
+      "sha256": "d21e5456bfff6e37c9f76fdb29971e380dd20ec8f34ed76c37ad4db9a3712d90"
+    }
+  ],
+  "validation": {
+    "enactLint": "PASS — npm run lint — 0 warning",
+    "enactProductionBuild": "PASS — npm run pack-p",
+    "backendTests": "PASS — npm test, 90 tests",
+    "aresPackageDistCheck": "PASS — ares-package -c enact-ui-v20/dist",
+    "aresPackageRuntimeCheck": "PASS — ares-package -i and -I",
+    "deviceMirrorCheck": "PASS — device-react-v20 and device-enact-v20 identical",
+    "tvSimulatorValidation": "NON EFFECTUÉE — nécessite une cible webOS/TV disponible"
+  },
+  "design": {
+    "palette": [
+      "#080e19",
+      "#0d1625",
+      "#0865d7",
+      "#18adff",
+      "#159cff",
+      "#f5f7fb",
+      "#cbd5e1",
+      "#94a3b8",
+      "#ffc532"
+    ],
+    "layout": "348px | 1fr | 620px à 1920x1080",
+    "features": [
+      "navigation IPTV supérieure",
+      "catégories réelles",
+      "VirtualList des chaînes",
+      "logos avec fallback",
+      "EPG réel courant/suivant",
+      "OSD télécommande",
+      "état vide explicite"
+    ]
+  },
+  "sourceReferences": {
+    "codeCopy": "/home/user/uploads/codeui.txt",
+    "designMarkdownCopy": "enact-ui-v20/reference/markdown_v20.10.md",
+    "designImageCopy": "enact-ui-v20/reference/live-tv-design-v20.png",
+    "referencesModified": false
+  },
+  "publish": {
+    "repository": "https://github.com/ouagkamel/iptv-webos",
+    "assets": [
+      "releases/iptv-webos-enact-v20-2.0.ipk",
+      "releases/iptv-webos-enact-v20-2.0.zip",
+      "releases/iptv-webos-enact-v20-2.0-source.zip",
+      "releases/iptv-webos-enact-v20-2.0-dist.zip",
+      "releases/iptv-webos-enact-v20-2.0-manifest.json"
+    ]
+  }
+}

@@ -1,33 +1,33 @@
-Release Enact V20 1.0.24
+Release Enact V20 — v20-enact-2.0
+
+Variante : Enact V20 uniquement
+App ID  : com.iptv.webos.player
+Version : 2.0.0
+Tag     : v20-enact-2.0
+Cible   : Chromium 68 / webOS 5+
 
 Artefacts :
-- releases/iptv-webos-enact-v20-1.0.24.ipk
-- releases/iptv-webos-enact-v20-1.0.24.zip
-- releases/iptv-webos-enact-v20-1.0.24-source.zip
-- releases/iptv-webos-enact-v20-1.0.24-dist.zip (dossier dist/ prêt pour le simulateur)
-- releases/iptv-webos-enact-v20-1.0.24-manifest.json
+- releases/iptv-webos-enact-v20-2.0.ipk
+- releases/iptv-webos-enact-v20-2.0.zip
+- releases/iptv-webos-enact-v20-2.0-source.zip
+- releases/iptv-webos-enact-v20-2.0-dist.zip (dossier dist/ prêt pour le simulateur)
+- releases/iptv-webos-enact-v20-2.0-manifest.json
 
-App ID : com.iptv.webos.player
-Version : 1.0.24
-Cible : Chromium 68 / webOS TV V20
+Le dossier brut de preview/build est :
+- enact-ui-v20/dist/
+Le miroir simulator est :
+- device-react-v20/
 
-Déployer :
-  npx --yes --package=@webos-tools/cli@3.2.6 ares-device --list
-  npx --yes --package=@webos-tools/cli@3.2.6 ares-install --device <device-name> releases/iptv-webos-enact-v20-1.0.24.ipk
+Installation :
+  npx --yes --package=@webos-tools/cli@3.2.6 ares-install --device <device-name> releases/iptv-webos-enact-v20-2.0.ipk
   npx --yes --package=@webos-tools/cli@3.2.6 ares-launch --device <device-name> com.iptv.webos.player
 
-Valider le paquet :
-  npx --yes --package=@webos-tools/cli@3.2.6 ares-package -i releases/iptv-webos-enact-v20-1.0.24.ipk
-  npx --yes --package=@webos-tools/cli@3.2.6 ares-package -I releases/iptv-webos-enact-v20-1.0.24.ipk
+Contrôles déjà exécutés :
+  npx --yes --package=@webos-tools/cli@3.2.6 ares-package -c enact-ui-v20/dist
+  npx --yes --package=@webos-tools/cli@3.2.6 ares-package -i releases/iptv-webos-enact-v20-2.0.ipk
+  npx --yes --package=@webos-tools/cli@3.2.6 ares-package -I releases/iptv-webos-enact-v20-2.0.ipk
 
-Diagnostic écran noir — non déclaré résolu :
-  npx --yes --package=@webos-tools/cli@3.2.6 ares-inspect com.iptv.webos.player --device <device-name> --open
+Tests : npm test → 90 tests passés.
 
-SHA-256 :
-  IPK    f0d13f2a39f0ef34f870f34de7c482b777a15417429d5339ea25a22f2afd0ef4
-  ZIP    01ee2a1c2b460c1b7800f880aa7593377b5ef76c08d7373f76f8d9a0dcfed085
-  SOURCE f68ee1e1be79c5dfc5085474a8a042f6b72f5df9086a515c53edd06ea2a41d87
-  DIST   e7e481a9f9cb3d754de124ea27315cbee4f8701e20dae6f4848b054bb46354a1
-
-Release GitHub cible :
-  https://github.com/ouagkamel/iptv-webos/releases/tag/v20-enact-1.0.24
+Release GitHub :
+  https://github.com/ouagkamel/iptv-webos/releases/tag/v20-enact-2.0
