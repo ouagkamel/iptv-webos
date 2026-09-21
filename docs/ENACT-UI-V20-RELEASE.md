@@ -76,10 +76,10 @@ La validation sur téléviseur/simulateur réel reste à effectuer lorsqu’une 
 
 | Artefact | Chemin | Taille | SHA-256 |
 |---|---|---:|---|
-| IPK webOS | `releases/iptv-webos-enact-v20-2.0.ipk` | 2 244 418 octets | `96fc860312486b8c6c66efe38a8a86a4eb88770806437956dd5a1047e7aff94a` |
-| Runtime ZIP | `releases/iptv-webos-enact-v20-2.0.zip` | 2 924 871 octets | `6013399995eef08365049d84e4b8ef2d058a75a538f39076736fdd27e16d0dc9` |
-| Source ZIP | `releases/iptv-webos-enact-v20-2.0-source.zip` | 3 316 856 octets | `a7b7350444b20d7de59ff0daafebf363899461bc0d86ac739e44b9bbcab21fd4` |
-| Dossier brut `dist/` ZIP | `releases/iptv-webos-enact-v20-2.0-dist.zip` | 18 529 229 octets | `d21e5456bfff6e37c9f76fdb29971e380dd20ec8f34ed76c37ad4db9a3712d90` |
+| IPK webOS | `releases/iptv-webos-enact-v20-2.0.ipk` | 2 244 396 octets | `715cfb18b44b72ee1ba4d4ccc1b93c56bf461bfa86cc3768e285b6bebb4f4cf0` |
+| Runtime ZIP | `releases/iptv-webos-enact-v20-2.0.zip` | 2 924 875 octets | `45d21c0d2ee0fc7d46be0954b8ad5336501f0ee2dc94b81713df96bf04886d8a` |
+| Source ZIP | `releases/iptv-webos-enact-v20-2.0-source.zip` | 3 316 862 octets | `3248c690f2afdad56b29c9ae68e9e13dc4c776036fe6d3fd911f4e4bb78c6f51` |
+| Dossier brut `dist/` ZIP | `releases/iptv-webos-enact-v20-2.0-dist.zip` | 18 529 233 octets | `3af74d8814a4576a39013bc3093e95cbcd79ae9fd37345f3bfd2c5afcb313490` |
 | Manifeste | `releases/iptv-webos-enact-v20-2.0-manifest.json` | 2 986 octets | calculé dans le fichier |
 
 Le dossier de build non archivé est :
