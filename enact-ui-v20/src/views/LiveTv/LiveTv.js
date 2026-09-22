@@ -115,8 +115,11 @@ const ChannelLogo = React.memo(function ChannelLogo({channel}) {
 	return <span className={css.channelLogoFallback}>{initials(channelTitle(channel))}</span>;
 });
 
-const ChannelRow = React.memo(function ChannelRow({channel, index, selected, favorite, program, onSelect}) {
-	const select = useCallback(() => onSelect(channel), [channel, onSelect]);
+const ChannelRow = React.memo(function ChannelRow({channel, index, selected, favorite, program, onSelect, onPlay}) {
+	const select = useCallback(() => {
+		onSelect(channel);
+		if (channel && channel.streamUrl) onPlay({...channel, kind: 'live'});
+	}, [channel, onPlay, onSelect]);
 	const number = channelNumber(channel, index);
 	const name = channelTitle(channel);
 	const details = metadata(channel);
@@ -198,9 +201,12 @@ const LiveTv = React.memo(function LiveTv({data, profile, onPlay, onNavigate, on
 	const selectedProgram = selected ? currentProgram(selected, programs, now.getTime()) : null;
 	const upcoming = selected ? upcomingPrograms(selected, programs, now.getTime()) : [];
 	const selectChannel = useCallback((channel) => setSelectedId(channel.id), []);
+	const playChannel = useCallback((channel) => {
+		if (channel && channel.streamUrl) onPlay({...channel, kind: 'live'});
+	}, [onPlay]);
 	const playSelected = useCallback(() => {
-		if (selected && selected.streamUrl) onPlay({...selected, kind: 'live'});
-	}, [onPlay, selected]);
+		playChannel(selected);
+	}, [playChannel, selected]);
 	const openGuide = useCallback(() => onNavigate('guide'), [onNavigate]);
 	const openFavorites = useCallback(() => onNavigate('favorites'), [onNavigate]);
 	const openSettings = useCallback(() => onNavigate('settings'), [onNavigate]);
@@ -209,8 +215,8 @@ const LiveTv = React.memo(function LiveTv({data, profile, onPlay, onNavigate, on
 	const renderChannel = useCallback(({index}) => {
 		const channel = filteredChannels[index];
 		if (!channel) return null;
-		return <ChannelRow channel={channel} index={channels.indexOf(channel)} selected={selected && selected.id === channel.id} favorite={favoriteIds.has(String(channel.id)) || favoriteIds.has(String(channel.channelId))} program={currentProgram(channel, programs, now.getTime())} onSelect={selectChannel} />;
-		}, [channels, favoriteIds, filteredChannels, now, programs, selectChannel, selected]);
+		return <ChannelRow channel={channel} index={channels.indexOf(channel)} selected={selected && selected.id === channel.id} favorite={favoriteIds.has(String(channel.id)) || favoriteIds.has(String(channel.channelId))} program={currentProgram(channel, programs, now.getTime())} onSelect={selectChannel} onPlay={playChannel} />;
+		}, [channels, favoriteIds, filteredChannels, now, playChannel, programs, selectChannel, selected]);
 	useEffect(() => {
 		const timer = setInterval(() => setNow(new Date()), 30000);
 		return () => clearInterval(timer);
@@ -258,6 +264,7 @@ const LiveTv = React.memo(function LiveTv({data, profile, onPlay, onNavigate, on
 
 				<section className={css.cataloguePanel}>
 					<div className={css.catalogueGlow} />
+					{selected && <div className={css.catalogueLogo} aria-hidden="true"><ChannelLogo channel={selected} /></div>}
 					<div className={css.catalogueContent}><span className={css.catalogueKicker}>CATALOGUE ACTIF · V20</span><Heading spacing="none">{selected ? channelTitle(selected) : 'Direct TV'}</Heading><BodyText size="small">{selected ? 'Flux et métadonnées fournis par le profil actif.' : 'Sélectionnez une chaîne réelle du catalogue.'}</BodyText><div className={css.catalogueStats}><span><strong>{channels.length}</strong> CHAÎNES</span><span><strong>{data.epg.length}</strong> PROGRAMMES</span><span><strong>{data.movies.length}</strong> FILMS</span></div><div className={css.catalogueActions}><Button className={css.playButton} onClick={playSelected} disabled={!selected || !selected.streamUrl} icon="play">Lire le direct</Button><Button className={css.guideButton} onClick={openGuide} icon="tvguidefvp">Ouvrir le guide</Button></div></div>
 				</section>
 			</main>
