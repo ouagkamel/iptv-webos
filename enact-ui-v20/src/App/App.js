@@ -8,12 +8,11 @@ import Icon from '@enact/sandstone/Icon';
 
 import HomeView from '../views/Home/Home';
 import CatalogView from '../views/Catalog/Catalog';
-import LiveTvView from '../views/LiveTv/LiveTv';
+import LiveTvView, {LiveHeader} from '../views/LiveTv/LiveTv';
 import GuideView from '../views/Guide/Guide';
 import SettingsView from '../views/Settings/Settings';
 import ProfilePanel from '../views/Profile/ProfilePanel';
 import VideoPlayerView from '../views/Player/VideoPlayer';
-import NavigationRail from '../components/NavigationRail';
 import {
 	createProfile,
 	iptvDb,
@@ -23,16 +22,6 @@ import {
 import {importProfileAndEpg} from '../services/importer';
 
 import css from './App.module.less';
-
-const tabLabels = {
-	home: ['Salon Prestige', 'En Direct et sélection haute définition'],
-	live: ['En Direct Maintenant', 'Chaînes et EPG du catalogue actif'],
-	vod: ['Collection Masterpieces', 'Films du catalogue réel'],
-	series: ['Séries et épisodes', 'Détails du catalogue Xtream réel'],
-	guide: ['Grille EPG', 'Programmes en cours du guide XMLTV'],
-	favorites: ['Mes Favoris', 'Contenus enregistrés dans V20'],
-	settings: ['Réglages IPTV', 'Profil, import et état du stockage']
-};
 
 function removeProfileData(profile) {
 	return iptvDb.imports.where('playlistId').equals(profile.id).primaryKeys().then((imports) => {
@@ -56,29 +45,13 @@ function removeProfileData(profile) {
 	});
 }
 
-const StatusBar = React.memo(function StatusBar({profile, tab, onRefresh}) {
-	const [clock, setClock] = useState(() => new Date().toLocaleTimeString('fr-FR', {hour: '2-digit', minute: '2-digit'}));
-	const [title, subtitle] = tabLabels[tab] || tabLabels.home;
+const V20Header = React.memo(function V20Header({active, profile, onNavigate, onSwitchProfile}) {
+	const [clock, setClock] = useState(() => new Date());
 	useEffect(() => {
-		const timer = setInterval(() => setClock(new Date().toLocaleTimeString('fr-FR', {hour: '2-digit', minute: '2-digit'})), 10000);
+		const timer = setInterval(() => setClock(new Date()), 10000);
 		return () => clearInterval(timer);
 	}, []);
-	return <header className={css.headerBar}>
-		<div className={css.headerTitleBlock}>
-			<div className={css.headerKickerRow}>
-				<span className={css.premiumPill}>PREMIUM EXPERIENCE</span>
-				<span className={css.headerTech}><Icon size="small">wifi3</Icon> V20 · Enact Sandstone</span>
-			</div>
-			<Heading size="large" spacing="none" className={css.pageTitle}>{title} <span className={css.hdrBadge}>4K HDR</span></Heading>
-			<BodyText size="small" className={css.pageSubtitle}>{subtitle} · <strong>{profile ? profile.name : 'Aucun profil'}</strong></BodyText>
-		</div>
-		<div className={css.headerStatusGroup}>
-			<span className={css.statusPill}><span className={css.statusDot} /> {profile && profile.activeImportId ? 'Catalogue actif' : 'Profil non synchronisé'}</span>
-			<span className={css.dpadPill}><Icon size="small">remotecontrol</Icon> D-PAD NAVIGATION ACTIVE</span>
-			<span className={css.clockPill}><Icon size="small">timer</Icon> {clock}</span>
-			<Button className={css.refreshButton} backgroundOpacity="transparent" size="small" icon="refresh" onClick={onRefresh} aria-label="Relire les données" />
-		</div>
-	</header>;
+	return <LiveHeader active={active} clock={clock} profile={profile} onNavigate={onNavigate} onSwitchProfile={onSwitchProfile} />;
 });
 
 const LoadingPanel = React.memo(function LoadingPanel({message = 'Chargement des données V20…'}) {
@@ -172,12 +145,11 @@ const AppView = (props) => {
 		if (loading) return <div className={css.app}><LoadingPanel message="Ouverture de la base V20…" /></div>;
 		if (!activeProfile) return <div className={css.app}><ProfilePanel profiles={profiles} error={error} onSelect={selectProfile} onCreate={createAndImport} onDelete={deleteProfile} /></div>;
 		if (activeTab === 'live') return <div {...props} className={`${css.app} ${css.liveApp}`}><LiveTvView data={data} profile={activeProfile} onPlay={openPlayer} onNavigate={setActiveTab} onSwitchProfile={switchProfile} />{player && <VideoPlayerView item={player} onClose={closePlayer} />}</div>;
-		return <div {...props} className={css.app}>
-			<NavigationRail activeTab={activeTab} onNavigate={setActiveTab} onSwitchProfile={switchProfile} />
-			<main className={css.contentStage}>
-				<StatusBar profile={activeProfile} tab={activeTab} onRefresh={refresh} />
+		return <div {...props} className={`${css.app} ${css.v20App}`}>
+			<V20Header active={activeTab} profile={activeProfile} onNavigate={setActiveTab} onSwitchProfile={switchProfile} />
+			<main className={css.v20ContentStage}>
 				{error && <div className={css.errorBanner}><Icon size="small">exclamation</Icon>{error}<Button size="small" backgroundOpacity="transparent" onClick={dismissError}>Fermer</Button></div>}
-				<div className={css.contentScroll}>{content}</div>
+				<div className={css.v20ContentScroll}>{content}</div>
 			</main>
 			{player && <VideoPlayerView item={player} onClose={closePlayer} />}
 		</div>;

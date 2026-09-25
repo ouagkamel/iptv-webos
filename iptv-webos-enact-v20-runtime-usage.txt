@@ -1,33 +1,34 @@
-Release Enact V20 — v20-enact-2.0
+Release Enact V20 — v20-enact-4.0
+
+Nouveau design : shell Enact V20 partagé par tous les menus.
 
 Variante : Enact V20 uniquement
 App ID  : com.iptv.webos.player
-Version : 2.0.0
-Tag     : v20-enact-2.0
-Cible   : Chromium 68 / webOS 5+
+Version : 4.0.0
+Tag     : v20-enact-4.0
+Base    : release/tag v20
+Cible   : webOS TV 6+, build Chromium 68 / ES2019
 
 Artefacts :
-- releases/iptv-webos-enact-v20-2.0.ipk
-- releases/iptv-webos-enact-v20-2.0.zip
-- releases/iptv-webos-enact-v20-2.0-source.zip
-- releases/iptv-webos-enact-v20-2.0-dist.zip (dossier dist/ prêt pour le simulateur)
-- releases/iptv-webos-enact-v20-2.0-manifest.json
+- releases/iptv-webos-enact-v20-4.0.ipk
+- releases/iptv-webos-enact-v20-4.0.zip
+- releases/iptv-webos-enact-v20-4.0-source.zip
+- releases/iptv-webos-enact-v20-4.0-dist.zip (dossier dist/ prêt pour le simulateur)
+- releases/iptv-webos-enact-v20-4.0-manifest.json
 
-Le dossier brut de preview/build est :
+Dossiers générés :
 - enact-ui-v20/dist/
-Le miroir simulator est :
 - device-react-v20/
+- device-enact-v20/
 
 Installation :
-  npx --yes --package=@webos-tools/cli@3.2.6 ares-install --device <device-name> releases/iptv-webos-enact-v20-2.0.ipk
+  npx --yes --package=@webos-tools/cli@3.2.6 ares-install --device <device-name> releases/iptv-webos-enact-v20-4.0.ipk
   npx --yes --package=@webos-tools/cli@3.2.6 ares-launch --device <device-name> com.iptv.webos.player
 
-Contrôles déjà exécutés :
+Contrôles :
   npx --yes --package=@webos-tools/cli@3.2.6 ares-package -c enact-ui-v20/dist
-  npx --yes --package=@webos-tools/cli@3.2.6 ares-package -i releases/iptv-webos-enact-v20-2.0.ipk
-  npx --yes --package=@webos-tools/cli@3.2.6 ares-package -I releases/iptv-webos-enact-v20-2.0.ipk
-
-Tests : npm test → 90 tests passés.
+  npx --yes --package=@webos-tools/cli@3.2.6 ares-package -i releases/iptv-webos-enact-v20-4.0.ipk
+  npx --yes --package=@webos-tools/cli@3.2.6 ares-package -I releases/iptv-webos-enact-v20-4.0.ipk
 
 Release GitHub :
-  https://github.com/ouagkamel/iptv-webos/releases/tag/v20-enact-2.0
+  https://github.com/ouagkamel/iptv-webos/releases/tag/v20-enact-4.0

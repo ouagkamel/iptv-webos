@@ -474,7 +474,32 @@
 	right: 0;
 	bottom: 0;
 	left: 0;
-	background: radial-gradient(circle at 85% 20%, rgba(24,173,255,.65), transparent 29%), linear-gradient(135deg, #0b4376 0%, #102c4c 45%, #0d1625 100%);
+	background: linear-gradient(135deg, #0b4376 0%, #102c4c 52%, #0d1625 100%);
+}
+.catalogueLogo {
+	position: absolute;
+	top: 30px;
+	right: 30px;
+	width: 180px;
+	height: 106px;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	box-sizing: border-box;
+	border: 1px solid rgba(255,255,255,.22);
+	border-radius: 12px;
+	background: rgba(8,14,25,.42);
+	box-shadow: 0 14px 32px rgba(0,0,0,.22);
+	transform: rotate(2deg);
+}
+.catalogueLogo .channelLogoImage {
+	width: 154px;
+	height: 80px;
+	object-fit: contain;
+}
+.catalogueLogo .channelLogoFallback {
+	color: #f5f7fb;
+	font-size: 30px;
 }
 .catalogueContent {
 	position: relative;

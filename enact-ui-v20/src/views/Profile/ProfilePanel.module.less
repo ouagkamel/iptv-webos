@@ -1,10 +1,10 @@
-.profileShell { width: 100%; height: 100%; box-sizing: border-box; padding: 46px 70px; background: #07090e; color: #f8fafc; overflow: hidden; }
+.profileShell { width: 100%; height: 100%; box-sizing: border-box; padding: 46px 70px; background: #080e19; color: #f8fafc; overflow: hidden; }
 .profileBrand { display: flex; align-items: center; gap: 18px; }
 .profileBrand :global(.heading) { color: #fff; font-size: 34px; }
 .profileBrand :global(.bodyText) { color: #94a3b8; margin-top: 5px; }
-.brandBadge { width: 62px; height: 62px; border-radius: 19px; display: flex; align-items: center; justify-content: center; background: rgba(245,158,11,.14); border: 1px solid rgba(245,158,11,.45); color: #ffc83b; }
+.brandBadge { width: 62px; height: 62px; border-radius: 19px; display: flex; align-items: center; justify-content: center; background: rgba(8,101,215,.20); border: 1px solid rgba(24,173,255,.45); color: #ffc532; }
 .welcome { min-height: 640px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 22px; text-align: center; }
-.welcome > :global(.icon) { color: #ffc83b; }
+.welcome > :global(.icon) { color: #ffc532; }
 .welcome :global(.heading) { color: #fff; font-size: 38px; }
 .welcome :global(.bodyText) { max-width: 700px; color: #94a3b8; }
 .profileContent { margin-top: 70px; }
@@ -12,20 +12,20 @@
 .profileHeader :global(.heading) { color: #fff; font-size: 32px; }
 .profileHeader :global(.bodyText) { color: #94a3b8; margin-top: 9px; }
 .profileGrid { display: grid; grid-template-columns: repeat(4, minmax(210px, 1fr)); gap: 22px; margin-top: 36px; }
-.profileCard { min-height: 175px; position: relative; box-sizing: border-box; padding: 24px; border: 1px solid #24304a; border-radius: 22px; background: #101625; outline: none; display: flex; flex-direction: column; justify-content: space-between; }
-.profileCard:global(.spottable-focused) { border-color: #ffc83b; transform: scale(1.04); box-shadow: 0 0 0 3px #ffc83b; }
-.profileIcon { width: 54px; height: 54px; border-radius: 16px; display: flex; align-items: center; justify-content: center; background: rgba(245,158,11,.12); color: #ffc83b; }
+.profileCard { min-height: 175px; position: relative; box-sizing: border-box; padding: 24px; border: 1px solid #24304a; border-radius: 22px; background: #111c2d; outline: none; display: flex; flex-direction: column; justify-content: space-between; }
+.profileCard:global(.spottable-focused) { border-color: #ffc532; transform: scale(1.04); box-shadow: 0 0 0 3px #ffc532; }
+.profileIcon { width: 54px; height: 54px; border-radius: 16px; display: flex; align-items: center; justify-content: center; background: rgba(8,101,215,.18); color: #ffc532; }
 .profileText strong { display: block; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; color: #fff; font-size: 18px; }
 .profileText :global(.bodyText) { margin-top: 4px; color: #94a3b8; }
 .deleteButton { position: absolute; right: 10px; top: 10px; color: #f87171; }
 .error { display: flex; align-items: center; gap: 10px; margin-top: 18px; padding: 12px 16px; border-radius: 12px; color: #fecaca; background: rgba(127,29,29,.35); border: 1px solid rgba(248,113,113,.35); }
 .modalBackdrop { position: fixed; inset: 0; z-index: 80; display: flex; align-items: center; justify-content: center; padding: 42px; background: rgba(0,0,0,.78); }
-.modal { width: 760px; max-width: 90vw; box-sizing: border-box; padding: 32px; border-radius: 25px; border: 1px solid #2b3957; background: #0d111c; }
+.modal { width: 760px; max-width: 90vw; box-sizing: border-box; padding: 32px; border-radius: 25px; border: 1px solid #2b3957; background: #0d1625; }
 .modalHeader { display: flex; justify-content: space-between; align-items: center; margin-bottom: 22px; }
 .modalHeader :global(.heading) { color: #fff; font-size: 28px; }
 .sourceTabs { display: flex; gap: 10px; margin-bottom: 20px; }
 .formGrid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 .formGrid > :first-child, .formGrid > :nth-child(2) { grid-column: 1 / -1; }
-.progress { margin-top: 20px; color: #fbbf24; }
-.progress :global(.bodyText) { color: #fbbf24; margin-bottom: 8px; }
+.progress { margin-top: 20px; color: #18adff; }
+.progress :global(.bodyText) { color: #18adff; margin-bottom: 8px; }
 .submitButton { width: 100%; margin-top: 26px; }

@@ -1,60 +1,79 @@
-# Release UI Enact V20 — v20-enact-2.0
+# Release UI Enact V20 — v20-enact-4.0
 
-Date de validation du build : **21 septembre 2026**.
+Date de build : **25 septembre 2026**.
 
 ## Périmètre
 
-Cette release concerne exclusivement la variante **Enact V20**, le backend V20 réel et l’identifiant webOS conservé :
+Cette révision travaille sur la base V20 indiquée par l’utilisateur et reste exclusivement sur la variante **Enact V20** :
 
 - App ID : `com.iptv.webos.player`
-- Version manifest : `2.0.0`
-- Tag : `v20-enact-2.0`
+- Version manifest : `4.0.0`
+- Tag : `v20-enact-4.0`
 - Branche : `react-ui-v20`
-- Cible : Chromium 68 / webOS 5+
-- Références UX copiées sans modification : `enact-ui-v20/reference/markdown_v20.10.md` et `enact-ui-v20/reference/live-tv-design-v20.png`
+- Cible minimale déclarée : webOS TV 6.0+
+- Build conservatif : Chromium 68 / syntaxe ES2019 ou plus ancienne
+- Backend : Dexie V4 et catalogues réels V20
 
-Les références utilisateur servent uniquement de référence UX. Aucun écran de démonstration, catalogue fictif, URL Unsplash, flux Mux, Google Font ou donnée inventée n’est embarqué dans le runtime.
+Le document technique utilisateur est conservé sans modification dans `enact-ui-v20/reference/stack-technique-iptv-webos-enact.md`. Les autres références UX sont également byte-identiques aux fichiers fournis.
 
-## Live TV livré
+## Nouveau design et shell partagé
 
-`enact-ui-v20/src/views/LiveTv/LiveTv.js` et `LiveTv.module.less` livrent une vue plein écran bleu nuit, activée directement par `App.js` sans le rail/header global historique :
+La correction principale est l’intégration de toute l’application dans le shell V20 Enact. Les routes Home, Films, Séries, Favoris, Guide et Paramètres ne réutilisent plus l’ancien `NavigationRail`/`StatusBar` de `1.0.24`.
 
-- navigation IPTV supérieure avec **Chaînes TV** actif ;
+Le shell commun apporte :
+
+- navigation IPTV supérieure ;
+- accès Home via le logo ;
+- onglets Chaînes TV, Films, Séries, Profils et Paramètres ;
+- horloge et profil actif ;
+- fond bleu nuit et palette cohérente avec le nouveau design ;
+- contenu scrollable sans décalage laissé par l’ancien rail ;
+- navigation Spotlight commune à tous les menus.
+
+Les écrans existants restent branchés sur les données et actions réelles V20 : profils, Xtream/M3U, films, séries, favoris, EPG et lecteur.
+
+## Live TV
+
+La vue Live TV reprend la composition de référence :
+
 - grille `348px | 1fr | 620px` à 1920×1080 ;
-- catégories dérivées des groupes réels du catalogue ;
-- chaînes virtualisées avec numéro, logo réel, fallback d’initiales, nom, qualité et favori ;
-- programme courant, progression et prochain programme depuis l’EPG réel ;
-- états vides explicites sans remplissage artificiel ;
-- boutons de lecture et guide reliés au lecteur/Guide V20 ;
-- profils, Films, Séries, Favoris, Paramètres et retour Home conservés ;
-- navigation Spotlight/Sandstone et raccourcis OSD télécommande conservés.
+- catégories et compteurs dérivés du catalogue réel ;
+- `VirtualList` pour les chaînes ;
+- logos réels avec fallback d’initiales ;
+- EPG courant/suivant et progression réels ;
+- appui OK sur une chaîne réelle connecté au lecteur ;
+- debounce de zapping de 250 ms pour éviter une cascade de chargements ;
+- OSD télécommande : OK, navigation, changement de panneau, favoris, retour ;
+- panneau visuel utilisant le logo réel de la chaîne sélectionnée ;
+- état vide explicite si aucun catalogue Live n’est importé.
 
-La lecture reste conditionnée par `channel.streamUrl` fourni par l’import Xtream/M3U réel. Le lecteur existant conserve son branchement vidéo et ses mécanismes webOS.
+Aucun catalogue fictif, flux Mux, URL Unsplash, image distante ajoutée ou store Dexie V5 n’est utilisé.
 
-## Données et compatibilité
+## Consignes techniques appliquées
 
-- Dexie V4 conservé ; aucun store Favoris V5 ajouté ;
-- catalogues importants lus via les fonctions backend existantes et chaînes rendues avec `VirtualList` ;
-- pas de re-render global déclenché par les appuis rapides ;
-- animations limitées aux propriétés compatibles (`transform`/`opacity`) ;
-- aucun `backdrop-filter`, `aspect-ratio` ou dépendance CDN dans la nouvelle vue ;
-- `device-react-v20/` et `device-enact-v20/` utilisent le même bundle Enact et le même `appinfo.id`.
+- Sandstone/Spotlight conservés pour l’expérience D-pad ;
+- catalogues importants virtualisés ;
+- items de liste mémoïsés ;
+- animations limitées à `transform` et `opacity` ;
+- pas de `backdrop-filter`, `aspect-ratio` ou blur dans la nouvelle UI ;
+- build ciblé plus strictement que le plancher Chromium 79, via `chrome 68` ;
+- lecteur Enact existant conservé afin de préserver son nettoyage média ;
+- miroirs `device-react-v20` et `device-enact-v20` produits depuis le même build.
 
-## Validation exécutée
+## Validation
 
 Depuis `enact-ui-v20/` :
 
 ```text
 npm ci --ignore-scripts --no-audit --no-fund
 npm run lint       PASS — 0 erreur, 0 warning
-npm run pack-p     PASS — build production ciblé Chrome 68
+npm run pack-p     PASS — build production ciblé Chromium 68
 ```
 
 Depuis la racine V20 :
 
 ```text
-npm ci --ignore-scripts --no-audit --no-fund
-npm test           PASS — 90 tests
+npm test           PASS — 90/90 tests
 ```
 
 Contrôles webOS :
@@ -63,59 +82,46 @@ Contrôles webOS :
 npx --yes --package=@webos-tools/cli@3.2.6 ares-package -c enact-ui-v20/dist
 # no problems detected
 
-npx --yes --package=@webos-tools/cli@3.2.6 ares-package -i releases/iptv-webos-enact-v20-2.0.ipk
-# com.iptv.webos.player, version 2.0.0, architecture all
+npx --yes --package=@webos-tools/cli@3.2.6 ares-package -i releases/iptv-webos-enact-v20-4.0.ipk
+# com.iptv.webos.player, version 4.0.0, architecture all
 
-npx --yes --package=@webos-tools/cli@3.2.6 ares-package -I releases/iptv-webos-enact-v20-2.0.ipk
+npx --yes --package=@webos-tools/cli@3.2.6 ares-package -I releases/iptv-webos-enact-v20-4.0.ipk
 # webOS Package Format 2, main index.html
 ```
 
-La validation sur téléviseur/simulateur réel reste à effectuer lorsqu’une cible webOS est disponible. La présence d’un IPK valide ne remplace pas cette validation matérielle.
+La validation sur téléviseur ou simulateur webOS réel reste à effectuer avec une cible disponible.
 
 ## Artefacts
 
 | Artefact | Chemin | Taille | SHA-256 |
 |---|---|---:|---|
-| IPK webOS | `releases/iptv-webos-enact-v20-2.0.ipk` | 2 244 396 octets | `715cfb18b44b72ee1ba4d4ccc1b93c56bf461bfa86cc3768e285b6bebb4f4cf0` |
-| Runtime ZIP | `releases/iptv-webos-enact-v20-2.0.zip` | 2 924 875 octets | `45d21c0d2ee0fc7d46be0954b8ad5336501f0ee2dc94b81713df96bf04886d8a` |
-| Source ZIP | `releases/iptv-webos-enact-v20-2.0-source.zip` | 3 316 862 octets | `3248c690f2afdad56b29c9ae68e9e13dc4c776036fe6d3fd911f4e4bb78c6f51` |
-| Dossier brut `dist/` ZIP | `releases/iptv-webos-enact-v20-2.0-dist.zip` | 18 529 233 octets | `3af74d8814a4576a39013bc3093e95cbcd79ae9fd37345f3bfd2c5afcb313490` |
-| Manifeste | `releases/iptv-webos-enact-v20-2.0-manifest.json` | 2 986 octets | calculé dans le fichier |
+| IPK webOS | `releases/iptv-webos-enact-v20-4.0.ipk` | 2 242 954 octets | `4e7f7bf5b3e3299a3902812bc9b404b38328dd80b217d7fe223d6ab7efa185bc` |
+| Runtime ZIP | `releases/iptv-webos-enact-v20-4.0.zip` | 2 923 864 octets | `990c1f707215fa685443ece4f183f31e5f44ca7dba69ff2efe808871f78c7621` |
+| Source ZIP | `releases/iptv-webos-enact-v20-4.0-source.zip` | 3 322 099 octets | `e7cf31a3e382251347b7c5e7101f9add8ee4cf327851f682db1c1863f779fa86` |
+| Dossier brut `dist/` ZIP | `releases/iptv-webos-enact-v20-4.0-dist.zip` | 18 528 222 octets | `00c34ac75a97ef9ea0db565e21926a7299995153e8b374a4c96669207691c180` |
+| Manifeste | `releases/iptv-webos-enact-v20-4.0-manifest.json` | 3 666 octets | `de11acf967d502f8586d98756f4ed1773833f2f17474f9a2359006f04543a75c` |
 
-Le dossier de build non archivé est :
+Dossiers générés :
 
 ```text
 /home/user/iptv-webos-v20-ui/enact-ui-v20/dist/
-```
-
-Le miroir simulator est :
-
-```text
 /home/user/iptv-webos-v20-ui/device-react-v20/
+/home/user/iptv-webos-v20-ui/device-enact-v20/
 ```
-
-Les deux miroirs `device-react-v20/` et `device-enact-v20/` sont contrôlés byte-identiques pour le bundle, les styles et le manifeste.
 
 ## Installation
 
 ```bash
 npx --yes --package=@webos-tools/cli@3.2.6 \
-  ares-install --device <device-name> releases/iptv-webos-enact-v20-2.0.ipk
+  ares-install --device <device-name> releases/iptv-webos-enact-v20-4.0.ipk
 npx --yes --package=@webos-tools/cli@3.2.6 \
   ares-launch --device <device-name> com.iptv.webos.player
 ```
 
-Pour créer un paquet depuis le dossier brut :
-
-```bash
-unzip -q releases/iptv-webos-enact-v20-2.0-dist.zip
-npx --yes --package=@webos-tools/cli@3.2.6 ares-package dist -o dist-package
-```
-
 ## Publication GitHub
 
-La release cible est :
+La release est publiée sur :
 
-`https://github.com/ouagkamel/iptv-webos/releases/tag/v20-enact-2.0`
+[https://github.com/ouagkamel/iptv-webos/releases/tag/v20-enact-4.0](https://github.com/ouagkamel/iptv-webos/releases/tag/v20-enact-4.0)
 
-Les cinq fichiers listés dans le manifeste sont publiés comme assets de cette release : IPK, runtime ZIP, source ZIP, archive `dist/` et manifeste. Publication effectuée le 21 septembre 2026.
+Les cinq fichiers du manifeste sont publiés comme assets : IPK, runtime ZIP, source ZIP, archive `dist/` et manifeste.
